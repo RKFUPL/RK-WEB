@@ -1,0 +1,24 @@
+from flask import Flask
+
+from .blueprints.health.routes import health_bp
+from .config import get_config
+from .extensions import cors, jwt, limiter, mail, mongo
+
+
+def create_app() -> Flask:
+    app = Flask(__name__)
+    app.config.from_object(get_config())
+
+    cors.init_app(app)
+    jwt.init_app(app)
+    limiter.init_app(app)
+    mail.init_app(app)
+    mongo.init_app(app)
+
+    app.register_blueprint(health_bp, url_prefix="/api")
+
+    @app.get("/")
+    def index() -> tuple[dict[str, str], int]:
+        return {"status": "ok", "service": "rashi-kapoor-api"}, 200
+
+    return app

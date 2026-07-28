@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-ivory: #f8f6f2;
+  --color-sand: #ece3d4;
+  --color-charcoal: #2a2622;
+  --color-gold: #c7a66b;
+  --color-ink: #121212;
+  --font-display: "Cormorant Garamond";
+  --font-body: "Inter";
+  --font-aakaar: "Bodoni Moda";
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--color-ivory);
+  color: var(--color-charcoal);
+  font-family: var(--font-body), system-ui, sans-serif;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.font-aakaar {
+  font-family: var(--font-aakaar), var(--font-display), serif;
+  font-weight: 400;
+  font-synthesis: none;
+  font-feature-settings: "liga" 1, "clig" 1;
+}
+
+::selection {
+  background: rgba(199, 166, 107, 0.22);
+}
