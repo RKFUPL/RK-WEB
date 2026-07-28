@@ -10,7 +10,7 @@ class BaseConfig:
     JWT_TOKEN_LOCATION = ["cookies", "headers"]
     MAIL_DEFAULT_SENDER = os.getenv("MAIL_DEFAULT_SENDER", "noreply@rashikapoor.com")
     RATELIMIT_DEFAULT = "200 per hour"
-    RATELIMIT_STORAGE_URI = os.getenv("RATELIMIT_STORAGE_URI", MONGO_URI)
+    RATELIMIT_STORAGE_URI = os.getenv("RATELIMIT_STORAGE_URI", "memory://")
 
 
 class DevelopmentConfig(BaseConfig):
