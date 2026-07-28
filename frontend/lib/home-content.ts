@@ -1,3 +1,8 @@
+type CategoryItem = {
+  title: string;
+  image?: string;
+};
+
 export const homeNavigation = [
   'Home',
   'Collections',
@@ -24,7 +29,7 @@ export const featuredCollectionFrames = [
   '/campaign/aakar-landscapes/Rashi Kapoor572.jpg',
 ] as const;
 
-export const categoryItems = [
+export const categoryItems: readonly CategoryItem[] = [
   { title: 'Aakaar' },
   { title: 'Anamika' },
   { title: 'Hasthkala' },
