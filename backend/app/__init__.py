@@ -1,4 +1,7 @@
+from pathlib import Path
+
 from flask import Flask
+from flask import send_file
 
 from .blueprints.health.routes import health_bp
 from .config import get_config
@@ -20,5 +23,11 @@ def create_app() -> Flask:
     @app.get("/")
     def index() -> tuple[dict[str, str], int]:
         return {"status": "ok", "service": "rashi-kapoor-api"}, 200
+
+    @app.get("/favicon.ico")
+    def favicon():
+        repo_root = Path(__file__).resolve().parents[2]
+        favicon_path = repo_root / "frontend" / "public" / "RK_LOGOMARK.svg"
+        return send_file(favicon_path, mimetype="image/svg+xml")
 
     return app
