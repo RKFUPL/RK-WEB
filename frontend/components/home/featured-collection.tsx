@@ -3,14 +3,14 @@
 import Image from 'next/image';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { featuredCollection } from '@/lib/home-content';
+import { aakarBannerBackgroundUrl, featuredCollection } from '@/lib/home-content';
 
 const bannerFrames = [
-  '/campaign/aakar-landscapes/Rashi Kapoor187.jpg',
-  '/campaign/aakar-landscapes/Rashi Kapoor306.jpg',
-  '/campaign/aakar-landscapes/Rashi Kapoor474.jpg',
-  '/campaign/aakar-landscapes/Rashi Kapoor1358.jpg',
-  '/campaign/aakar-landscapes/Rashi Kapoor2418.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor474_cqm17y.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor1358_v3er22.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor2418_nebluo.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303897/Rashi_Kapoor306_dnwh99.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303897/Rashi_Kapoor187_nx9fpm.jpg',
 ] as const;
 
 function shuffle(source: readonly string[]) {
@@ -99,7 +99,7 @@ export function FeaturedCollection() {
     >
       <div className="relative min-h-[38rem] lg:min-h-[calc(100svh-var(--rk-header-height,0px))]">
         <Image
-          src="/campaign/aakar/BG.png"
+          src={aakarBannerBackgroundUrl}
           alt="Aakaar textured banner background"
           fill
           priority

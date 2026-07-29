@@ -1,13 +1,15 @@
 import Image from 'next/image';
+import Link from 'next/link';
 import { ArrowUpRight } from 'lucide-react';
 
 type CategoryCardProps = {
   title: string;
   image?: string;
+  href?: string;
 };
 
-export function CategoryCard({ title, image }: CategoryCardProps) {
-  return (
+export function CategoryCard({ title, image, href }: CategoryCardProps) {
+  const content = (
     <article className="group flex h-full flex-col justify-between border border-black/6 bg-white p-5 transition hover:-translate-y-0.5 hover:shadow-[0_20px_50px_rgba(18,18,18,0.06)]">
       <div className="flex items-start justify-between">
         <div className="space-y-2">
@@ -34,4 +36,14 @@ export function CategoryCard({ title, image }: CategoryCardProps) {
       </div>
     </article>
   );
+
+  if (href) {
+    return (
+      <Link href={href} className="block h-full">
+        {content}
+      </Link>
+    );
+  }
+
+  return content;
 }

@@ -36,9 +36,9 @@ export function ShopCategories() {
           }
 
           return (
-            <div key={`${rowIndex}-${row.length}`} className={rowClassName}>
+              <div key={`${rowIndex}-${row.length}`} className={rowClassName}>
               {row.map((item) => (
-                <CategoryCard key={item.title} title={item.title} image={item.image} />
+                <CategoryCard key={item.title} title={item.title} image={item.image} href={item.href} />
               ))}
             </div>
           );

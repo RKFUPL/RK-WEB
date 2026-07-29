@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   ChevronDown,
@@ -11,14 +12,32 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { brandLogoUrl } from '@/lib/home-content';
 import { cn } from '@/lib/utils';
-import { homeNavigation } from '@/lib/home-content';
+
+const mainLinks = [
+  { label: 'Home', href: '#home' },
+  { label: 'Lookbook', href: '/rk-lookbooks' },
+  { label: 'About', href: '#about' },
+  { label: 'Contact', href: '#footer' },
+] as const;
+
+const collectionLinks = [
+  { label: 'Aakaar', href: '/collections/aakaar-insights' },
+  { label: 'Anamika', href: '/collections' },
+  { label: 'Hasthkala', href: '/collections' },
+  { label: 'Inaara', href: '/collections' },
+  { label: 'Naqab', href: '/collections' },
+  { label: 'Sandook', href: '/collections' },
+] as const;
 
 const utilityLinks = ['Search', 'Wishlist', 'Account', 'Shopping Bag'] as const;
 
 export function StickyHeader() {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [collectionsOpen, setCollectionsOpen] = useState(false);
+  const [collectionsPinned, setCollectionsPinned] = useState(false);
   const headerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -60,6 +79,26 @@ export function StickyHeader() {
     };
   }, []);
 
+  const openCollections = () => setCollectionsOpen(true);
+  const closeCollections = () => {
+    if (!collectionsPinned) {
+      setCollectionsOpen(false);
+    }
+  };
+  const toggleCollections = () => {
+    setCollectionsPinned((current) => {
+      const next = !current;
+      setCollectionsOpen(next);
+      return next;
+    });
+  };
+
+  const handleNavigation = () => {
+    setMenuOpen(false);
+    setCollectionsOpen(false);
+    setCollectionsPinned(false);
+  };
+
   return (
     <header
       ref={headerRef}
@@ -79,31 +118,85 @@ export function StickyHeader() {
             <Menu className="h-5 w-5" />
             <span className="text-[0.65rem] uppercase tracking-[0.35em]">Menu</span>
           </button>
-          <a href="#home" className="flex items-center">
+          <Link href="#home" className="flex items-center">
             <img
-              src="/RK_LOGOMARK.svg" 
-              alt="RK Logo" 
+              src={brandLogoUrl}
+              alt="RK Logo"
               width="80"
               height="40"
               className="h-10 w-auto"
               style={{ width: 'auto', height: '2.5rem' }}
             />
-          </a>
+          </Link>
         </div>
 
         <nav className="hidden items-center gap-7 text-[0.7rem] uppercase tracking-[0.28em] text-charcoal/72 lg:flex">
-          {homeNavigation.map((item) => (
-            <a
-              key={item}
-              href={`#${item.toLowerCase().replace(/\s+/g, '-')}`}
-              className="transition hover:text-charcoal"
+          <div
+            className="relative"
+            onMouseEnter={openCollections}
+            onMouseLeave={closeCollections}
+          >
+            <button
+              type="button"
+              onClick={toggleCollections}
+              className="inline-flex items-center gap-1 transition hover:text-charcoal"
+              aria-expanded={collectionsOpen}
             >
-              <span className="inline-flex items-center gap-1">
-                {item}
-                {item === 'Collections' ? <ChevronDown className="h-3 w-3" /> : null}
-              </span>
-            </a>
-          ))}
+              Collections
+              <ChevronDown className="h-3 w-3" />
+            </button>
+
+            <AnimatePresence>
+              {collectionsOpen ? (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 8 }}
+                  transition={{ duration: 0.24, ease: 'easeOut' }}
+                  className="absolute left-1/2 top-full z-50 mt-4 w-[22rem] -translate-x-1/2 border border-black/8 bg-white p-5 shadow-[0_18px_45px_rgba(18,18,18,0.08)]"
+                >
+                  <p className="text-[0.62rem] uppercase tracking-[0.34em] text-charcoal/40">
+                    Collections
+                  </p>
+                  <div className="mt-4 grid gap-3">
+                    {collectionLinks.map((collection) => (
+                      <Link
+                        key={collection.label}
+                        href={collection.href}
+                        onClick={handleNavigation}
+                        className="flex items-center justify-between border-b border-black/6 pb-3 text-sm uppercase tracking-[0.22em] transition hover:text-gold"
+                      >
+                        <span>{collection.label}</span>
+                        <ChevronDown className="h-4 w-4 -rotate-90" />
+                      </Link>
+                    ))}
+                  </div>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+          </div>
+
+          {mainLinks.map((item) =>
+            item.href.startsWith('#') ? (
+              <a
+                key={item.label}
+                href={item.href}
+                onClick={handleNavigation}
+                className="transition hover:text-charcoal"
+              >
+                {item.label}
+              </a>
+            ) : (
+              <Link
+                key={item.label}
+                href={item.href}
+                onClick={handleNavigation}
+                className="transition hover:text-charcoal"
+              >
+                {item.label}
+              </Link>
+            )
+          )}
         </nav>
 
         <div className="hidden items-center gap-5 lg:flex">
@@ -141,8 +234,8 @@ export function StickyHeader() {
             >
               <div className="flex items-center justify-between">
                 <img
-                  src="/RK_LOGOMARK.svg" 
-                  alt="RK Logo" 
+                  src={brandLogoUrl}
+                  alt="RK Logo"
                   width="80"
                   height="40"
                   className="h-10 w-auto"
@@ -152,19 +245,66 @@ export function StickyHeader() {
                   <X className="h-5 w-5" />
                 </button>
               </div>
+
               <div className="mt-8 space-y-5">
-                {homeNavigation.map((item) => (
-                  <a
-                    key={item}
-                    href={`#${item.toLowerCase().replace(/\s+/g, '-')}`}
-                    onClick={() => setMenuOpen(false)}
-                    className="flex items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em]"
-                  >
-                    <span>{item}</span>
-                    <ChevronDown className="h-4 w-4 -rotate-90" />
-                  </a>
-                ))}
+                <button
+                  type="button"
+                  onClick={() => setCollectionsOpen((current) => !current)}
+                  className="flex w-full items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em]"
+                >
+                  <span>Collections</span>
+                  <ChevronDown className={cn('h-4 w-4 transition', collectionsOpen ? 'rotate-180' : '-rotate-90')} />
+                </button>
+                <AnimatePresence>
+                  {collectionsOpen ? (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="space-y-3 pl-4 pt-2">
+                        {collectionLinks.map((collection) => (
+                          <Link
+                            key={collection.label}
+                            href={collection.href}
+                            onClick={handleNavigation}
+                            className="flex items-center justify-between border-b border-black/6 pb-3 text-sm uppercase tracking-[0.22em]"
+                          >
+                            <span>{collection.label}</span>
+                            <ChevronDown className="h-4 w-4 -rotate-90" />
+                          </Link>
+                        ))}
+                      </div>
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
+
+                {mainLinks.map((item) =>
+                  item.href.startsWith('#') ? (
+                    <a
+                      key={item.label}
+                      href={item.href}
+                      onClick={handleNavigation}
+                      className="flex items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em]"
+                    >
+                      <span>{item.label}</span>
+                      <ChevronDown className="h-4 w-4 -rotate-90" />
+                    </a>
+                  ) : (
+                    <Link
+                      key={item.label}
+                      href={item.href}
+                      onClick={handleNavigation}
+                      className="flex items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em]"
+                    >
+                      <span>{item.label}</span>
+                      <ChevronDown className="h-4 w-4 -rotate-90" />
+                    </Link>
+                  )
+                )}
               </div>
+
               <div className="mt-8 grid grid-cols-2 gap-3 text-xs uppercase tracking-[0.3em] text-charcoal/60">
                 {utilityLinks.map((item) => (
                   <button

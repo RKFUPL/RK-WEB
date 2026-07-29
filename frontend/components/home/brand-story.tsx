@@ -18,7 +18,7 @@ export function BrandStory() {
             </p>
           </div>
           <a
-            href="#journal"
+            href="/rk-lookbooks"
             className="inline-flex w-fit items-center gap-2 border border-black/10 bg-white px-6 py-3 text-xs uppercase tracking-[0.28em] text-charcoal transition hover:border-gold hover:text-gold"
           >
             {brandStory.cta}

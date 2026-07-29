@@ -1,9 +1,12 @@
 'use client';
 
+import Link from 'next/link';
+import { brandLogoUrl, storeInteriorVideoUrl } from '@/lib/home-content';
+
 const footerColumns = [
   {
     title: 'Navigation',
-    links: ['Collections', 'Shop', 'Lookbook', 'About', 'Journal', 'Contact'],
+    links: ['Collections', 'Lookbook', 'About', 'Contact'],
   },
   {
     title: 'Customer Care',
@@ -21,7 +24,7 @@ const footerColumns = [
 
 export function Footer() {
   return (
-    <footer className="border-t border-white/10 bg-ink text-ivory">
+    <footer id="footer" className="border-t border-white/10 bg-ink text-ivory">
       {/* Video Section - Store Locator */}
       <div className="relative w-full bg-ink">
         <video
@@ -32,7 +35,7 @@ export function Footer() {
           className="w-full object-cover"
           style={{ maxHeight: '400px' }}
         >
-          <source src="/39 - RK_Kalkatta_Interior.mp4" type="video/mp4" />
+          <source src={storeInteriorVideoUrl} type="video/mp4" />
         </video>
         <div className="absolute inset-0 flex items-center justify-between px-6 lg:px-10 bg-white/30">
           <div className="text-center">
@@ -84,7 +87,7 @@ export function Footer() {
           <div className="space-y-4">
             <div className="inline-flex items-center justify-center bg-ivory/30 px-4 py-3">
               <img
-                src="/RK_LOGOMARK.svg"
+                src={brandLogoUrl}
                 alt="RK Logo"
                 width="120"
                 height="60"
@@ -104,12 +107,29 @@ export function Footer() {
                 <ul className="mt-4 space-y-3 text-sm text-ivory/72">
                   {column.links.map((link) => (
                     <li key={link}>
-                      <a
-                        href={`#${link.toLowerCase().replace(/\s+/g, '-')}`}
-                        className="transition hover:text-gold"
-                      >
-                        {link}
-                      </a>
+                      {column.title === 'Navigation' ? (
+                        <Link
+                          href={
+                            link === 'Collections'
+                              ? '/collections'
+                              : link === 'Lookbook'
+                                ? '/rk-lookbooks'
+                                : link === 'About'
+                                  ? '/#about'
+                                  : '#footer'
+                          }
+                          className="transition hover:text-gold"
+                        >
+                          {link}
+                        </Link>
+                      ) : (
+                        <a
+                          href={`#${link.toLowerCase().replace(/\s+/g, '-')}`}
+                          className="transition hover:text-gold"
+                        >
+                          {link}
+                        </a>
+                      )}
                     </li>
                   ))}
                 </ul>

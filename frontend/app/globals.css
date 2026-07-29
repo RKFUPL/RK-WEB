@@ -10,7 +10,15 @@
   --color-ink: #121212;
   --font-display: "Cormorant Garamond";
   --font-body: "Inter";
-  --font-aakaar: "Bodoni Moda";
+  --font-aakaar: "HV Muse";
+}
+
+@font-face {
+  font-family: "HV Muse";
+  src: url("https://res.cloudinary.com/fm1bwbrd/raw/upload/v1785306200/HVMuse-Regular_ysnvk0.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
 }
 
 html {
