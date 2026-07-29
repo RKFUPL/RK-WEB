@@ -3,9 +3,9 @@ import { CollectionDetailPage } from '@/components/collections/collection-detail
 import { collectionPages } from '@/lib/home-content';
 
 type CollectionSlugPageProps = {
-  params: {
+  params: Promise<{
     slug: string;
-  };
+  }>;
 };
 
 export function generateStaticParams() {
@@ -16,10 +16,9 @@ export function generateStaticParams() {
     }));
 }
 
-export default function CollectionSlugPage({ params }: CollectionSlugPageProps) {
-  const collection = collectionPages.find(
-    (item) => item.route === `/collections/${params.slug}`
-  );
+export default async function CollectionSlugPage({ params }: CollectionSlugPageProps) {
+  const { slug } = await params;
+  const collection = collectionPages.find((item) => item.route === `/collections/${slug}`);
 
   if (!collection) {
     notFound();
