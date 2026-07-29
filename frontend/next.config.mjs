@@ -4,6 +4,7 @@ import path from 'node:path';
 const nextConfig = {
   outputFileTracingRoot: path.resolve('..'),
   images: {
+    unoptimized: true,
     remotePatterns: [
       {
         protocol: 'https',
