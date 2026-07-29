@@ -1,46 +1,15 @@
+import Link from 'next/link';
 import { Footer } from '@/components/home/footer';
-import { SiteHeader } from '@/components/site-header';
+import { StickyHeader } from '@/components/home/sticky-header';
 import { SectionShell } from '@/components/home/section-shell';
-
-const collections = [
-  {
-    name: 'AAKAAR',
-    status: 'Coming Soon',
-    summary: 'The debut collection, defined by sculpted drapes and quiet couture detailing.',
-  },
-  {
-    name: 'ANAMIKA',
-    status: 'Collection',
-    summary: 'A refined story shaped by movement, texture, and modern occasion dressing.',
-  },
-  {
-    name: 'HASTHKALA',
-    status: 'Collection',
-    summary: 'Craft-led silhouettes with a more artisanal, hand-finished mood.',
-  },
-  {
-    name: 'INAARA',
-    status: 'Collection',
-    summary: 'A luminous edit with fluid lines and softer, celebratory energy.',
-  },
-  {
-    name: 'NAQAB',
-    status: 'Collection',
-    summary: 'A more dramatic chapter built around veiled layers and evening presence.',
-  },
-  {
-    name: 'SANDOOK',
-    status: 'Collection',
-    summary: 'A heritage-leaning story with a more treasured, heirloom-like mood.',
-  },
-] as const;
+import { collectionPages } from '@/lib/home-content';
 
 export default function CollectionsPage() {
   return (
     <main className="bg-ivory text-charcoal">
-      <SiteHeader />
+      <StickyHeader />
 
-      <SectionShell className="pb-16 pt-14 lg:pb-24 lg:pt-20">
+      <SectionShell className="pb-16 pt-28 lg:pb-24 lg:pt-32">
         <div className="grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:gap-16">
           <div className="space-y-6 lg:sticky lg:top-28 lg:self-start">
             <p className="text-xs uppercase tracking-[0.38em] text-charcoal/45">All Collections</p>
@@ -48,17 +17,17 @@ export default function CollectionsPage() {
               A quiet archive of the house.
             </h1>
             <p className="max-w-xl text-base leading-8 text-charcoal/70 md:text-lg">
-              A curated dummy collections page for now, laid out like a luxury editorial index.
-              AAKAAR leads the story, with ANAMIKA, HASTHKALA, INAARA, NAQAB, and SANDOOK
-              following as the next chapters of the brand.
+              A curated index of the house, laid out like a luxury editorial archive. Each
+              collection now links to its own dedicated page.
             </p>
           </div>
 
           <div className="border-t border-black/10">
-            {collections.map((collection) => (
-              <article
+            {collectionPages.map((collection) => (
+              <Link
                 key={collection.name}
-                className="group border-b border-black/10 py-7 transition duration-300 hover:bg-black/[0.03]"
+                href={collection.route}
+                className="group block border-b border-black/10 py-7 transition duration-300 hover:bg-black/[0.03]"
               >
                 <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between md:gap-8">
                   <div className="max-w-2xl">
@@ -78,7 +47,7 @@ export default function CollectionsPage() {
                     <span>{collection.name}</span>
                   </div>
                 </div>
-              </article>
+              </Link>
             ))}
           </div>
         </div>

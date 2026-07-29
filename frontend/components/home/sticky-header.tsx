@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   ChevronDown,
@@ -12,33 +13,24 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { brandLogoUrl } from '@/lib/home-content';
+import { brandLogoUrl, collectionPages } from '@/lib/home-content';
 import { cn } from '@/lib/utils';
 
-const mainLinks = [
-  { label: 'Home', href: '#home' },
-  { label: 'Lookbook', href: '/rk-lookbooks' },
-  { label: 'About', href: '#about' },
-  { label: 'Contact', href: '#footer' },
-] as const;
+const mainLinks = [{ label: 'Lookbook', href: '/rk-lookbooks' }] as const;
 
-const collectionLinks = [
-  { label: 'Aakaar', href: '/collections/aakaar-insights' },
-  { label: 'Anamika', href: '/collections' },
-  { label: 'Hasthkala', href: '/collections' },
-  { label: 'Inaara', href: '/collections' },
-  { label: 'Naqab', href: '/collections' },
-  { label: 'Sandook', href: '/collections' },
-] as const;
+const collectionLinks = collectionPages;
 
 const utilityLinks = ['Search', 'Wishlist', 'Account', 'Shopping Bag'] as const;
+const navItemClass =
+  'border-0 bg-transparent p-0 font-body text-[0.7rem] uppercase tracking-[0.28em] text-charcoal/72 transition hover:text-charcoal';
 
 export function StickyHeader() {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [collectionsOpen, setCollectionsOpen] = useState(false);
-  const [collectionsPinned, setCollectionsPinned] = useState(false);
   const headerRef = useRef<HTMLElement | null>(null);
+  const pathname = usePathname();
+  const router = useRouter();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -80,23 +72,59 @@ export function StickyHeader() {
   }, []);
 
   const openCollections = () => setCollectionsOpen(true);
-  const closeCollections = () => {
-    if (!collectionsPinned) {
-      setCollectionsOpen(false);
-    }
-  };
-  const toggleCollections = () => {
-    setCollectionsPinned((current) => {
-      const next = !current;
-      setCollectionsOpen(next);
-      return next;
-    });
-  };
+  const closeCollections = () => setCollectionsOpen(false);
 
   const handleNavigation = () => {
     setMenuOpen(false);
     setCollectionsOpen(false);
-    setCollectionsPinned(false);
+  };
+
+  const scrollToHome = () => {
+    handleNavigation();
+
+    if (pathname !== '/') {
+      router.push('/');
+      window.setTimeout(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }, 100);
+      return;
+    }
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const scrollToAbout = () => {
+    handleNavigation();
+
+    const about = document.getElementById('about');
+    if (about) {
+      about.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
+    if (pathname !== '/') {
+      router.push('/');
+      window.setTimeout(() => {
+        document.getElementById('about')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
+  };
+
+  const scrollToFooter = () => {
+    handleNavigation();
+
+    const footer = document.getElementById('footer');
+    if (footer) {
+      footer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
+    if (pathname !== '/') {
+      router.push('/');
+      window.setTimeout(() => {
+        document.getElementById('footer')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
   };
 
   return (
@@ -118,7 +146,7 @@ export function StickyHeader() {
             <Menu className="h-5 w-5" />
             <span className="text-[0.65rem] uppercase tracking-[0.35em]">Menu</span>
           </button>
-          <Link href="#home" className="flex items-center">
+          <Link href="/" className="flex items-center">
             <img
               src={brandLogoUrl}
               alt="RK Logo"
@@ -130,21 +158,21 @@ export function StickyHeader() {
           </Link>
         </div>
 
-        <nav className="hidden items-center gap-7 text-[0.7rem] uppercase tracking-[0.28em] text-charcoal/72 lg:flex">
-          <div
-            className="relative"
-            onMouseEnter={openCollections}
-            onMouseLeave={closeCollections}
-          >
-            <button
-              type="button"
-              onClick={toggleCollections}
-              className="inline-flex items-center gap-1 transition hover:text-charcoal"
+        <nav className="hidden items-center gap-7 lg:flex">
+          <button type="button" onClick={scrollToHome} className={navItemClass}>
+            Home
+          </button>
+
+          <div className="relative" onMouseEnter={openCollections} onMouseLeave={closeCollections}>
+            <Link
+              href="/collections"
+              onClick={handleNavigation}
+              className={`${navItemClass} inline-flex items-center gap-1`}
               aria-expanded={collectionsOpen}
             >
               Collections
               <ChevronDown className="h-3 w-3" />
-            </button>
+            </Link>
 
             <AnimatePresence>
               {collectionsOpen ? (
@@ -161,55 +189,56 @@ export function StickyHeader() {
                   <div className="mt-4 grid gap-3">
                     {collectionLinks.map((collection) => (
                       <Link
-                        key={collection.label}
-                        href={collection.href}
+                        key={collection.name}
+                        href={collection.route}
                         onClick={handleNavigation}
                         className="flex items-center justify-between border-b border-black/6 pb-3 text-sm uppercase tracking-[0.22em] transition hover:text-gold"
                       >
-                        <span>{collection.label}</span>
+                        <span>{collection.name}</span>
                         <ChevronDown className="h-4 w-4 -rotate-90" />
                       </Link>
                     ))}
                   </div>
                 </motion.div>
               ) : null}
-            </AnimatePresence>
+              </AnimatePresence>
           </div>
 
-          {mainLinks.map((item) =>
-            item.href.startsWith('#') ? (
-              <a
-                key={item.label}
-                href={item.href}
-                onClick={handleNavigation}
-                className="transition hover:text-charcoal"
-              >
-                {item.label}
-              </a>
-            ) : (
-              <Link
-                key={item.label}
-                href={item.href}
-                onClick={handleNavigation}
-                className="transition hover:text-charcoal"
-              >
-                {item.label}
-              </Link>
-            )
-          )}
+          {mainLinks.map((item) => (
+            <Link
+              key={item.label}
+              href={item.href}
+              onClick={handleNavigation}
+              className={navItemClass}
+            >
+              {item.label}
+            </Link>
+          ))}
+
+          <button type="button" onClick={scrollToAbout} className={navItemClass}>
+            About
+          </button>
+
+          <button
+            type="button"
+            onClick={scrollToFooter}
+            className={navItemClass}
+          >
+            Contact
+          </button>
         </nav>
 
         <div className="hidden items-center gap-5 lg:flex">
-          <button className="transition hover:text-gold" aria-label="Search">
+          <button className="border-0 bg-transparent p-0 text-charcoal/72 transition hover:text-charcoal" aria-label="Search">
             <Search className="h-4 w-4" />
           </button>
-          <button className="transition hover:text-gold" aria-label="Wishlist">
+          <button className="border-0 bg-transparent p-0 text-charcoal/72 transition hover:text-charcoal" aria-label="Wishlist">
             <Heart className="h-4 w-4" />
           </button>
-          <button className="transition hover:text-gold" aria-label="Account">
+          <button className="border-0 bg-transparent p-0 text-charcoal/72 transition hover:text-charcoal" aria-label="Account">
             <UserRound className="h-4 w-4" />
           </button>
-          <button className="transition hover:text-gold" aria-label="Shopping Bag">
+          <button className="border-0 bg-transparent p-0 text-charcoal/72 transition hover:text-charcoal" aria-label="Shopping Bag">
             <ShoppingBag className="h-4 w-4" />
           </button>
         </div>
@@ -247,14 +276,23 @@ export function StickyHeader() {
               </div>
 
               <div className="mt-8 space-y-5">
-                <button
-                  type="button"
-                  onClick={() => setCollectionsOpen((current) => !current)}
-                  className="flex w-full items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em]"
-                >
-                  <span>Collections</span>
-                  <ChevronDown className={cn('h-4 w-4 transition', collectionsOpen ? 'rotate-180' : '-rotate-90')} />
-                </button>
+                <div className="flex items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em]">
+                  <Link href="/collections" onClick={handleNavigation} className="flex-1">
+                    Collections
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setCollectionsOpen((current) => !current)}
+                    aria-label="Toggle collections"
+                  >
+                    <ChevronDown
+                      className={cn(
+                        'h-4 w-4 transition',
+                        collectionsOpen ? 'rotate-180' : '-rotate-90'
+                      )}
+                    />
+                  </button>
+                </div>
                 <AnimatePresence>
                   {collectionsOpen ? (
                     <motion.div
@@ -262,16 +300,16 @@ export function StickyHeader() {
                       animate={{ opacity: 1, height: 'auto' }}
                       exit={{ opacity: 0, height: 0 }}
                       className="overflow-hidden"
-                    >
+                      >
                       <div className="space-y-3 pl-4 pt-2">
                         {collectionLinks.map((collection) => (
                           <Link
-                            key={collection.label}
-                            href={collection.href}
+                            key={collection.name}
+                            href={collection.route}
                             onClick={handleNavigation}
                             className="flex items-center justify-between border-b border-black/6 pb-3 text-sm uppercase tracking-[0.22em]"
                           >
-                            <span>{collection.label}</span>
+                            <span>{collection.name}</span>
                             <ChevronDown className="h-4 w-4 -rotate-90" />
                           </Link>
                         ))}
@@ -280,29 +318,46 @@ export function StickyHeader() {
                   ) : null}
                 </AnimatePresence>
 
-                {mainLinks.map((item) =>
-                  item.href.startsWith('#') ? (
-                    <a
-                      key={item.label}
-                      href={item.href}
-                      onClick={handleNavigation}
-                      className="flex items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em]"
-                    >
-                      <span>{item.label}</span>
-                      <ChevronDown className="h-4 w-4 -rotate-90" />
-                    </a>
-                  ) : (
-                    <Link
-                      key={item.label}
-                      href={item.href}
-                      onClick={handleNavigation}
-                      className="flex items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em]"
-                    >
-                      <span>{item.label}</span>
-                      <ChevronDown className="h-4 w-4 -rotate-90" />
-                    </Link>
-                  )
-                )}
+                <button
+                  type="button"
+                  onClick={scrollToHome}
+                  className="flex items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em]"
+                >
+                  <span>Home</span>
+                  <ChevronDown className="h-4 w-4 -rotate-90" />
+                </button>
+                <Link
+                  href="/collections"
+                  onClick={handleNavigation}
+                  className="flex items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em]"
+                >
+                  <span>Collections</span>
+                  <ChevronDown className="h-4 w-4 -rotate-90" />
+                </Link>
+                <Link
+                  href="/rk-lookbooks"
+                  onClick={handleNavigation}
+                  className="flex items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em]"
+                >
+                  <span>Lookbook</span>
+                  <ChevronDown className="h-4 w-4 -rotate-90" />
+                </Link>
+                <button
+                  type="button"
+                  onClick={scrollToAbout}
+                  className="flex items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em]"
+                >
+                  <span>About</span>
+                  <ChevronDown className="h-4 w-4 -rotate-90" />
+                </button>
+                <button
+                  type="button"
+                  onClick={scrollToFooter}
+                  className="flex items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em]"
+                >
+                  <span>Contact</span>
+                  <ChevronDown className="h-4 w-4 -rotate-90" />
+                </button>
               </div>
 
               <div className="mt-8 grid grid-cols-2 gap-3 text-xs uppercase tracking-[0.3em] text-charcoal/60">

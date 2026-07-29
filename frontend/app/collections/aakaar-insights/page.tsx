@@ -1,3 +1,6 @@
+import { CollectionDetailPage } from '@/components/collections/collection-detail-page';
+import { collectionPages } from '@/lib/home-content';
+
 export default function AakaarInsightsPage() {
-  return <main className="min-h-screen bg-ivory" />;
+  return <CollectionDetailPage collection={collectionPages[0]} />;
 }

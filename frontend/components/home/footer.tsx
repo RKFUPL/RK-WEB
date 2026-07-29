@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
 import { brandLogoUrl, storeInteriorVideoUrl } from '@/lib/home-content';
 
 const footerColumns = [
@@ -23,6 +24,39 @@ const footerColumns = [
 ] as const;
 
 export function Footer() {
+  const pathname = usePathname();
+  const router = useRouter();
+
+  const scrollToAbout = () => {
+    const about = document.getElementById('about');
+    if (about) {
+      about.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
+    if (pathname !== '/') {
+      router.push('/');
+      window.setTimeout(() => {
+        document.getElementById('about')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
+  };
+
+  const scrollToFooter = () => {
+    const footer = document.getElementById('footer');
+    if (footer) {
+      footer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
+    if (pathname !== '/') {
+      router.push('/');
+      window.setTimeout(() => {
+        document.getElementById('footer')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
+  };
+
   return (
     <footer id="footer" className="border-t border-white/10 bg-ink text-ivory">
       {/* Video Section - Store Locator */}
@@ -108,20 +142,28 @@ export function Footer() {
                   {column.links.map((link) => (
                     <li key={link}>
                       {column.title === 'Navigation' ? (
-                        <Link
-                          href={
-                            link === 'Collections'
-                              ? '/collections'
-                              : link === 'Lookbook'
-                                ? '/rk-lookbooks'
-                                : link === 'About'
-                                  ? '/#about'
-                                  : '#footer'
-                          }
-                          className="transition hover:text-gold"
-                        >
-                          {link}
-                        </Link>
+                        link === 'Contact' ? (
+                          <button type="button" onClick={scrollToFooter} className="transition hover:text-gold">
+                            {link}
+                          </button>
+                        ) : link === 'About' ? (
+                          <button type="button" onClick={scrollToAbout} className="transition hover:text-gold">
+                            {link}
+                          </button>
+                        ) : (
+                          <Link
+                            href={
+                              link === 'Collections'
+                                ? '/collections'
+                                : link === 'Lookbook'
+                                  ? '/rk-lookbooks'
+                                  : '/about-rk'
+                            }
+                            className="transition hover:text-gold"
+                          >
+                            {link}
+                          </Link>
+                        )
                       ) : (
                         <a
                           href={`#${link.toLowerCase().replace(/\s+/g, '-')}`}

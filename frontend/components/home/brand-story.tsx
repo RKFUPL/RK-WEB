@@ -1,4 +1,5 @@
 import Image from 'next/image';
+import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { brandStory } from '@/lib/home-content';
 import { SectionShell } from './section-shell';
@@ -17,13 +18,13 @@ export function BrandStory() {
               {brandStory.description}
             </p>
           </div>
-          <a
-            href="/rk-lookbooks"
+          <Link
+            href="/about-rk"
             className="inline-flex w-fit items-center gap-2 border border-black/10 bg-white px-6 py-3 text-xs uppercase tracking-[0.28em] text-charcoal transition hover:border-gold hover:text-gold"
           >
             {brandStory.cta}
             <ArrowRight className="h-4 w-4" />
-          </a>
+          </Link>
         </div>
         <div className="relative min-h-[28rem] overflow-hidden border border-black/6 bg-white">
           <Image

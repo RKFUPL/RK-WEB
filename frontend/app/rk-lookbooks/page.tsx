@@ -1,5 +1,5 @@
 import { Footer } from '@/components/home/footer';
-import { SiteHeader } from '@/components/site-header';
+import { StickyHeader } from '@/components/home/sticky-header';
 import { SectionShell } from '@/components/home/section-shell';
 
 const lookbooks = [
@@ -23,9 +23,9 @@ const lookbooks = [
 export default function RkLookbooksPage() {
   return (
     <main className="bg-ivory text-charcoal">
-      <SiteHeader />
+      <StickyHeader />
 
-      <SectionShell className="pb-16 pt-14 lg:pb-24 lg:pt-20">
+      <SectionShell className="pb-16 pt-28 lg:pb-24 lg:pt-32">
         <div className="grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:gap-16">
           <div className="space-y-6 lg:sticky lg:top-28 lg:self-start">
             <p className="text-xs uppercase tracking-[0.38em] text-charcoal/45">RK Lookbooks</p>
