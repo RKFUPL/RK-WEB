@@ -33,13 +33,9 @@ export function FeaturedCollection() {
   const activeImage = useMemo(() => order[currentIndex], [currentIndex, order]);
 
   useEffect(() => {
-    setOrder(shuffle(bannerFrames));
-  }, []);
-
-  useEffect(() => {
     const timer = window.setTimeout(() => {
       setShowImage(true);
-    }, 2000);
+    }, 1800);
 
     return () => window.clearTimeout(timer);
   }, []);
@@ -71,7 +67,7 @@ export function FeaturedCollection() {
         }
 
         scheduleNext();
-      }, 3600);
+      }, 4800);
     };
 
     const handleVisibility = () => {
@@ -107,7 +103,7 @@ export function FeaturedCollection() {
           className="object-cover object-center"
         />
 
-        <AnimatePresence mode="sync">
+        <AnimatePresence mode="sync" initial={false}>
           {showImage ? (
             <motion.div
               key={activeImage}
@@ -116,12 +112,12 @@ export function FeaturedCollection() {
               animate={{ opacity: 1, clipPath: 'inset(0 0% 0 0)' }}
               exit={{ opacity: 0, clipPath: 'inset(0 0 0 100%)' }}
               transition={{ duration: 1.9, ease: [0.4, 0, 0.2, 1] }}
-              >
+            >
               <Image
                 src={activeImage}
                 alt="Rashi Kapoor campaign imagery"
                 fill
-                priority
+                priority={currentIndex === 0}
                 sizes="100vw"
                 className="object-cover object-center brightness-100 saturate-100 contrast-100"
               />
@@ -133,24 +129,21 @@ export function FeaturedCollection() {
           className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center px-6 text-center"
           style={{ color: '#ffffff' }}
           initial={false}
-          animate={showImage ? { opacity: 1, y: 0 } : { opacity: 1, y: 0 }}
+          animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.9, ease: 'easeOut' }}
         >
           <motion.div
             className="flex flex-col items-center gap-3"
             initial={false}
-            animate={showImage ? { opacity: 1 } : { opacity: 1 }}
+            animate={{ opacity: 1 }}
             transition={{ duration: 0.8, ease: 'easeOut' }}
           >
             <motion.h2
               className="font-aakaar text-[clamp(2.8rem,10vw,6.5rem)] leading-[0.9] tracking-[0.04em] drop-shadow-[0_1px_18px_rgba(0,0,0,0.2)]"
+              style={{ color: '#e3cec4' }}
               initial={false}
-              animate={
-                showImage
-                  ? { opacity: 1, letterSpacing: '0.04em' }
-                  : { opacity: 1, letterSpacing: '0.09em' }
-              }
-              transition={{ duration: 1.2, ease: 'easeInOut' }}
+              animate={{ opacity: 1, letterSpacing: '0.04em' }}
+              transition={{ duration: 0.9, ease: 'easeOut' }}
             >
               AAKAAR
             </motion.h2>
