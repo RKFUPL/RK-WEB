@@ -6,11 +6,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { aakarBannerBackgroundUrl, featuredCollection } from '@/lib/home-content';
 
 const bannerFrames = [
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor474_cqm17y.jpg',
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor1358_v3er22.jpg',
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor2418_nebluo.jpg',
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303897/Rashi_Kapoor306_dnwh99.jpg',
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303897/Rashi_Kapoor187_nx9fpm.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488013/Rashi_Kapoor306_compressed_8000kb_vnw8a0.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487994/Rashi_Kapoor2418_compressed_8000kb_qkke56.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487943/Rashi_Kapoor187_compressed_8000kb_e5k7xn.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg',
 ] as const;
 
 function shuffle(source: readonly string[]) {
@@ -123,7 +123,7 @@ export function FeaturedCollection() {
                 fill
                 priority
                 sizes="100vw"
-                className="object-contain object-center brightness-100 saturate-100 contrast-100"
+                className="object-cover object-center brightness-100 saturate-100 contrast-100"
               />
             </motion.div>
           ) : null}
