@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { Facebook, Instagram, Youtube } from 'lucide-react';
 import { brandLogoUrl, storeInteriorVideoUrl } from '@/lib/home-content';
 
 const footerColumns = [
@@ -10,16 +11,36 @@ const footerColumns = [
     links: ['Collections', 'Lookbook', 'About', 'Contact'],
   },
   {
-    title: 'Customer Care',
-    links: ['Shipping', 'Returns', 'Sizing', 'Appointments', 'Support'],
-  },
-  {
     title: 'Company',
     links: ['Story', 'Craftsmanship', 'Careers', 'Sustainability'],
   },
   {
     title: 'Policies',
     links: ['Privacy', 'Terms', 'Cookies', 'Security'],
+  },
+] as const;
+
+// Update social destinations here when the final brand profiles are ready.
+const socialLinks = {
+  instagram: 'https://www.instagram.com/rashikapoorofficial/',
+  pinterest: 'https://www.pinterest.com/',
+  youtube: 'https://www.youtube.com/',
+  facebook: 'https://www.facebook.com/',
+  x: 'https://x.com/',
+} as const;
+
+const storeLocations = [
+  {
+    name: 'Kolkata Flagship Store',
+    address: '15B, Satyen Dutta Road, Lake Market, Kalighat, Kolkata, West Bengal 700029',
+    mapUrl:
+      'https://www.google.com/maps?sca_esv=3e69f37c1e17d2ac&sxsrf=APpeQnu9WTWUVJsAj5T1iWzzLXVdylnNyw:1785495763205&gs_lp=Egxnd3Mtd2l6LXNlcnAiIHJhc2hpIGthcG9vciB0aGUgZmxhZ3NoaXAgc3RvcmUgKgIIAjIGEAAYFhgeMgYQABgWGB4yBhAAGBYYHjIGEAAYFhgeMgYQABgWGB4yBRAAGO8FMggQABiABBiiBEiSDVBhWGFwAXgAkAEAmAGhAaABlQKqAQMwLjK4AQHIAQD4AQGYAgKgAqgBwgIHEAAYHhiwA8ICCBAAGO8FGLADwgILEAAYgAQYogQYsAOYAwCIBgGQBgeSBwMxLjGgB_MIsgcDMC4xuAekAcIHAzAuMsgHBIAIAQ&um=1&ie=UTF-8&fb=1&gl=in&sa=X&geocode=KZuMH11IcQI6MbNC1PfP7FBd&daddr=15B,+Satyen+Dutta+Road,+Lake+Market,+Kalighat,+Kolkata,+West+Bengal+700029',
+  },
+  {
+    name: 'Mumbai Flagship Store',
+    address: '373/2988, Road No. 2, near Ganesh Maidan, off Mahatma Gandhi Road, Motilal Nagar II, Goregaon West, Mumbai, Maharashtra 400104',
+    mapUrl:
+      'https://www.google.com/maps?um=1&ie=UTF-8&fb=1&gl=in&sa=X&geocode=KQ1AnVopt-c7McghiwiTGSNr&daddr=373/2988,+Road+No.+2,+near+Ganesh+Maidan,+off+Mahatma+Gandhi+Road,+Motilal+Nagar+II,+Goregaon+West,+Mumbai,+Maharashtra+400104',
   },
 ] as const;
 
@@ -98,11 +119,44 @@ export function Footer() {
         </div>
       </div>
 
+      <div className="grid gap-px bg-white/10 md:grid-cols-2">
+        {storeLocations.map((location) => (
+          <div key={location.name} className="bg-ink">
+            <iframe
+              title={`${location.name} map`}
+              src={`https://www.google.com/maps?q=${encodeURIComponent(location.address)}&output=embed`}
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              className="h-64 w-full border-0 grayscale md:h-80"
+            />
+            <div className="flex items-center justify-between gap-4 px-6 py-5 lg:px-10">
+              <div>
+                <h4 className="text-sm uppercase tracking-[0.25em] text-ivory">{location.name}</h4>
+                <p className="mt-2 max-w-md text-sm leading-6 text-ivory/60">{location.address}</p>
+              </div>
+              <a
+                href={location.mapUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="shrink-0 text-xs uppercase tracking-[0.2em] text-gold transition hover:text-ivory"
+              >
+                Directions
+              </a>
+            </div>
+          </div>
+        ))}
+      </div>
+
       {/* Contact Section */}
       <div className="mx-auto max-w-7xl px-6 py-12 lg:px-10">
         <div className="grid gap-8 border-b border-white/10 pb-12 md:grid-cols-2">
           <div>
-            <h4 className="font-display text-xl tracking-[0.2em] text-gold">Contact Us</h4>
+            <a
+              href="mailto:contact@rashikapoorofficial.com"
+              className="font-display text-xl tracking-[0.2em] text-gold transition hover:text-ivory"
+            >
+              Contact Us
+            </a>
           </div>
           <div className="md:hidden">
             <h4 className="font-display text-xl tracking-[0.2em] text-gold">Visit Us</h4>
@@ -179,10 +233,30 @@ export function Footer() {
             ))}
           </div>
         </div>
-        <div className="mt-12 flex flex-col gap-3 border-t border-white/10 pt-6 text-xs uppercase tracking-[0.3em] text-ivory/45 sm:flex-row sm:items-center sm:justify-between">
-          <p>Copyright 2026 Rashi Kapoor</p>
-          <p>Instagram, Pinterest, YouTube</p>
+        <div className="mt-12 border-t border-white/10 pt-8">
+          <div className="flex flex-wrap items-center justify-center gap-5">
+            <a href={socialLinks.instagram} target="_blank" rel="noreferrer" aria-label="Instagram" className="text-ivory/60 transition hover:text-gold">
+              <Instagram size={19} strokeWidth={1.5} />
+            </a>
+            <a href={socialLinks.pinterest} target="_blank" rel="noreferrer" aria-label="Pinterest" className="flex h-5 w-5 items-center justify-center rounded-full border border-current text-[0.7rem] font-semibold text-ivory/60 transition hover:text-gold">
+              P
+            </a>
+            <a href={socialLinks.youtube} target="_blank" rel="noreferrer" aria-label="YouTube" className="text-ivory/60 transition hover:text-gold">
+              <Youtube size={21} strokeWidth={1.5} />
+            </a>
+            <a href={socialLinks.facebook} target="_blank" rel="noreferrer" aria-label="Facebook" className="text-ivory/60 transition hover:text-gold">
+              <Facebook size={19} strokeWidth={1.5} />
+            </a>
+            <a href={socialLinks.x} target="_blank" rel="noreferrer" aria-label="X" className="text-lg text-ivory/60 transition hover:text-gold">
+              X
+            </a>
+          </div>
         </div>
+      </div>
+
+      <div className="flex flex-col items-center justify-center gap-4 bg-ivory px-6 py-10 text-center text-charcoal">
+        <p className="text-sm tracking-[0.04em]">Copyright 2026 Rashi Kapoor Fashion Unicus Pvt. Ltd.</p>
+        <img src={brandLogoUrl} alt="RK Logo" width="72" height="52" className="h-14 w-auto" />
       </div>
     </footer>
   );

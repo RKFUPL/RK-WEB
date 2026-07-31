@@ -18,12 +18,31 @@ const lookbooks: Array<{
     title: 'ANAMIKA',
     subtitle: 'A softer, more movement-led chapter.',
     description: 'An evolving lookbook space for future drops, references, and campaign imagery.',
+    href: '/rk-lookbooks/anamika',
   },
   {
     title: 'HASTHKALA',
     subtitle: 'A craft-first presentation.',
     description: 'Reserved for hand-finished stories, artisan detail, and heirloom-inspired styling.',
     href: '/rk-lookbooks/hasthkala',
+  },
+  {
+    title: 'SANDOOK',
+    subtitle: 'A treasured archive of the house.',
+    description: 'A visual story of heirloom moods, considered detail, and timeless occasion dressing.',
+    href: '/rk-lookbooks/sandook',
+  },
+  {
+    title: 'ESPIRITU LIBRE',
+    subtitle: 'A free-spirited visual chapter.',
+    description: 'An evolving lookbook of movement, expression, and liberated silhouettes.',
+    href: '/rk-lookbooks/espiritu-libre',
+  },
+  {
+    title: 'INAARA',
+    subtitle: 'A luminous, celebratory chapter.',
+    description: 'A lookbook shaped by fluid lines, occasion dressing, and a softer sense of radiance.',
+    href: '/rk-lookbooks/inaara',
   },
 ];
 
