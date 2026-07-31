@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Facebook, Instagram, Youtube } from 'lucide-react';
+import { Facebook, Instagram, Linkedin, Youtube } from 'lucide-react';
 import { brandLogoUrl, storeInteriorVideoUrl } from '@/lib/home-content';
 
 const footerColumns = [
@@ -26,6 +26,7 @@ const socialLinks = {
   pinterest: 'https://www.pinterest.com/',
   youtube: 'https://www.youtube.com/',
   facebook: 'https://www.facebook.com/',
+  linkedin: 'https://www.linkedin.com/company/rashi-kapoor-fashion-unicus-private-limited/',
   x: 'https://x.com/',
 } as const;
 
@@ -37,7 +38,7 @@ const storeLocations = [
       'https://www.google.com/maps?sca_esv=3e69f37c1e17d2ac&sxsrf=APpeQnu9WTWUVJsAj5T1iWzzLXVdylnNyw:1785495763205&gs_lp=Egxnd3Mtd2l6LXNlcnAiIHJhc2hpIGthcG9vciB0aGUgZmxhZ3NoaXAgc3RvcmUgKgIIAjIGEAAYFhgeMgYQABgWGB4yBhAAGBYYHjIGEAAYFhgeMgYQABgWGB4yBRAAGO8FMggQABiABBiiBEiSDVBhWGFwAXgAkAEAmAGhAaABlQKqAQMwLjK4AQHIAQD4AQGYAgKgAqgBwgIHEAAYHhiwA8ICCBAAGO8FGLADwgILEAAYgAQYogQYsAOYAwCIBgGQBgeSBwMxLjGgB_MIsgcDMC4xuAekAcIHAzAuMsgHBIAIAQ&um=1&ie=UTF-8&fb=1&gl=in&sa=X&geocode=KZuMH11IcQI6MbNC1PfP7FBd&daddr=15B,+Satyen+Dutta+Road,+Lake+Market,+Kalighat,+Kolkata,+West+Bengal+700029',
   },
   {
-    name: 'Mumbai Flagship Store',
+    name: 'Mumbai Factory and Showroom',
     address: '373/2988, Road No. 2, near Ganesh Maidan, off Mahatma Gandhi Road, Motilal Nagar II, Goregaon West, Mumbai, Maharashtra 400104',
     mapUrl:
       'https://www.google.com/maps?um=1&ie=UTF-8&fb=1&gl=in&sa=X&geocode=KQ1AnVopt-c7McghiwiTGSNr&daddr=373/2988,+Road+No.+2,+near+Ganesh+Maidan,+off+Mahatma+Gandhi+Road,+Motilal+Nagar+II,+Goregaon+West,+Mumbai,+Maharashtra+400104',
@@ -96,25 +97,6 @@ export function Footer() {
           <div className="text-center">
             <h3 className="font-display text-3xl tracking-[0.25em] text-black md:text-5xl font-bold drop-shadow-lg">STORE LOCATOR</h3>
             <p className="mt-4 text-sm uppercase tracking-[0.38em] text-black font-bold drop-shadow-lg">Visit Our Stores</p>
-          </div>
-          <div className="hidden md:block text-right">
-            <div className="flex items-center gap-8">
-              <div className="text-left">
-                <h4 className="font-display text-base tracking-[0.2em] text-black font-bold drop-shadow-lg">ADDRESS 1</h4>
-                <p className="mt-3 text-base text-black font-bold drop-shadow-lg">15, Satyen Dutta Road, </p>
-                <p className="text-base text-black font-bold drop-shadow-lg">Lake Market, Kalighat</p>
-                <p className="text-base text-black font-bold drop-shadow-lg">Kolkata, West Bengal</p>
-                <p className="text-base text-black font-bold drop-shadow-lg">700029</p>
-              </div>
-              <div className="h-16 w-px bg-black"></div>
-              <div className="text-left">
-                <h4 className="font-display text-base tracking-[0.2em] text-black font-bold drop-shadow-lg">ADDRESS 2</h4>
-                <p className="mt-3 text-base text-black font-bold drop-shadow-lg">38/B Wing, 2nd Floor, </p>
-                <p className="text-base text-black font-bold drop-shadow-lg">Pravasi Industrial Estate,</p>
-                <p className="text-base text-black font-bold drop-shadow-lg">Goregaon East, Mumbai</p>
-                <p className="text-base text-black font-bold drop-shadow-lg">400063</p>
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -246,6 +228,9 @@ export function Footer() {
             </a>
             <a href={socialLinks.facebook} target="_blank" rel="noreferrer" aria-label="Facebook" className="text-ivory/60 transition hover:text-gold">
               <Facebook size={19} strokeWidth={1.5} />
+            </a>
+            <a href={socialLinks.linkedin} target="_blank" rel="noreferrer" aria-label="LinkedIn" className="text-ivory/60 transition hover:text-gold">
+              <Linkedin size={19} strokeWidth={1.5} />
             </a>
             <a href={socialLinks.x} target="_blank" rel="noreferrer" aria-label="X" className="text-lg text-ivory/60 transition hover:text-gold">
               X
