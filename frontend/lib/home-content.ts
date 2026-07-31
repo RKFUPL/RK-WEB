@@ -162,37 +162,37 @@ export const brandStory = {
 export const testimonials = [
   {
     quote:
-      'The craftsmanship was even more beautiful in person, and the entire experience felt thoughtful from start to finish.',
+      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer vitae justo eget magna.',
     name: 'Ananya S.',
     role: 'Client',
   },
   {
     quote:
-      'Every detail felt refined and effortless. The silhouette, finish, and fit all came together beautifully.',
+      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt.',
     name: 'Meher K.',
     role: 'Client',
   },
   {
     quote:
-      'The outfit arrived impeccably packaged and felt truly special the moment we opened it.',
+      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Ut enim ad minim veniam quis.',
     name: 'Ritika P.',
     role: 'Client',
   },
   {
     quote:
-      'Aakar has such a distinct visual language. It feels elegant, modern, and deeply considered.',
+      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Duis aute irure dolor in.',
     name: 'Naina V.',
     role: 'Client',
   },
   {
     quote:
-      'The drape and detailing made the piece stand out in the most graceful way.',
+      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Excepteur sint occaecat cupidatat.',
     name: 'Sana M.',
     role: 'Client',
   },
   {
     quote:
-      'What I loved most was how luxurious it felt without ever being overdone.',
+      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nunc dignissim, massa at.',
     name: 'Diya R.',
     role: 'Client',
   },

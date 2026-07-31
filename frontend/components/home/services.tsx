@@ -7,7 +7,7 @@ export function Services() {
       <div className="max-w-2xl space-y-4">
         <p className="text-xs uppercase tracking-[0.38em] text-charcoal/50">Our testimonials</p>
         <h2 className="font-display text-4xl leading-none text-charcoal md:text-6xl">
-          Words from the women who wear Aakar.
+          Words from the women who wear our collection.
         </h2>
       </div>
       <div className="mt-10 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
