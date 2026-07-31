@@ -1,8 +1,14 @@
+import Link from 'next/link';
 import { Footer } from '@/components/home/footer';
 import { StickyHeader } from '@/components/home/sticky-header';
 import { SectionShell } from '@/components/home/section-shell';
 
-const lookbooks = [
+const lookbooks: Array<{
+  title: string;
+  subtitle: string;
+  description: string;
+  href?: string;
+}> = [
   {
     title: 'AAKAAR',
     subtitle: 'The debut moodboard of the house.',
@@ -17,8 +23,9 @@ const lookbooks = [
     title: 'HASTHKALA',
     subtitle: 'A craft-first presentation.',
     description: 'Reserved for hand-finished stories, artisan detail, and heirloom-inspired styling.',
+    href: '/rk-lookbooks/hasthkala',
   },
-] as const;
+];
 
 export default function RkLookbooksPage() {
   return (
@@ -40,9 +47,12 @@ export default function RkLookbooksPage() {
 
           <div className="border-t border-black/10">
             {lookbooks.map((lookbook) => (
-              <article
+              <Link
                 key={lookbook.title}
-                className="border-b border-black/10 py-7 transition duration-300 hover:bg-black/[0.03]"
+                href={lookbook.href ?? '/rk-lookbooks'}
+                target={lookbook.href ? '_blank' : undefined}
+                rel={lookbook.href ? 'noopener noreferrer' : undefined}
+                className="block border-b border-black/10 py-7 transition duration-300 hover:bg-black/[0.03]"
               >
                 <p className="text-[0.63rem] uppercase tracking-[0.35em] text-charcoal/40">
                   Lookbook
@@ -56,7 +66,7 @@ export default function RkLookbooksPage() {
                 <p className="mt-3 max-w-xl text-sm leading-6 text-charcoal/62 md:text-base md:leading-7">
                   {lookbook.description}
                 </p>
-              </article>
+              </Link>
             ))}
           </div>
         </div>
