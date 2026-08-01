@@ -13,7 +13,7 @@ type HomePageContentProps = {
 export function HomePageContent({ ready }: HomePageContentProps) {
   return (
     <div className="relative z-10" aria-hidden={!ready}>
-      <StickyHeader />
+      <StickyHeader transparentAtTop />
       <div
         id="home"
         className={`transition-all duration-1000 ${ready ? 'opacity-100 translate-y-0' : 'pointer-events-none opacity-0 translate-y-6'}`}

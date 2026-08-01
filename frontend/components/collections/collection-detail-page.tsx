@@ -8,15 +8,23 @@ type CollectionDetailPageProps = {
 };
 
 export function CollectionDetailPage({ collection }: CollectionDetailPageProps) {
+  const collectionFontFace = collection.fontUrl
+    ? `@font-face { font-family: "${collection.fontFamily}"; src: url("${collection.fontUrl}") format("woff2"); font-display: swap; }`
+    : '';
+
   return (
     <main className="bg-ivory text-charcoal">
+      {collectionFontFace ? <style dangerouslySetInnerHTML={{ __html: collectionFontFace }} /> : null}
       <StickyHeader />
 
       <section className="mx-auto max-w-7xl px-6 pb-16 pt-28 lg:px-10 lg:pb-24 lg:pt-32">
         <div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-start lg:gap-16">
           <div className="space-y-6 lg:sticky lg:top-32 lg:self-start">
             <p className="text-xs uppercase tracking-[0.38em] text-charcoal/45">{collection.status}</p>
-            <h1 className="max-w-xl font-aakaar text-[clamp(3.2rem,8vw,6.6rem)] leading-[0.9] tracking-[0.05em]">
+            <h1
+              className="max-w-xl text-[clamp(3.2rem,8vw,6.6rem)] leading-[0.9] tracking-[0.05em]"
+              style={{ fontFamily: `${collection.fontFamily}, var(--font-display), serif` }}
+            >
               {collection.name}
             </h1>
             <p className="max-w-xl text-base leading-8 text-charcoal/70 md:text-lg">

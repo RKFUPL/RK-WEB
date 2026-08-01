@@ -12,25 +12,37 @@ import {
   UserRound,
   X,
 } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { brandLogoUrl, collectionPages } from '@/lib/home-content';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { brandLogoUrl, collectionPages, searchItems } from '@/lib/home-content';
 import { cn } from '@/lib/utils';
 
 const mainLinks = [{ label: 'Lookbook', href: '/rk-lookbooks' }] as const;
 
 const collectionLinks = collectionPages;
 
-const utilityLinks = ['Search', 'Wishlist', 'Account', 'Shopping Bag'] as const;
+const utilityLinks = [
+  { label: 'Search', Icon: Search },
+  { label: 'Wishlist', Icon: Heart },
+  { label: 'Account', Icon: UserRound },
+  { label: 'Shopping Bag', Icon: ShoppingBag },
+] as const;
 const navItemClass =
-  'border-0 bg-transparent p-0 font-body text-[0.7rem] uppercase tracking-[0.28em] text-charcoal/72 transition hover:text-charcoal';
+  'border-0 bg-transparent p-0 font-body text-[0.7rem] uppercase tracking-[0.28em] text-current transition hover:opacity-70';
 
-export function StickyHeader() {
+type StickyHeaderProps = {
+  transparentAtTop?: boolean;
+};
+
+export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [collectionsOpen, setCollectionsOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const headerRef = useRef<HTMLElement | null>(null);
   const pathname = usePathname();
   const router = useRouter();
+  const isTransparent = transparentAtTop && !scrolled && !searchOpen;
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -77,7 +89,19 @@ export function StickyHeader() {
   const handleNavigation = () => {
     setMenuOpen(false);
     setCollectionsOpen(false);
+    setSearchOpen(false);
   };
+
+  const searchResults = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    if (!normalizedQuery) {
+      return searchItems;
+    }
+
+    return searchItems.filter((item) =>
+      `${item.title} ${item.type} ${item.keywords}`.toLowerCase().includes(normalizedQuery)
+    );
+  }, [searchQuery]);
 
   const scrollToHome = () => {
     handleNavigation();
@@ -131,12 +155,25 @@ export function StickyHeader() {
     <header
       ref={headerRef}
       className={cn(
-        'fixed inset-x-0 top-0 z-[200] border-b border-black/6 text-charcoal transition-all duration-500',
-        scrolled ? 'bg-transparent shadow-none' : 'bg-white shadow-[0_1px_0_rgba(0,0,0,0.04)]'
+        'fixed inset-x-0 top-0 z-[200] border-b transition-none',
+        isTransparent
+          ? 'border-transparent bg-transparent text-white shadow-none'
+          : 'border-black/6 bg-white text-charcoal shadow-[0_1px_0_rgba(0,0,0,0.04)]',
+        scrolled && !isTransparent ? 'shadow-[0_4px_18px_rgba(0,0,0,0.06)]' : ''
       )}
     >
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-10">
-        <div className="flex items-center gap-4">
+        <div className="flex w-full items-center justify-between gap-4 lg:w-auto">
+          <Link href="/" className="flex items-center">
+            <img
+              src={brandLogoUrl}
+              alt="RK Logo"
+              width="80"
+              height="40"
+              className="h-10 w-auto"
+              style={{ width: 'auto', height: '2.5rem', filter: isTransparent ? 'brightness(0) invert(1)' : undefined }}
+            />
+          </Link>
           <button
             type="button"
             onClick={() => setMenuOpen(true)}
@@ -146,16 +183,6 @@ export function StickyHeader() {
             <Menu className="h-5 w-5" />
             <span className="text-[0.65rem] uppercase tracking-[0.35em]">Menu</span>
           </button>
-          <Link href="/" className="flex items-center">
-            <img
-              src={brandLogoUrl}
-              alt="RK Logo"
-              width="80"
-              height="40"
-              className="h-10 w-auto"
-              style={{ width: 'auto', height: '2.5rem' }}
-            />
-          </Link>
         </div>
 
         <nav className="hidden items-center gap-7 lg:flex">
@@ -229,20 +256,90 @@ export function StickyHeader() {
         </nav>
 
         <div className="hidden items-center gap-5 lg:flex">
-          <button className="border-0 bg-transparent p-0 text-charcoal/72 transition hover:text-charcoal" aria-label="Search">
+          <button
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            className="border-0 bg-transparent p-0 text-current transition hover:opacity-70"
+            aria-label="Search"
+          >
             <Search className="h-4 w-4" />
           </button>
-          <button className="border-0 bg-transparent p-0 text-charcoal/72 transition hover:text-charcoal" aria-label="Wishlist">
+          <button className="border-0 bg-transparent p-0 text-current transition hover:opacity-70" aria-label="Wishlist">
             <Heart className="h-4 w-4" />
           </button>
-          <button className="border-0 bg-transparent p-0 text-charcoal/72 transition hover:text-charcoal" aria-label="Account">
+          <Link href="/account" className="border-0 bg-transparent p-0 text-current transition hover:opacity-70" aria-label="Account">
             <UserRound className="h-4 w-4" />
-          </button>
-          <button className="border-0 bg-transparent p-0 text-charcoal/72 transition hover:text-charcoal" aria-label="Shopping Bag">
+          </Link>
+          <button className="border-0 bg-transparent p-0 text-current transition hover:opacity-70" aria-label="Shopping Bag">
             <ShoppingBag className="h-4 w-4" />
           </button>
         </div>
       </div>
+
+      <AnimatePresence>
+        {searchOpen ? (
+          <motion.div
+            className="fixed inset-0 z-[150] overflow-y-auto bg-white px-6 pb-12 pt-28 text-charcoal lg:px-10 lg:pt-32"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+          >
+            <div className="mx-auto max-w-7xl">
+              <div className="flex items-center gap-3 border-b border-black/10 pb-5">
+                <Search className="h-5 w-5 text-charcoal/55" />
+                <input
+                  autoFocus
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Search collections, lookbooks, keywords..."
+                  className="w-full bg-transparent text-base outline-none placeholder:text-charcoal/40"
+                  aria-label="Search collections, lookbooks, and keywords"
+                />
+                <button type="button" onClick={() => setSearchOpen(false)} aria-label="Close search">
+                  <X className="h-5 w-5 text-charcoal/60" />
+                </button>
+              </div>
+              <div className="mt-10 grid gap-10 md:grid-cols-[18rem_1fr]">
+                <aside className="hidden md:block">
+                  <p className="border-b border-black/10 pb-4 text-xs uppercase tracking-[0.3em]">Suggestions</p>
+                  <div className="space-y-5 pt-6 text-sm tracking-[0.08em] text-charcoal/80">
+                    {['dresses', 'drape saree', 'embroidery', 'occasionwear', 'couture'].map((suggestion) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        onClick={() => setSearchQuery(suggestion)}
+                        className="block text-left transition hover:text-gold"
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                </aside>
+                <section>
+                  <div className="flex gap-8 border-b border-black/10 text-xs uppercase tracking-[0.3em] text-charcoal/45">
+                    <span className="border-b border-charcoal pb-4 text-charcoal">Results</span>
+                    <span className="pb-4">Collections</span>
+                    <span className="pb-4">Pages</span>
+                  </div>
+                  <div className="divide-y divide-black/10 border-b border-black/10">
+                    {searchResults.length ? searchResults.map((item) => (
+                      <Link
+                        key={`${item.type}-${item.href}`}
+                        href={item.href}
+                        onClick={handleNavigation}
+                        className="flex items-center justify-between py-5 transition hover:text-gold"
+                      >
+                        <span className="text-base tracking-[0.08em]">{item.title}</span>
+                        <span className="text-[0.62rem] uppercase tracking-[0.28em] text-charcoal/45">{item.type}</span>
+                      </Link>
+                    )) : <p className="py-5 text-sm text-charcoal/55">No matching collections or lookbooks found.</p>}
+                  </div>
+                </section>
+              </div>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       <AnimatePresence>
         {menuOpen ? (
@@ -360,13 +457,19 @@ export function StickyHeader() {
                 </button>
               </div>
 
-              <div className="mt-8 grid grid-cols-2 gap-3 text-xs uppercase tracking-[0.3em] text-charcoal/60">
-                {utilityLinks.map((item) => (
+              <div className="mt-8 space-y-3 text-xs uppercase tracking-[0.3em] text-charcoal/60">
+                {utilityLinks.map(({ label, Icon }) => (
                   <button
-                    key={item}
-                    className="border border-black/8 bg-white px-4 py-4 text-left transition hover:border-gold hover:text-gold"
+                    key={label}
+                    type="button"
+                    onClick={() => {
+                      if (label === 'Search') setSearchOpen(true);
+                      if (label === 'Account') router.push('/account');
+                    }}
+                    className="flex w-full items-center gap-4 border-b border-black/10 bg-white px-1 py-4 text-left transition hover:border-gold hover:text-gold"
                   >
-                    {item}
+                    <Icon className="h-5 w-5" strokeWidth={1.5} />
+                    <span>{label}</span>
                   </button>
                 ))}
               </div>

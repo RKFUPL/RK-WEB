@@ -34,7 +34,10 @@ export default function CollectionsPage() {
                     <p className="text-[0.63rem] uppercase tracking-[0.35em] text-charcoal/40">
                       {collection.status}
                     </p>
-                    <h2 className="mt-2 font-aakaar text-[clamp(2.2rem,7vw,4.6rem)] leading-[0.85] tracking-[0.04em] text-charcoal">
+                    <h2
+                      className="mt-2 text-[clamp(2.2rem,7vw,4.6rem)] leading-[0.85] tracking-[0.04em] text-charcoal"
+                      style={{ fontFamily: `${collection.fontFamily}, var(--font-display), serif` }}
+                    >
                       {collection.name}
                     </h2>
                     <p className="mt-3 max-w-xl text-sm leading-6 text-charcoal/62 md:text-base md:leading-7">

@@ -91,9 +91,8 @@ export function FeaturedCollection() {
     <section
       id="collections"
       className="relative overflow-hidden border-y border-black/6 bg-[#8a3d38]"
-      style={{ marginTop: 'var(--rk-header-height, 0px)' }}
     >
-      <div className="relative min-h-[38rem] lg:min-h-[calc(100svh-var(--rk-header-height,0px))]">
+      <div className="relative min-h-[38rem] lg:min-h-[100svh]">
         <Image
           src={aakarBannerBackgroundUrl}
           alt="Aakaar textured banner background"

@@ -155,14 +155,14 @@ export function Footer() {
       <div className="mx-auto max-w-7xl px-6 py-16 lg:px-10">
         <div className="grid gap-10 lg:grid-cols-[1.2fr_1fr]">
           <div className="space-y-4">
-            <div className="inline-flex items-center justify-center bg-ivory/30 px-4 py-3">
+            <div className="inline-flex items-center justify-center px-4 py-3">
               <img
                 src={brandLogoUrl}
                 alt="RK Logo"
                 width="120"
                 height="60"
                 className="h-16 w-auto"
-                style={{ width: 'auto', height: '4rem' }}
+                style={{ width: 'auto', height: '4rem', filter: 'brightness(0) invert(1)' }}
               />
             </div>
             <p className="max-w-md text-sm leading-7 text-ivory/70">

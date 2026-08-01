@@ -10,6 +10,9 @@ export type CollectionPage = {
   status: string;
   summary: string;
   image: string;
+  /** Add the Cloudinary or local font URL here when each collection font is ready. */
+  fontFamily: string;
+  fontUrl?: string;
 };
 
 export const brandLogoUrl = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305776/RK_LOGOMARK_t6untf.svg';
@@ -47,6 +50,7 @@ export const collectionPages: readonly CollectionPage[] = [
     status: 'Coming Soon',
     summary: 'The debut collection, defined by sculpted drapes and quiet couture detailing.',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785304593/Rashi_Kapoor1351_xzrpyx.jpg',
+    fontFamily: 'HV Muse',
   },
   {
     name: 'Anamika',
@@ -54,13 +58,15 @@ export const collectionPages: readonly CollectionPage[] = [
     status: 'Collection',
     summary: 'A refined story shaped by movement, texture, and modern occasion dressing.',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305156/Rashi_Kapoor3092_stukqt.jpg',
+    fontFamily: 'HV Muse',
   },
   {
-    name: 'Hasthkala',
+    name: 'Hastakala',
     route: '/collections/collections-of-hasthkala',
     status: 'Collection',
     summary: 'Craft-led silhouettes with a more artisanal, hand-finished mood.',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785304857/Hasthkalare_hhljut.jpg',
+    fontFamily: 'HV Muse',
   },
   {
     name: 'Inaara',
@@ -68,6 +74,7 @@ export const collectionPages: readonly CollectionPage[] = [
     status: 'Collection',
     summary: 'A luminous edit with fluid lines and softer, celebratory energy.',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305219/RASHI_KAPOOR_-_27-3-240879_xr10ue.jpg',
+    fontFamily: 'HV Muse',
   },
   {
     name: 'Naqab',
@@ -75,6 +82,7 @@ export const collectionPages: readonly CollectionPage[] = [
     status: 'Collection',
     summary: 'A more dramatic chapter built around veiled layers and evening presence.',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785304902/Naqab_2_re_qdu1xs.jpg',
+    fontFamily: 'HV Muse',
   },
   {
     name: 'Sandook',
@@ -82,7 +90,20 @@ export const collectionPages: readonly CollectionPage[] = [
     status: 'Collection',
     summary: 'A heritage-leaning story with a more treasured, heirloom-like mood.',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305276/Rashi_Kapoor_22-03-20220063_nwo7of.jpg',
+    fontFamily: 'HV Muse',
   },
+] as const;
+
+export const searchItems = [
+  ...collectionPages.map((collection) => ({
+    title: collection.name,
+    type: 'Collection',
+    href: collection.route,
+    keywords: `${collection.name} ${collection.summary}`,
+  })),
+  { title: 'All Collections', type: 'Collection', href: '/collections', keywords: 'collections archive' },
+  { title: 'All Lookbooks', type: 'Lookbook', href: '/rk-lookbooks', keywords: 'lookbook editorial' },
+  { title: 'About Rashi Kapoor', type: 'Page', href: '/about-rk', keywords: 'about house story designer' },
 ] as const;
 
 export const categoryItems: readonly CategoryItem[] = [
@@ -97,7 +118,7 @@ export const categoryItems: readonly CategoryItem[] = [
     href: '/collections/collections-of-anamika',
   },
   {
-    title: 'Hasthkala',
+    title: 'Hastakala',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785304857/Hasthkalare_hhljut.jpg',
     href: '/collections/collections-of-hasthkala',
   },

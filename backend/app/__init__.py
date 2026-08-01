@@ -2,7 +2,11 @@ from pathlib import Path
 
 from flask import Flask
 from flask import send_file
+from dotenv import load_dotenv
 
+load_dotenv()
+
+from .blueprints.auth.routes import auth_bp
 from .blueprints.health.routes import health_bp
 from .config import get_config
 from .extensions import cors, jwt, limiter, mail, mongo
@@ -19,6 +23,7 @@ def create_app() -> Flask:
     mongo.init_app(app)
 
     app.register_blueprint(health_bp, url_prefix="/api")
+    app.register_blueprint(auth_bp, url_prefix="/api/auth")
 
     @app.get("/")
     def index() -> tuple[dict[str, str], int]:

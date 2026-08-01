@@ -21,7 +21,7 @@ const lookbooks: Array<{
     href: '/rk-lookbooks/anamika',
   },
   {
-    title: 'HASTHKALA',
+    title: 'HASTAKALA',
     subtitle: 'A craft-first presentation.',
     description: 'Reserved for hand-finished stories, artisan detail, and heirloom-inspired styling.',
     href: '/rk-lookbooks/hasthkala',
