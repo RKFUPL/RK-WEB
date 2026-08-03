@@ -183,7 +183,9 @@ def login():
     identifier = str(payload.get("identifier") or "").strip().lower()
     password = payload.get("password")
     user = _database().users.find_one({"$or": [{"email": identifier}, {"username": identifier}]})
-    if not user or not user.get("passwordHash") or not isinstance(password, str) or not checkpw(password.encode(), user["passwordHash"].encode()):
+    if not user:
+        return jsonify({"error": "User not found. Please sign in with an existing account."}), 404
+    if not user.get("passwordHash") or not isinstance(password, str) or not checkpw(password.encode(), user["passwordHash"].encode()):
         return jsonify({"error": "Email/username or password is incorrect."}), 401
     return jsonify({"accessToken": create_access_token(identity=str(user["_id"])), "user": _public_user(user)}), 200
 
