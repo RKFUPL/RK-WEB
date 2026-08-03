@@ -38,6 +38,10 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [collectionsOpen, setCollectionsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [wishlistOpen, setWishlistOpen] = useState(false);
+  const [bagOpen, setBagOpen] = useState(false);
+  // Product cards can populate this list later through a wishlist action.
+  const [wishlistItems, setWishlistItems] = useState<typeof collectionPages[number][]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const headerRef = useRef<HTMLElement | null>(null);
   const pathname = usePathname();
@@ -208,7 +212,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 8 }}
                   transition={{ duration: 0.24, ease: 'easeOut' }}
-                  className="absolute left-1/2 top-full z-50 mt-4 w-[22rem] -translate-x-1/2 border border-black/8 bg-white p-5 shadow-[0_18px_45px_rgba(18,18,18,0.08)]"
+                  className="absolute left-1/2 top-full z-50 mt-4 w-[22rem] -translate-x-1/2 border border-black/8 bg-white p-5 text-charcoal shadow-[0_18px_45px_rgba(18,18,18,0.08)]"
                 >
                   <p className="text-[0.62rem] uppercase tracking-[0.34em] text-charcoal/40">
                     Collections
@@ -219,7 +223,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
                         key={collection.name}
                         href={collection.route}
                         onClick={handleNavigation}
-                        className="flex items-center justify-between border-b border-black/6 pb-3 text-sm uppercase tracking-[0.22em] transition hover:text-gold"
+                        className="flex items-center justify-between border-b border-black/6 pb-3 text-sm uppercase tracking-[0.22em] text-charcoal transition hover:text-gold"
                       >
                         <span>{collection.name}</span>
                         <ChevronDown className="h-4 w-4 -rotate-90" />
@@ -264,13 +268,13 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
           >
             <Search className="h-4 w-4" />
           </button>
-          <button className="border-0 bg-transparent p-0 text-current transition hover:opacity-70" aria-label="Wishlist">
+          <button type="button" onClick={() => setWishlistOpen(true)} className="border-0 bg-transparent p-0 text-current transition hover:opacity-70" aria-label="Wishlist">
             <Heart className="h-4 w-4" />
           </button>
           <Link href="/account" className="border-0 bg-transparent p-0 text-current transition hover:opacity-70" aria-label="Account">
             <UserRound className="h-4 w-4" />
           </Link>
-          <button className="border-0 bg-transparent p-0 text-current transition hover:opacity-70" aria-label="Shopping Bag">
+          <button type="button" onClick={() => setBagOpen(true)} className="border-0 bg-transparent p-0 text-current transition hover:opacity-70" aria-label="Shopping Bag">
             <ShoppingBag className="h-4 w-4" />
           </button>
         </div>
@@ -404,7 +408,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
                             key={collection.name}
                             href={collection.route}
                             onClick={handleNavigation}
-                            className="flex items-center justify-between border-b border-black/6 pb-3 text-sm uppercase tracking-[0.22em]"
+                            className="flex items-center justify-between border-b border-black/6 pb-3 text-sm uppercase tracking-[0.22em] text-charcoal transition hover:text-gold"
                           >
                             <span>{collection.name}</span>
                             <ChevronDown className="h-4 w-4 -rotate-90" />
@@ -465,6 +469,14 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
                     onClick={() => {
                       if (label === 'Search') setSearchOpen(true);
                       if (label === 'Account') router.push('/account');
+                      if (label === 'Wishlist') {
+                        setMenuOpen(false);
+                        setWishlistOpen(true);
+                      }
+                      if (label === 'Shopping Bag') {
+                        setMenuOpen(false);
+                        setBagOpen(true);
+                      }
                     }}
                     className="flex w-full items-center gap-4 border-b border-black/10 bg-white px-1 py-4 text-left transition hover:border-gold hover:text-gold"
                   >
@@ -472,6 +484,126 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
                     <span>{label}</span>
                   </button>
                 ))}
+              </div>
+            </motion.aside>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {wishlistOpen ? (
+          <motion.div
+            className="fixed inset-0 z-[180] flex items-center justify-center bg-ink/45 px-5 py-8"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setWishlistOpen(false)}
+          >
+            <motion.section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="wishlist-dialog-title"
+              className="flex max-h-[86vh] w-full max-w-[27rem] flex-col bg-white text-charcoal shadow-2xl"
+              initial={{ opacity: 0, y: 12, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 12, scale: 0.98 }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-black/10 px-5 py-4">
+                <h2 id="wishlist-dialog-title" className="text-sm font-medium tracking-[0.02em]">
+                  Wishlist ({wishlistItems.length} {wishlistItems.length === 1 ? 'item' : 'items'})
+                </h2>
+                <button type="button" onClick={() => setWishlistOpen(false)} aria-label="Close wishlist">
+                  <X className="h-5 w-5 rounded-full border border-black/15 p-1 text-charcoal/60 transition hover:border-gold hover:text-gold" />
+                </button>
+              </div>
+              <div className="overflow-y-auto px-5">
+                {wishlistItems.length ? wishlistItems.map((item) => (
+                  <div key={item.name} className="flex gap-3 border-b border-black/10 py-4">
+                    <Link href={item.route} onClick={() => setWishlistOpen(false)} className="h-16 w-16 shrink-0 overflow-hidden bg-ivory">
+                      <img src={item.image} alt={item.name} className="h-full w-full object-cover" />
+                    </Link>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <Link href={item.route} onClick={() => setWishlistOpen(false)} className="text-sm leading-5 transition hover:text-gold">
+                          {item.name}
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => setWishlistItems((current) => current.filter((entry) => entry.name !== item.name))}
+                          className="shrink-0 text-sm text-charcoal/65 transition hover:text-gold"
+                          aria-label={`Remove ${item.name} from wishlist`}
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <p className="mt-1 text-[0.68rem] text-charcoal/55">{item.status}</p>
+                      <Link
+                        href={item.route}
+                        onClick={() => setWishlistOpen(false)}
+                        className="mt-2 inline-flex rounded-full bg-ink px-3 py-1.5 text-[0.62rem] text-white transition hover:bg-gold"
+                      >
+                        View collection
+                      </Link>
+                    </div>
+                  </div>
+                )) : (
+                  <div className="flex min-h-[14rem] items-center justify-center text-center text-sm text-charcoal/55">
+                    There are no items in this wishlist.
+                  </div>
+                )}
+              </div>
+              <div className="border-t border-black/10 px-5 py-4">
+                <Link
+                  href="/wishlist"
+                  onClick={() => setWishlistOpen(false)}
+                  className="flex w-full items-center justify-center rounded-full border border-black/20 px-4 py-2.5 text-xs transition hover:border-gold hover:text-gold"
+                >
+                  View Wishlist
+                </Link>
+              </div>
+            </motion.section>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {bagOpen ? (
+          <motion.div
+            className="fixed inset-0 z-[180] bg-ink/40"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setBagOpen(false)}
+          >
+            <motion.aside
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="bag-drawer-title"
+              className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-white text-charcoal shadow-2xl"
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-black/10 px-6 py-5">
+                <h2 id="bag-drawer-title" className="font-display text-2xl">Shopping Bag</h2>
+                <button type="button" onClick={() => setBagOpen(false)} aria-label="Close shopping bag">
+                  <X className="h-5 w-5 text-charcoal/60 transition hover:text-gold" />
+                </button>
+              </div>
+              <div className="flex flex-1 items-center justify-center px-8 text-center text-sm text-charcoal/55">
+                Your bag is empty.
+              </div>
+              <div className="border-t border-black/10 px-6 py-5">
+                <Link
+                  href="/bag"
+                  onClick={() => setBagOpen(false)}
+                  className="flex w-full items-center justify-center border border-charcoal px-5 py-4 text-xs uppercase tracking-[0.24em] transition hover:border-gold hover:text-gold"
+                >
+                  View full bag
+                </Link>
               </div>
             </motion.aside>
           </motion.div>
