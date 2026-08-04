@@ -1,0 +1,3 @@
+export default function AdminDashboard() {
+  return <div className="mt-12 grid gap-4 md:grid-cols-3"><div className="border border-black/10 bg-white p-6">Users & roles<br /><span className="mt-3 block text-sm text-charcoal/55">Manage access with audit history.</span></div><div className="border border-black/10 bg-white p-6">Commerce<br /><span className="mt-3 block text-sm text-charcoal/55">Orders, refunds, coupons and content.</span></div><div className="border border-black/10 bg-white p-6">Reports<br /><span className="mt-3 block text-sm text-charcoal/55">Analytics and site configuration.</span></div></div>;
+}

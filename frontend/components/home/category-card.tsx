@@ -8,12 +8,20 @@ type CategoryCardProps = {
   href?: string;
 };
 
+const categoryFont: Record<string, string> = {
+  Anamika: 'RK Anamika',
+  Hastakala: 'RK Hastakala',
+  Inaara: 'RK Inaara',
+  Sandook: 'RK Sandook',
+};
+const categoryFontSize: Record<string, string> = { Hastakala: '1.45rem' };
+
 export function CategoryCard({ title, image, href }: CategoryCardProps) {
   const content = (
     <article className="group flex h-full flex-col justify-between border border-black/6 bg-white p-5 transition hover:-translate-y-0.5 hover:shadow-[0_20px_50px_rgba(18,18,18,0.06)]">
       <div className="flex items-start justify-between">
         <div className="space-y-2">
-          <h3 className="font-display text-3xl text-charcoal">{title}</h3>
+          <h3 style={{ fontFamily: categoryFont[title] ?? 'var(--font-aakaar)', fontSize: categoryFontSize[title] }} className="text-3xl text-charcoal">{title}</h3>
         </div>
         <ArrowUpRight className="h-5 w-5 text-charcoal/40 transition group-hover:text-gold" />
       </div>

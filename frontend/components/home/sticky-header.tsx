@@ -16,6 +16,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { brandLogoUrl, collectionPages, searchItems } from '@/lib/home-content';
 import { cn } from '@/lib/utils';
 
+type HeaderUser = { displayName?: string; firstName?: string; lastName?: string; username?: string; role?: 'customer' | 'staff' | 'admin' };
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000';
+
 const mainLinks = [{ label: 'Lookbook', href: '/rk-lookbooks' }] as const;
 
 const collectionLinks = collectionPages;
@@ -40,6 +43,9 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [wishlistOpen, setWishlistOpen] = useState(false);
   const [bagOpen, setBagOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [accountLoading, setAccountLoading] = useState(false);
+  const [accountUser, setAccountUser] = useState<HeaderUser | null>(null);
   // Product cards can populate this list later through a wishlist action.
   const [wishlistItems, setWishlistItems] = useState<typeof collectionPages[number][]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -53,6 +59,15 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
     onScroll();
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  useEffect(() => {
+    const token = window.localStorage.getItem('rk_access_token');
+    if (!token) return;
+    fetch(`${apiBaseUrl}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => data?.user && setAccountUser(data.user))
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -94,6 +109,38 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
     setMenuOpen(false);
     setCollectionsOpen(false);
     setSearchOpen(false);
+    setAccountOpen(false);
+  };
+
+  const openAccount = async () => {
+    const token = window.localStorage.getItem('rk_access_token');
+    if (!token) {
+      router.push('/account');
+      return;
+    }
+    setAccountOpen(true);
+    if (accountUser || accountLoading) return;
+    setAccountLoading(true);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+      if (response.ok) {
+        setAccountUser((await response.json()).user);
+      } else {
+        window.localStorage.removeItem('rk_access_token');
+        setAccountOpen(false);
+        router.push('/account');
+      }
+    } finally {
+      setAccountLoading(false);
+    }
+  };
+
+  const signOut = () => {
+    if (!window.confirm('Sign out of your RK account?')) return;
+    window.localStorage.removeItem('rk_access_token');
+    setAccountUser(null);
+    setAccountOpen(false);
+    router.push('/');
   };
 
   const searchResults = useMemo(() => {
@@ -271,9 +318,16 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
           <button type="button" onClick={() => setWishlistOpen(true)} className="border-0 bg-transparent p-0 text-current transition hover:opacity-70" aria-label="Wishlist">
             <Heart className="h-4 w-4" />
           </button>
-          <Link href="/account" className="border-0 bg-transparent p-0 text-current transition hover:opacity-70" aria-label="Account">
-            <UserRound className="h-4 w-4" />
-          </Link>
+          <div className="relative" onMouseEnter={() => accountUser && setAccountOpen(true)} onMouseLeave={() => setAccountOpen(false)}>
+            <button type="button" onClick={openAccount} className="border-0 bg-transparent p-0 text-current transition hover:opacity-70" aria-label="Account" aria-expanded={accountOpen}>
+              <UserRound className="h-4 w-4" />
+            </button>
+            <AnimatePresence>
+              {accountOpen ? <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} className="absolute right-0 top-full z-50 mt-4 w-64 border border-black/10 bg-white p-5 text-charcoal shadow-[0_18px_45px_rgba(18,18,18,0.1)]" onMouseEnter={() => setAccountOpen(true)}>
+                {accountLoading ? <p className="text-xs text-charcoal/55">Checking your account…</p> : accountUser ? <><p className="text-[10px] uppercase tracking-[0.28em] text-charcoal/45">Signed in as</p><p className="mt-2 font-display text-2xl">{accountUser.firstName || accountUser.displayName || accountUser.username || 'RK member'}</p>{accountUser.username ? <p className="mt-1 text-xs text-charcoal/50">@{accountUser.username}</p> : null}<Link href="/profile" onClick={() => setAccountOpen(false)} className="mt-5 block rounded-full bg-ink px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-ivory transition hover:bg-gold">Manage profile</Link><button type="button" onClick={signOut} className="mt-3 w-full border border-black/10 px-4 py-3 text-[10px] uppercase tracking-[0.2em] text-charcoal/60 transition hover:border-red-500 hover:text-red-600">Sign out</button></> : null}
+              </motion.div> : null}
+            </AnimatePresence>
+          </div>
           <button type="button" onClick={() => setBagOpen(true)} className="border-0 bg-transparent p-0 text-current transition hover:opacity-70" aria-label="Shopping Bag">
             <ShoppingBag className="h-4 w-4" />
           </button>
@@ -468,7 +522,9 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
                     type="button"
                     onClick={() => {
                       if (label === 'Search') setSearchOpen(true);
-                      if (label === 'Account') router.push('/account');
+                      if (label === 'Account') {
+                        openAccount();
+                      }
                       if (label === 'Wishlist') {
                         setMenuOpen(false);
                         setWishlistOpen(true);
@@ -485,6 +541,9 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
                   </button>
                 ))}
               </div>
+              {accountOpen ? <div className="mt-5 border border-black/10 bg-ivory p-5 text-charcoal">
+                {accountLoading ? <p className="text-xs text-charcoal/55">Checking your account…</p> : accountUser ? <><p className="text-[10px] uppercase tracking-[0.28em] text-charcoal/45">Signed in as</p><p className="mt-2 font-display text-2xl">{accountUser.firstName || accountUser.displayName || accountUser.username || 'RK member'}</p><Link href="/profile" onClick={handleNavigation} className="mt-5 block rounded-full bg-ink px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-ivory">Manage profile</Link><button type="button" onClick={signOut} className="mt-3 w-full border border-black/10 px-4 py-3 text-[10px] uppercase tracking-[0.2em] text-charcoal/60">Sign out</button></> : null}
+              </div> : null}
             </motion.aside>
           </motion.div>
         ) : null}

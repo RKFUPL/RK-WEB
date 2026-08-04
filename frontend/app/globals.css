@@ -13,6 +13,36 @@
   --font-aakaar: "HV Muse";
 }
 
+@font-face {
+  font-family: 'RK Anamika';
+  src: url('https://res.cloudinary.com/fm1bwbrd/raw/upload/v1785840322/agilera_ucynmn.otf') format('opentype');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'RK Hastakala';
+  src: url('https://res.cloudinary.com/fm1bwbrd/raw/upload/v1785840581/aesterapersonaluse-0vg2v_jcafbr.ttf') format('truetype');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'RK Espiritu';
+  src: url('https://res.cloudinary.com/fm1bwbrd/raw/upload/v1785840909/QEBIL_jggzfi.otf') format('opentype');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'RK Sandook';
+  src: url('https://res.cloudinary.com/fm1bwbrd/raw/upload/v1785864328/NoeDisplay-Medium_swsk7v.ttf') format('truetype');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'RK Inaara';
+  src: url('https://res.cloudinary.com/fm1bwbrd/raw/upload/v1785863506/CormorantInfant-Regular_rsu66v.ttf') format('truetype');
+  font-display: swap;
+}
+
 html {
   scroll-behavior: smooth;
 }
@@ -40,4 +70,18 @@ body {
 
 ::selection {
   background: rgba(199, 166, 107, 0.22);
+}
+
+@media (min-width: 1024px) {
+  /* Keep the profile's two-column cards balanced beneath their first row. */
+  main > div.grid.max-w-6xl > section:last-child {
+    grid-row-start: 2 !important;
+  }
+}
+
+.rk-lookbooks-archive h3 {
+  min-height: 4.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }

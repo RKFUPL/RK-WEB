@@ -9,7 +9,7 @@ type CollectionDetailPageProps = {
 
 export function CollectionDetailPage({ collection }: CollectionDetailPageProps) {
   const collectionFontFace = collection.fontUrl
-    ? `@font-face { font-family: "${collection.fontFamily}"; src: url("${collection.fontUrl}") format("woff2"); font-display: swap; }`
+    ? `@font-face { font-family: "${collection.fontFamily}"; src: url("${collection.fontUrl}"); font-display: swap; }`
     : '';
 
   return (

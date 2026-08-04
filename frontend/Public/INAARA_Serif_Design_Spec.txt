@@ -1,0 +1,50 @@
+INAARA Serif – Original Font Design Specification
+
+This is an original luxury display serif inspired by high-fashion
+typography. It is NOT a copy of any existing commercial font.
+
+Style
+
+-   High-contrast serif
+-   Tall condensed proportions
+-   Sharp wedge serifs
+-   Thin hairlines
+-   Crossbar-less triangular A
+-   Signature sweeping R leg
+-   Elegant fashion/editorial appearance
+
+Character Set
+
+Uppercase: ABCDEFGHIJKLMNOPQRSTUVWXYZ
+
+Lowercase: abcdefghijklmnopqrstuvwxyz
+
+Numbers: 0123456789
+
+Punctuation: .,:;!?’“()-–—_/\&@#%+=*
+
+Suggested Metrics
+
+Cap Height: 700 x-Height: 500 Ascender: 760 Descender: -240 Em Size:
+1000
+
+Glyph Notes
+
+A - No horizontal crossbar. - Inner counter formed by a graceful curved
+stroke.
+
+R - Large circular bowl. - Long sweeping leg beginning inside the bowl.
+
+N - Thin diagonal connecting heavy vertical stems.
+
+O - High contrast oval.
+
+Serifs - Fine wedge serifs with delicate terminals.
+
+Spacing - Optical spacing. - Tight luxury-brand kerning.
+
+Recommended Kerning Pairs: AV AW AY AT LA LT LY TA To Te Tr VA WA YA RA
+RO RN
+
+This specification can be used as a blueprint to build an original OTF
+font in FontForge, Glyphs, FontLab, or BirdFont.

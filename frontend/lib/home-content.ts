@@ -31,13 +31,13 @@ export const featuredCollection = {
   title: 'AAKAAR',
   description:
     'A refined debut collection shaped by fluid tailoring, sculpted silhouettes, and understated couture details.',
-  image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor1358_v3er22.jpg',
+  image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg',
   cta: 'Browse the Collection',
 };
 
 export const featuredCollectionFrames = [
   'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor474_cqm17y.jpg',
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor1358_v3er22.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg',
   'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor2418_nebluo.jpg',
   'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303897/Rashi_Kapoor306_dnwh99.jpg',
   'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303897/Rashi_Kapoor187_nx9fpm.jpg',
@@ -58,7 +58,8 @@ export const collectionPages: readonly CollectionPage[] = [
     status: 'Collection',
     summary: 'A refined story shaped by movement, texture, and modern occasion dressing.',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305156/Rashi_Kapoor3092_stukqt.jpg',
-    fontFamily: 'HV Muse',
+    fontFamily: 'RK Anamika',
+    fontUrl: 'https://res.cloudinary.com/fm1bwbrd/raw/upload/v1785840322/agilera_ucynmn.otf',
   },
   {
     name: 'Hastakala',
@@ -66,7 +67,8 @@ export const collectionPages: readonly CollectionPage[] = [
     status: 'Collection',
     summary: 'Craft-led silhouettes with a more artisanal, hand-finished mood.',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785304857/Hasthkalare_hhljut.jpg',
-    fontFamily: 'HV Muse',
+    fontFamily: 'RK Hastakala',
+    fontUrl: 'https://res.cloudinary.com/fm1bwbrd/raw/upload/v1785840581/aesterapersonaluse-0vg2v_jcafbr.ttf',
   },
   {
     name: 'Inaara',
@@ -74,7 +76,8 @@ export const collectionPages: readonly CollectionPage[] = [
     status: 'Collection',
     summary: 'A luminous edit with fluid lines and softer, celebratory energy.',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305219/RASHI_KAPOOR_-_27-3-240879_xr10ue.jpg',
-    fontFamily: 'HV Muse',
+    fontFamily: 'RK Inaara',
+    fontUrl: 'https://res.cloudinary.com/fm1bwbrd/raw/upload/v1785863506/CormorantInfant-Regular_rsu66v.ttf',
   },
   {
     name: 'Naqab',
@@ -90,7 +93,8 @@ export const collectionPages: readonly CollectionPage[] = [
     status: 'Collection',
     summary: 'A heritage-leaning story with a more treasured, heirloom-like mood.',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305276/Rashi_Kapoor_22-03-20220063_nwo7of.jpg',
-    fontFamily: 'HV Muse',
+    fontFamily: 'RK Sandook',
+    fontUrl: 'https://res.cloudinary.com/fm1bwbrd/raw/upload/v1785863861/AvrileSans-Condensed_n8kslo.ttf',
   },
 ] as const;
 
@@ -149,7 +153,7 @@ export const featuredLooks = [
   {
     title: 'Look 02',
     caption: 'Editorial layering with couture lines',
-    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor1358_v3er22.jpg',
+    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg',
     span: 'lg:col-span-3',
   },
   {
@@ -176,7 +180,7 @@ export const brandStory = {
   title: 'The House of Rashi Kapoor',
   description:
     'Luxury womenswear rooted in craftsmanship, modern Indian occasion dressing, and a cinematic visual language designed to feel timeless.',
-  image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor1358_v3er22.jpg',
+  image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg',
   cta: 'Read More',
 };
 
@@ -221,7 +225,7 @@ export const testimonials = [
 
 export const instagramItems = [
   'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor474_cqm17y.jpg',
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor1358_v3er22.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg',
   'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor2418_nebluo.jpg',
   'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303897/Rashi_Kapoor306_dnwh99.jpg',
   'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303897/Rashi_Kapoor187_nx9fpm.jpg',

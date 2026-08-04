@@ -1,0 +1,3 @@
+export default function StaffDashboard() {
+  return <div className="mt-12 grid gap-4 md:grid-cols-3"><div className="border border-black/10 bg-white p-6">Products<br /><span className="mt-3 block text-sm text-charcoal/55">Manage catalogue and inventory.</span></div><div className="border border-black/10 bg-white p-6">Orders<br /><span className="mt-3 block text-sm text-charcoal/55">View and update fulfilment.</span></div><div className="border border-black/10 bg-white p-6">Customers<br /><span className="mt-3 block text-sm text-charcoal/55">Read customer and order details.</span></div></div>;
+}

@@ -4,7 +4,7 @@ import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
 import { brandLogoUrl } from '@/lib/home-content';
 
-type AccountUser = { id: string; email: string; username?: string; displayName?: string };
+type AccountUser = { id: string; email: string; username?: string; displayName?: string; role: 'customer' | 'staff' | 'admin' };
 type AuthMode = 'login' | 'signup' | 'forgot';
 type PasswordFieldProps = {
   label: string;
@@ -12,13 +12,15 @@ type PasswordFieldProps = {
   onChange: (value: string) => void;
   required?: boolean;
   minLength?: number;
+  error?: string;
+  onBlur?: () => void;
 };
 
-function PasswordField({ label, value, onChange, required = true, minLength }: PasswordFieldProps) {
+function PasswordField({ label, value, onChange, required = true, minLength, error, onBlur }: PasswordFieldProps) {
   const [visible, setVisible] = useState(false);
 
   return (
-    <label className="block text-xs uppercase tracking-[0.25em] text-charcoal/55">
+    <label className={`group relative block text-xs uppercase tracking-[0.25em] ${error ? 'text-red-600' : 'text-charcoal/55'}`}>
       {label}
       <span className="relative mt-3 block">
         <input
@@ -27,7 +29,9 @@ function PasswordField({ label, value, onChange, required = true, minLength }: P
           minLength={minLength}
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          className="w-full border-b border-black/15 px-0 py-3 pr-12 text-base normal-case tracking-normal outline-none focus:border-gold"
+          onBlur={onBlur}
+          aria-invalid={Boolean(error)}
+          className={`w-full border-b px-0 py-3 pr-12 text-base normal-case tracking-normal outline-none focus:border-gold ${error ? 'border-red-500' : 'border-black/15'}`}
         />
         <button
           type="button"
@@ -50,8 +54,18 @@ function PasswordField({ label, value, onChange, required = true, minLength }: P
           )}
         </button>
       </span>
+      {error ? <span role="tooltip" className="pointer-events-none absolute right-0 top-0 z-10 max-w-[15rem] -translate-y-2 rounded bg-red-600 px-3 py-2 text-[10px] normal-case tracking-normal text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">{error}</span> : null}
     </label>
   );
+}
+
+type SignupField = 'fullName' | 'username' | 'email' | 'password';
+
+function signupFieldError(field: SignupField, value: string) {
+  if (!value.trim()) return field === 'fullName' ? 'Full name is required.' : field === 'username' ? 'Username is required.' : field === 'email' ? 'Email is required.' : 'Password is required.';
+  if (field === 'email' && !/^\S+@\S+\.\S+$/.test(value.trim())) return 'Enter a valid email address.';
+  if (field === 'password' && value.length < 8) return 'Password must be at least 8 characters.';
+  return '';
 }
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000';
@@ -70,14 +84,29 @@ export default function AccountPage() {
   const [user, setUser] = useState<AccountUser | null>(null);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<SignupField, string>>>({});
+
+  useEffect(() => {
+    if (!user) return;
+    if (user.role !== 'customer') {
+      window.location.replace(user.role === 'admin' ? '/admin' : '/staff');
+      return;
+    }
+    window.location.replace('/');
+  }, [user]);
 
   useEffect(() => {
     const token = window.localStorage.getItem('rk_access_token');
-    if (!token) return;
+    if (!token) {
+      setAuthChecking(false);
+      return;
+    }
     fetch(`${apiBaseUrl}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
       .then((response) => (response.ok ? response.json() : null))
       .then((data) => data?.user && setUser(data.user))
-      .catch(() => window.localStorage.removeItem('rk_access_token'));
+      .catch(() => window.localStorage.removeItem('rk_access_token'))
+      .finally(() => setAuthChecking(false));
   }, []);
 
   const changeMode = (nextMode: AuthMode) => {
@@ -85,6 +114,26 @@ export default function AccountPage() {
     setOtpStep(false);
     setOtp('');
     setMessage('');
+    setFieldErrors({});
+  };
+
+  const validateSignup = () => {
+    const nextErrors: Partial<Record<SignupField, string>> = {};
+    (['fullName', 'username', 'email', 'password'] as SignupField[]).forEach((field) => {
+      const value = field === 'fullName' ? fullName : field === 'username' ? username : field === 'email' ? email : password;
+      const error = signupFieldError(field, value);
+      if (error) nextErrors[field] = error;
+    });
+    setFieldErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  };
+
+  const updateSignupField = (field: SignupField, value: string) => {
+    if (field === 'fullName') setFullName(value);
+    if (field === 'username') setUsername(value);
+    if (field === 'email') setEmail(value);
+    if (field === 'password') setPassword(value);
+    if (fieldErrors[field]) setFieldErrors((current) => ({ ...current, [field]: signupFieldError(field, value) || undefined }));
   };
 
   const submitLogin = async (event: FormEvent) => {
@@ -104,7 +153,7 @@ export default function AccountPage() {
         throw new Error(errorMessage);
       }
       window.localStorage.setItem('rk_access_token', data.accessToken);
-      setUser(data.user);
+      window.location.replace('/');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Unable to sign in.');
     } finally {
@@ -114,6 +163,7 @@ export default function AccountPage() {
 
   const requestSignupOtp = async (event: FormEvent) => {
     event.preventDefault();
+    if (!validateSignup()) return;
     setBusy(true);
     setMessage('');
     try {
@@ -146,7 +196,7 @@ export default function AccountPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? 'The signup code is invalid or expired.');
       window.localStorage.setItem('rk_access_token', data.accessToken);
-      setUser(data.user);
+      window.location.replace('/');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Unable to verify signup code.');
     } finally {
@@ -196,23 +246,7 @@ export default function AccountPage() {
     }
   };
 
-  if (user) {
-    return (
-      <main className="min-h-screen bg-ivory px-6 py-8 text-charcoal lg:px-10">
-        <div className="mx-auto max-w-5xl">
-          <img src={brandLogoUrl} alt="RK Logo" className="h-14 w-auto" />
-          <div className="mt-24 max-w-lg border border-black/10 bg-white p-8">
-            <p className="text-xs uppercase tracking-[0.3em] text-charcoal/45">Your profile</p>
-            <h1 className="mt-4 font-display text-5xl leading-none">Welcome, {user.displayName || user.username || 'to RK'}.</h1>
-            <div className="mt-8 space-y-3 text-sm text-charcoal/70">
-              <p>{user.email}</p>
-              {user.username ? <p>@{user.username}</p> : null}
-            </div>
-          </div>
-        </div>
-      </main>
-    );
-  }
+  if (authChecking || user) return <main className="min-h-screen bg-ivory" aria-label="Loading account" />;
 
   const isSignup = mode === 'signup';
   const isForgot = mode === 'forgot';
@@ -232,20 +266,24 @@ export default function AccountPage() {
 
         <section className="flex items-center justify-center px-6 py-12 lg:px-20">
           <div className="w-full max-w-md">
-            <a href="/" className="mb-12 flex justify-end">
-              <img src={brandLogoUrl} alt="RK Logo" className="h-16 w-auto" />
-            </a>
+            <div className="mb-12 flex justify-end">
+              <a href="/" className="inline-flex">
+                <img src={brandLogoUrl} alt="RK Logo" className="h-16 w-auto" />
+              </a>
+            </div>
             <p className="mt-8 text-xs uppercase tracking-[0.35em] text-charcoal/45">{isSignup ? 'Create your profile' : isForgot ? 'Account recovery' : 'Welcome back'}</p>
             <h1 className="mt-4 font-display text-5xl leading-none md:text-6xl">{isSignup ? 'Get access to everything.' : isForgot ? 'Reset your password.' : 'Your account.'}</h1>
             <p className="mt-5 text-sm leading-7 text-charcoal/60">{isSignup ? 'Create a profile for collection notes, private previews, and a more personal RK experience.' : isForgot ? 'Enter your username or email to receive a password reset code.' : 'Sign in with your username or email and password.'}</p>
 
-            <form onSubmit={formSubmit} className="mt-10 space-y-5">
+            <form onSubmit={formSubmit} noValidate={isSignup} className="mt-10 space-y-5">
               {isSignup ? (
                 <>
-                  <label className="block text-xs uppercase tracking-[0.25em] text-charcoal/55">Full name<input required value={fullName} onChange={(event) => setFullName(event.target.value)} disabled={otpStep} className="mt-3 w-full border-b border-black/15 px-0 py-3 text-base normal-case tracking-normal outline-none focus:border-gold" /></label>
-                  <label className="block text-xs uppercase tracking-[0.25em] text-charcoal/55">Username<input required value={username} onChange={(event) => setUsername(event.target.value)} disabled={otpStep} className="mt-3 w-full border-b border-black/15 px-0 py-3 text-base normal-case tracking-normal outline-none focus:border-gold" /></label>
-                  <label className="block text-xs uppercase tracking-[0.25em] text-charcoal/55">Email<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} disabled={otpStep} className="mt-3 w-full border-b border-black/15 px-0 py-3 text-base normal-case tracking-normal outline-none focus:border-gold" /></label>
-                  {!otpStep ? <PasswordField label="Password" minLength={8} value={password} onChange={setPassword} /> : null}
+                  {(['fullName', 'username', 'email'] as const).map((field) => {
+                    const labels = { fullName: 'Full name', username: 'Username', email: 'Email' };
+                    const values = { fullName, username, email };
+                    return <label key={field} className={`group relative block text-xs uppercase tracking-[0.25em] ${fieldErrors[field] ? 'text-red-600' : 'text-charcoal/55'}`}>{labels[field]}<input type={field === 'email' ? 'email' : 'text'} required value={values[field]} onChange={(event) => updateSignupField(field, event.target.value)} onBlur={() => setFieldErrors((current) => ({ ...current, [field]: signupFieldError(field, values[field]) || undefined }))} disabled={otpStep} aria-invalid={Boolean(fieldErrors[field])} className={`mt-3 w-full border-b px-0 py-3 text-base normal-case tracking-normal outline-none focus:border-gold ${fieldErrors[field] ? 'border-red-500' : 'border-black/15'}`} />{fieldErrors[field] ? <span role="tooltip" className="pointer-events-none absolute right-0 top-0 z-10 max-w-[15rem] -translate-y-2 rounded bg-red-600 px-3 py-2 text-[10px] normal-case tracking-normal text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">{fieldErrors[field]}</span> : null}</label>;
+                  })}
+                  {!otpStep ? <PasswordField label="Password" minLength={8} value={password} error={fieldErrors.password} onChange={(value) => updateSignupField('password', value)} onBlur={() => setFieldErrors((current) => ({ ...current, password: signupFieldError('password', password) || undefined }))} /> : null}
                 </>
               ) : (
                 <>
