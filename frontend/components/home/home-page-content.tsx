@@ -22,8 +22,10 @@ export function HomePageContent({ ready }: HomePageContentProps) {
         <div className="theme-transition-below">
           <ShopCategories />
           <BrandStory />
-          <Services />
-          <Newsletter />
+          <div className="testimonials-newsletter-scene">
+            <Services />
+            <Newsletter />
+          </div>
           <Footer />
         </div>
       </div>

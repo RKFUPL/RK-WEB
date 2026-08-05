@@ -2,12 +2,25 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { brandStory } from '@/lib/home-content';
-import { SectionShell } from './section-shell';
 
 export function BrandStory() {
   return (
-    <SectionShell id="about" className="bg-ivory">
-      <div className="grid gap-10 lg:grid-cols-[1fr_0.95fr] lg:items-center">
+    <section id="about" className="brand-story-section bg-ivory">
+      <img
+        src="https://res.cloudinary.com/fm1bwbrd/image/upload/v1785924919/download_vjn60l.png"
+        alt=""
+        aria-hidden="true"
+        className="brand-story-backdrop brand-story-backdrop-light"
+      />
+      <img
+        src="https://res.cloudinary.com/fm1bwbrd/image/upload/v1785924823/download_tvu6fp.png"
+        alt=""
+        aria-hidden="true"
+        className="brand-story-backdrop brand-story-backdrop-dark"
+      />
+
+      <div className="relative z-10 mx-auto w-full max-w-7xl px-6 py-20 lg:px-10 lg:py-28">
+        <div className="grid gap-10 lg:grid-cols-[1fr_0.95fr] lg:items-center">
         <div className="space-y-8">
           <div className="space-y-4">
             <p className="text-xs uppercase tracking-[0.38em] text-charcoal/50">Brand Story</p>
@@ -35,7 +48,8 @@ export function BrandStory() {
             className="object-cover object-center"
           />
         </div>
+        </div>
       </div>
-    </SectionShell>
+    </section>
   );
 }

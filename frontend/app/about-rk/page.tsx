@@ -29,8 +29,23 @@ export default function AboutRkPage() {
     <main className="bg-ivory text-charcoal">
       <StickyHeader />
 
-      <SectionShell className="pb-16 pt-28 lg:pb-24 lg:pt-32">
-        <div className="grid gap-12 lg:grid-cols-[0.95fr_1.05fr] lg:items-start lg:gap-16">
+      <section className="brand-story-section">
+        <img
+          src="https://res.cloudinary.com/fm1bwbrd/image/upload/v1785924919/download_vjn60l.png"
+          alt=""
+          aria-hidden="true"
+          className="brand-story-backdrop brand-story-backdrop-light"
+        />
+        <img
+          src="https://res.cloudinary.com/fm1bwbrd/image/upload/v1785924823/download_tvu6fp.png"
+          alt=""
+          aria-hidden="true"
+          className="brand-story-backdrop brand-story-backdrop-dark"
+        />
+
+        <div className="relative z-10">
+          <SectionShell className="pb-16 pt-28 lg:pb-24 lg:pt-32">
+            <div className="grid gap-12 lg:grid-cols-[0.95fr_1.05fr] lg:items-start lg:gap-16">
           <div className="space-y-6 lg:sticky lg:top-32 lg:self-start">
             <p className="text-xs uppercase tracking-[0.38em] text-charcoal/45">About RK</p>
             <h1 className="max-w-xl font-display text-5xl leading-none md:text-7xl">
@@ -71,8 +86,10 @@ export default function AboutRkPage() {
               ))}
             </div>
           </div>
+            </div>
+          </SectionShell>
         </div>
-      </SectionShell>
+      </section>
 
       <Footer />
     </main>

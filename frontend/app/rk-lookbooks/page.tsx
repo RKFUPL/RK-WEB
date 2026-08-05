@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import { Footer } from '@/components/home/footer';
 import { StickyHeader } from '@/components/home/sticky-header';
 import { SectionShell } from '@/components/home/section-shell';
@@ -37,6 +37,9 @@ const coverByTitle = new Map([
   ['SANDOOK', 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861901/Sandook_h0rfqg.png'],
 ]);
 
+const lookbookExploreLightBackground = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785934366/174c6b2b-830d-47ab-b2f7-27ff728c5384_ybxqdk.png';
+const lookbookExploreDarkBackground = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785934628/5ffc37c0-a1a9-49ec-83e8-90c425fdd1ec_gk6csn.png';
+
 const featuredLookbooks = lookbooks.filter((lookbook) => !lookbook.comingSoon && lookbook.href && coverByTitle.has(lookbook.title.toUpperCase()));
 
 function titleStyle(lookbook: Lookbook) {
@@ -63,6 +66,18 @@ export default function RkLookbooksPage() {
     const timer = window.setInterval(() => setSpotlightIndex((current) => (current + 1) % featuredLookbooks.length), 6000);
     return () => window.clearInterval(timer);
   }, [paused]);
+
+  useEffect(() => {
+    const shelf = shelfRef.current;
+    if (!shelf) return;
+    const handleWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) || event.deltaX === 0) return;
+      event.preventDefault();
+      shelf.scrollLeft += event.deltaX;
+    };
+    shelf.addEventListener('wheel', handleWheel, { passive: false });
+    return () => shelf.removeEventListener('wheel', handleWheel);
+  }, []);
 
   const changeSpotlight = (direction: -1 | 1) => setSpotlightIndex((current) => (current + direction + featuredLookbooks.length) % featuredLookbooks.length);
 
@@ -93,20 +108,10 @@ export default function RkLookbooksPage() {
     setIsDragging(false);
   };
 
-  const handleShelfWheel = (event: WheelEvent<HTMLDivElement>) => {
-    const shelf = shelfRef.current;
-    if (!shelf) return;
-    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-    if (delta !== 0) {
-      event.preventDefault();
-      shelf.scrollLeft += delta;
-    }
-  };
-
   return (
     <main className="rk-lookbooks-archive bg-ivory text-charcoal">
       <StickyHeader />
-      <SectionShell className="pb-24 pt-28 lg:pb-36 lg:pt-36">
+      <SectionShell className="pb-0 pt-28 lg:pb-0 lg:pt-36">
         <section className="grid gap-12 lg:grid-cols-[0.72fr_1.28fr] lg:items-center lg:gap-20">
           <div className="max-w-xl space-y-6 lg:sticky lg:top-28 lg:self-start">
             <p className="text-xs uppercase tracking-[0.38em] text-charcoal/45">RK Lookbooks</p>
@@ -132,14 +137,15 @@ export default function RkLookbooksPage() {
           </div> : null}
         </section>
 
-        <section className="mt-28 md:mt-40">
+        <section className="lookbook-explore-section relative left-1/2 mt-28 w-screen -translate-x-1/2 px-0 py-10 pb-24 md:mt-40">
+          <div className="mx-auto w-full max-w-7xl px-6 md:px-10">
           <div className="flex items-end justify-between border-b border-black/15 pb-5"><div><p className="text-xs uppercase tracking-[0.38em] text-charcoal/45">The archive</p><h2 className="mt-3 font-display text-5xl leading-none md:text-7xl">Explore all lookbooks</h2></div><div className="hidden items-center gap-3 md:flex"><button type="button" aria-label="Scroll archive left" onClick={() => scrollShelf(-1)} className="flex h-10 w-10 items-center justify-center border border-black/15 transition hover:border-charcoal"><ArrowLeft className="h-4 w-4" /></button><button type="button" aria-label="Scroll archive right" onClick={() => scrollShelf(1)} className="flex h-10 w-10 items-center justify-center border border-black/15 transition hover:border-charcoal"><ArrowRight className="h-4 w-4" /></button></div></div>
-          <div ref={shelfRef} onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onWheel={handleShelfWheel} className={`rk-archive-shelf mt-12 flex gap-8 overflow-x-auto overscroll-x-contain pb-8 touch-pan-x select-none md:gap-10 ${isDragging ? 'is-dragging' : ''}`}>
+          <div ref={shelfRef} onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} className={`rk-archive-shelf mt-12 flex gap-8 overflow-x-auto overscroll-x-contain pb-8 touch-pan-x select-none md:gap-10 ${isDragging ? 'is-dragging' : ''}`}>
             {lookbooks.map((lookbook, index) => {
               const cover = coverByTitle.get(lookbook.title.toUpperCase());
               return <Link key={lookbook.title} href={lookbook.href ?? '/rk-lookbooks'} target={lookbook.href ? '_blank' : undefined} rel={lookbook.href ? 'noopener noreferrer' : undefined} onClick={(event) => { if (dragged.current) { event.preventDefault(); dragged.current = false; } }} className={`group relative w-[16rem] shrink-0 pt-4 text-left before:absolute before:left-0 before:right-0 before:top-0 before:h-px before:origin-left before:scale-x-0 before:bg-gold before:transition-transform before:duration-150 before:ease-out group-hover:before:scale-x-100 md:w-[17rem] ${activeSpotlight?.title === lookbook.title ? 'before:scale-x-100' : ''}`}>
                 <div className={`relative aspect-[3/4] w-full overflow-hidden rounded-[3px] ${lookbook.comingSoon ? 'border border-black/10 dark:border-white/25' : 'bg-sand'}`}>
-                  {lookbook.comingSoon ? <div className="flex h-full items-center justify-center bg-black/[0.02] text-center text-[0.62rem] uppercase tracking-[0.35em] text-charcoal/65 transition-colors duration-150 group-hover:text-gold dark:bg-white/[0.02] dark:text-white/80">Coming<br />Soon</div> : cover ? <img src={cover} alt={`${lookbook.title} cover`} draggable={false} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03] group-hover:brightness-90" /> : null}
+                  {lookbook.comingSoon ? <div className="flex h-full items-center justify-center bg-black/[0.02] text-center text-[0.62rem] uppercase tracking-[0.35em] text-black transition-colors duration-150 group-hover:text-gold dark:bg-white/[0.02] dark:text-black">Coming<br />Soon</div> : cover ? <img src={cover} alt={`${lookbook.title} cover`} draggable={false} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03] group-hover:brightness-90" /> : null}
                   <span className="absolute left-4 top-4 font-display text-3xl text-white/80 drop-shadow">{String(index + 1).padStart(2, '0')}</span>
                 </div>
                 <h3 style={titleStyle(lookbook)} className="mt-6 min-h-[3.5rem] text-3xl leading-[0.88] text-charcoal transition-colors duration-150 group-hover:text-gold">{lookbook.title}</h3>
@@ -149,10 +155,11 @@ export default function RkLookbooksPage() {
               </Link>;
             })}
           </div>
+          </div>
         </section>
       </SectionShell>
       <Footer />
-      <style jsx>{`.rk-archive-shelf { scrollbar-width: none; cursor: grab; } .rk-archive-shelf::-webkit-scrollbar { display: none; } .rk-archive-shelf:active { cursor: grabbing; } .rk-archive-shelf.is-dragging { cursor: grabbing; }`}</style>
+      <style jsx>{`.rk-archive-shelf { scrollbar-width: none; cursor: grab; } .rk-archive-shelf::-webkit-scrollbar { display: none; } .rk-archive-shelf:active { cursor: grabbing; } .rk-archive-shelf.is-dragging { cursor: grabbing; } .lookbook-explore-section { background-image: url("${lookbookExploreLightBackground}"); background-position: center; background-repeat: no-repeat; background-size: 100% 100%; } :global(.dark) .lookbook-explore-section { background-image: url("${lookbookExploreDarkBackground}"); }`}</style>
     </main>
   );
 }
