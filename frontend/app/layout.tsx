@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import localFont from 'next/font/local';
 import { Inter, Cormorant_Garamond } from 'next/font/google';
 import './globals.css';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -34,6 +35,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
     <html lang="en" data-scroll-behavior="smooth">
       <body className={`${inter.variable} ${cormorant.variable} ${aakaar.variable} bg-ivory text-charcoal antialiased`}>
         {children}
+        <ThemeToggle />
       </body>
     </html>
   );

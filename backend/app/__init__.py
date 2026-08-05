@@ -1,10 +1,17 @@
 from pathlib import Path
+import os
 
 from flask import Flask
 from flask import send_file
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# The local development environment can expose a dead placeholder proxy. It
+# prevents Resend from reaching its API even though the backend is healthy.
+for _proxy_name in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy'):
+    if os.getenv(_proxy_name, '').lower() == 'http://127.0.0.1:9':
+        os.environ.pop(_proxy_name, None)
 
 from .blueprints.auth.routes import auth_bp
 from .blueprints.health.routes import health_bp

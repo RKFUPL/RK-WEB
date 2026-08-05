@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { logout, type Role } from '@/lib/rbac';
+import { brandLogoUrl } from '@/lib/home-content';
 
 const navigation: Record<Role, Array<{ href: string; label: string }>> = {
   customer: [
@@ -25,7 +26,7 @@ export function DashboardShell({ role, title, children }: { role: Role; title: s
   return (
     <div className="min-h-screen bg-ivory text-charcoal lg:flex">
       <aside className="w-full border-b border-black/10 bg-white p-6 lg:min-h-screen lg:w-72 lg:border-b-0 lg:border-r lg:p-8">
-        <Link href="/" className="font-display text-3xl">Rashi Kapoor</Link>
+        <Link href="/" className="inline-flex"><img src={brandLogoUrl} alt="RK" className="rk-logo h-14 w-auto" /></Link>
         <p className="mt-3 text-[10px] uppercase tracking-[0.3em] text-charcoal/45">{role} area</p>
         <nav className="mt-10 space-y-3">
           {navigation[role].map((item) => <Link key={item.href} href={item.href} className="block py-2 text-xs uppercase tracking-[0.18em] text-charcoal/65 transition hover:text-gold">{item.label}</Link>)}

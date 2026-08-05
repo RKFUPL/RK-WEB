@@ -1,9 +1,14 @@
 from datetime import datetime, timezone
 
+from bcrypt import gensalt, hashpw
 from bson import ObjectId
 from flask import Blueprint, jsonify, request
 
 from ...rbac import ROLES, current_user, database, requireAdmin
+
+
+def _password_hash(password: str) -> str:
+    return hashpw(password.encode(), gensalt()).decode()
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -80,3 +85,23 @@ def change_status(user_id: str):
         return jsonify({"error": "The last remaining admin cannot be deactivated."}), 409
     users.update_one({"_id": target["_id"]}, {"$set": {"isActive": active, "updatedAt": datetime.now(timezone.utc)}})
     return jsonify({"user": _user_view(users.find_one({"_id": target["_id"]}))}), 200
+
+
+@admin_bp.patch("/users/<user_id>/password")
+@requireAdmin
+def change_password(user_id: str):
+    if not ObjectId.is_valid(user_id):
+        return jsonify({"error": "Invalid user id."}), 400
+    password = (request.get_json(silent=True) or {}).get("password")
+    if not isinstance(password, str) or len(password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters."}), 400
+
+    users = database().users
+    target = users.find_one({"_id": ObjectId(user_id)})
+    if not target:
+        return jsonify({"error": "User not found."}), 404
+    if target.get("role", "customer") not in {"staff", "admin"}:
+        return jsonify({"error": "Only staff and admin passwords can be updated here."}), 400
+
+    users.update_one({"_id": target["_id"]}, {"$set": {"passwordHash": _password_hash(password), "updatedAt": datetime.now(timezone.utc)}})
+    return jsonify({"message": "Password updated successfully."}), 200

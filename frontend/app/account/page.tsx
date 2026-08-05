@@ -59,11 +59,12 @@ function PasswordField({ label, value, onChange, required = true, minLength, err
   );
 }
 
-type SignupField = 'fullName' | 'username' | 'email' | 'password';
+type SignupField = 'fullName' | 'username' | 'email' | 'phone' | 'region' | 'password';
 
 function signupFieldError(field: SignupField, value: string) {
-  if (!value.trim()) return field === 'fullName' ? 'Full name is required.' : field === 'username' ? 'Username is required.' : field === 'email' ? 'Email is required.' : 'Password is required.';
+  if (!value.trim()) return field === 'fullName' ? 'Full name is required.' : field === 'username' ? 'Username is required.' : field === 'email' ? 'Email is required.' : field === 'phone' ? 'Phone number is required.' : field === 'region' ? 'Region is required.' : 'Password is required.';
   if (field === 'email' && !/^\S+@\S+\.\S+$/.test(value.trim())) return 'Enter a valid email address.';
+  if (field === 'phone' && !/^\+?[0-9\s().-]{7,20}$/.test(value.trim())) return 'Enter a valid phone number.';
   if (field === 'password' && value.length < 8) return 'Password must be at least 8 characters.';
   return '';
 }
@@ -77,6 +78,8 @@ export default function AccountPage() {
   const [otpStep, setOtpStep] = useState(false);
   const [identifier, setIdentifier] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [region, setRegion] = useState('');
   const [username, setUsername] = useState('');
   const [fullName, setFullName] = useState('');
   const [password, setPassword] = useState('');
@@ -119,8 +122,8 @@ export default function AccountPage() {
 
   const validateSignup = () => {
     const nextErrors: Partial<Record<SignupField, string>> = {};
-    (['fullName', 'username', 'email', 'password'] as SignupField[]).forEach((field) => {
-      const value = field === 'fullName' ? fullName : field === 'username' ? username : field === 'email' ? email : password;
+    (['fullName', 'username', 'email', 'phone', 'region', 'password'] as SignupField[]).forEach((field) => {
+      const value = field === 'fullName' ? fullName : field === 'username' ? username : field === 'email' ? email : field === 'phone' ? phone : field === 'region' ? region : password;
       const error = signupFieldError(field, value);
       if (error) nextErrors[field] = error;
     });
@@ -132,6 +135,8 @@ export default function AccountPage() {
     if (field === 'fullName') setFullName(value);
     if (field === 'username') setUsername(value);
     if (field === 'email') setEmail(value);
+    if (field === 'phone') setPhone(value);
+    if (field === 'region') setRegion(value);
     if (field === 'password') setPassword(value);
     if (fieldErrors[field]) setFieldErrors((current) => ({ ...current, [field]: signupFieldError(field, value) || undefined }));
   };
@@ -170,7 +175,7 @@ export default function AccountPage() {
       const response = await fetch(`${apiBaseUrl}/api/auth/signup/request-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ displayName: fullName, username, email, password }),
+        body: JSON.stringify({ displayName: fullName, username, email, phone, region, password }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? 'Unable to send signup code.');
@@ -268,7 +273,7 @@ export default function AccountPage() {
           <div className="w-full max-w-md">
             <div className="mb-12 flex justify-end">
               <a href="/" className="inline-flex">
-                <img src={brandLogoUrl} alt="RK Logo" className="h-16 w-auto" />
+                <img src={brandLogoUrl} alt="RK Logo" className="rk-logo h-16 w-auto" />
               </a>
             </div>
             <p className="mt-8 text-xs uppercase tracking-[0.35em] text-charcoal/45">{isSignup ? 'Create your profile' : isForgot ? 'Account recovery' : 'Welcome back'}</p>
@@ -278,11 +283,12 @@ export default function AccountPage() {
             <form onSubmit={formSubmit} noValidate={isSignup} className="mt-10 space-y-5">
               {isSignup ? (
                 <>
-                  {(['fullName', 'username', 'email'] as const).map((field) => {
-                    const labels = { fullName: 'Full name', username: 'Username', email: 'Email' };
-                    const values = { fullName, username, email };
+                  {(['fullName', 'username', 'email', 'phone'] as const).map((field) => {
+                    const labels = { fullName: 'Full name', username: 'Username', email: 'Email', phone: 'Phone number' };
+                    const values = { fullName, username, email, phone };
                     return <label key={field} className={`group relative block text-xs uppercase tracking-[0.25em] ${fieldErrors[field] ? 'text-red-600' : 'text-charcoal/55'}`}>{labels[field]}<input type={field === 'email' ? 'email' : 'text'} required value={values[field]} onChange={(event) => updateSignupField(field, event.target.value)} onBlur={() => setFieldErrors((current) => ({ ...current, [field]: signupFieldError(field, values[field]) || undefined }))} disabled={otpStep} aria-invalid={Boolean(fieldErrors[field])} className={`mt-3 w-full border-b px-0 py-3 text-base normal-case tracking-normal outline-none focus:border-gold ${fieldErrors[field] ? 'border-red-500' : 'border-black/15'}`} />{fieldErrors[field] ? <span role="tooltip" className="pointer-events-none absolute right-0 top-0 z-10 max-w-[15rem] -translate-y-2 rounded bg-red-600 px-3 py-2 text-[10px] normal-case tracking-normal text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">{fieldErrors[field]}</span> : null}</label>;
                   })}
+                  <label className={`block text-xs uppercase tracking-[0.25em] ${fieldErrors.region ? 'text-red-600' : 'text-charcoal/55'}`}>Region<select required value={region} onChange={(event) => updateSignupField('region', event.target.value)} disabled={otpStep} className={`mt-3 w-full border-b bg-transparent px-0 py-3 text-base normal-case tracking-normal outline-none focus:border-gold ${fieldErrors.region ? 'border-red-500' : 'border-black/15'}`}><option value="">Select your region</option><option value="asia-india">Asia (India) · INR</option><option value="us">United States · USD</option><option value="europe">Europe · EUR</option><option value="anywhere-else">Anywhere else · USD</option></select>{fieldErrors.region ? <span className="text-[10px] normal-case tracking-normal text-red-600">{fieldErrors.region}</span> : null}</label>
                   {!otpStep ? <PasswordField label="Password" minLength={8} value={password} error={fieldErrors.password} onChange={(value) => updateSignupField('password', value)} onBlur={() => setFieldErrors((current) => ({ ...current, password: signupFieldError('password', password) || undefined }))} /> : null}
                 </>
               ) : (

@@ -17,32 +17,32 @@ function collectionTitleStyle(name: string, fontFamily: string) {
 
 function CampaignImage({ collection, index }: { collection: (typeof collectionPages)[number]; index: number }) {
   return (
-    <Link href={collection.route} className={`group block ${index % 2 === 1 ? 'md:mt-24' : ''}`}>
+    <Link href={collection.route} className={`group block ${index % 2 === 1 ? 'md:mt-24 lg:mt-28' : ''}`}>
       <motion.article
         initial={{ opacity: 0, y: 20 }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, amount: 0.12 }}
         transition={{ duration: 0.75, ease: [0.22, 1, 0.36, 1] }}
       >
-        <div className="relative overflow-hidden rounded-[3px] bg-sand">
+        <div className="collections-campaign-image relative overflow-hidden bg-sand">
           <img
             src={collection.image}
             alt={`${collection.name} collection campaign`}
             draggable={false}
-            className="block h-auto w-full object-cover transition duration-700 ease-out group-hover:scale-[1.03]"
+            className="block h-auto w-full object-cover transition duration-300 ease-out will-change-transform group-hover:scale-[1.03]"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent opacity-75 transition duration-500 group-hover:opacity-90" />
+          <div className="collections-campaign-shade absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-90 transition-opacity duration-300 group-hover:opacity-100" />
           <div className="absolute inset-x-0 bottom-0 p-5 text-white md:p-7">
-            <p className="text-[0.58rem] uppercase tracking-[0.36em] text-white/65">Collection</p>
-            <div className="mt-3 flex items-end justify-between gap-5">
+            <p className="text-[0.58rem] uppercase tracking-[0.32em] text-white/75">Collection</p>
+            <div className="mt-2 flex items-end justify-between gap-5">
               <h2
                 style={collectionTitleStyle(collection.name, collection.fontFamily)}
                 className="text-4xl leading-[0.86] tracking-[0.025em] transition-colors duration-300 group-hover:text-white md:text-5xl"
               >
                 {collection.name}
               </h2>
-              <span className="flex shrink-0 items-center gap-2 pb-1 text-[0.58rem] uppercase tracking-[0.28em] text-white/80 transition-transform duration-300 group-hover:translate-x-2">
-                View collection <ArrowRight className="h-4 w-4" />
+              <span className="flex shrink-0 items-center gap-2 pb-1 text-[0.58rem] uppercase tracking-[0.24em] text-white/85">
+                View collection <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-2" />
               </span>
             </div>
           </div>
@@ -57,47 +57,61 @@ export default function CollectionsPage() {
   const rightColumn = collectionPages.filter((_, index) => index % 2 === 1);
 
   return (
-    <main className="bg-ivory text-charcoal">
+    <main className="collections-page bg-ivory text-charcoal">
       <StickyHeader />
 
-      <SectionShell className="pb-24 pt-28 lg:pb-36 lg:pt-36">
-        <div className="grid gap-14 lg:grid-cols-[0.34fr_0.66fr] lg:gap-16">
-          <header className="space-y-7 lg:sticky lg:top-28 lg:self-start">
-            <p className="text-xs uppercase tracking-[0.38em] text-charcoal/45">All Collections</p>
-            <h1 className="max-w-md font-display text-6xl leading-[0.88] md:text-8xl">
+      <section className="collections-gallery-scene">
+        <img
+          src="https://res.cloudinary.com/fm1bwbrd/image/upload/v1785921051/7438eb66-a217-4bdd-9227-92112a02fc5c_hds45c.png"
+          alt=""
+          aria-hidden="true"
+          className="collections-gallery-backdrop collections-gallery-backdrop-light"
+        />
+        <img
+          src="https://res.cloudinary.com/fm1bwbrd/image/upload/v1785920821/download_trvdb5.png"
+          alt=""
+          aria-hidden="true"
+          className="collections-gallery-backdrop collections-gallery-backdrop-dark"
+        />
+
+        <div className="relative z-10">
+          <SectionShell className="collections-landing-shell pb-20 pt-20 lg:pb-28 lg:pt-24">
+            <div className="grid gap-12 lg:grid-cols-[0.32fr_0.68fr] lg:gap-16">
+          <header className="space-y-6 lg:sticky lg:top-28 lg:self-start">
+            <p className="text-[0.65rem] uppercase tracking-[0.3em] text-charcoal/60">All collections</p>
+            <h1 className="max-w-sm font-display text-6xl leading-[0.88] md:text-8xl">
               Drape yourself in the luxury of the house.
             </h1>
-            <p className="max-w-sm text-sm leading-7 text-charcoal/60 md:text-base md:leading-8">
-              A visual catalogue of campaign stories, considered silhouettes, and the evolving world of Rashi Kapoor.
+            <span className="block h-px w-14 bg-gold" />
+            <p className="max-w-sm text-sm leading-7 text-charcoal/65 md:text-base md:leading-8">
+              A curated expression of our design philosophy. Each collection is a story woven in fabric, texture and craftsmanship.
             </p>
           </header>
 
           <section aria-label="All collections" className="min-w-0">
-            <div className="mb-10 flex items-end justify-between border-b border-black/12 pb-5">
-              <div>
-                <p className="text-[0.62rem] uppercase tracking-[0.38em] text-charcoal/45">The campaign wall</p>
-                <h2 className="mt-3 font-display text-4xl leading-none md:text-6xl">The collections.</h2>
-              </div>
-              <p className="hidden text-[0.6rem] uppercase tracking-[0.35em] text-charcoal/40 sm:block">
-                {collectionPages.length} stories
-              </p>
-            </div>
-
             <div className="hidden items-start gap-6 md:grid md:grid-cols-2 lg:gap-8">
               <div className="flex min-w-0 flex-col gap-6 lg:gap-8">
-                {leftColumn.map((collection, index) => <CampaignImage key={collection.name} collection={collection} index={index * 2} />)}
+                {leftColumn.map((collection, index) => (
+                  <CampaignImage key={collection.name} collection={collection} index={index * 2} />
+                ))}
               </div>
               <div className="flex min-w-0 flex-col gap-6 lg:gap-8">
-                {rightColumn.map((collection, index) => <CampaignImage key={collection.name} collection={collection} index={index * 2 + 1} />)}
+                {rightColumn.map((collection, index) => (
+                  <CampaignImage key={collection.name} collection={collection} index={index * 2 + 1} />
+                ))}
               </div>
             </div>
 
             <div className="flex flex-col gap-6 md:hidden">
-              {collectionPages.map((collection, index) => <CampaignImage key={collection.name} collection={collection} index={index} />)}
+              {collectionPages.map((collection, index) => (
+                <CampaignImage key={collection.name} collection={collection} index={index} />
+              ))}
             </div>
           </section>
+            </div>
+          </SectionShell>
         </div>
-      </SectionShell>
+      </section>
 
       <Footer />
     </main>

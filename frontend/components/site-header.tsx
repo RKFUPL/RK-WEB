@@ -48,7 +48,7 @@ export function SiteHeader() {
             alt="RK Logo"
             width="80"
             height="40"
-            className="h-10 w-auto"
+            className="rk-logo h-10 w-auto"
             style={{ width: 'auto', height: '2.5rem' }}
           />
         </div>

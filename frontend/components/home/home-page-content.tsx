@@ -19,11 +19,13 @@ export function HomePageContent({ ready }: HomePageContentProps) {
         className={`transition-all duration-1000 ${ready ? 'opacity-100 translate-y-0' : 'pointer-events-none opacity-0 translate-y-6'}`}
       >
         <FeaturedCollection />
-        <ShopCategories />
-        <BrandStory />
-        <Services />
-        <Newsletter />
-        <Footer />
+        <div className="theme-transition-below">
+          <ShopCategories />
+          <BrandStory />
+          <Services />
+          <Newsletter />
+          <Footer />
+        </div>
       </div>
     </div>
   );

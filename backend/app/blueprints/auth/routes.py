@@ -146,13 +146,22 @@ def signup_request_otp():
     email = _normalise_email(payload.get("email"))
     username = _normalise_username(payload.get("username"))
     display_name = str(payload.get("displayName") or "").strip()
+    phone = str(payload.get("phone") or "").strip()
+    region = str(payload.get("region") or "").strip().lower()
     password = payload.get("password")
-    if not email or "@" not in email or not username or not display_name or not _valid_password(password):
-        return jsonify({"error": "Full name, username, valid email, and an 8-character password are required."}), 400
+    if not email or "@" not in email or not username or not display_name or not phone or not re.fullmatch(r"\+?[0-9\s().-]{7,20}", phone) or region not in {"asia-india", "us", "europe", "anywhere-else"} or not _valid_password(password):
+        return jsonify({"error": "Full name, username, valid email, phone number, region, and an 8-character password are required."}), 400
 
     users = _database().users
-    if users.find_one({"$or": [{"email": email}, {"username": username}]}):
-        return jsonify({"error": "That email or username is already registered."}), 409
+    email_exists = users.find_one({"email": email})
+    username_exists = users.find_one({"username": username})
+    if email_exists or username_exists:
+        conflicts = []
+        if email_exists:
+            conflicts.append("That email is already registered.")
+        if username_exists:
+            conflicts.append("That username is already taken.")
+        return jsonify({"error": " ".join(conflicts)}), 409
 
     now = datetime.now(timezone.utc)
     otp = f"{secrets.randbelow(1_000_000):06d}"
@@ -163,6 +172,9 @@ def signup_request_otp():
             "purpose": "signup",
             "username": username,
             "displayName": display_name,
+            "phone": phone,
+            "region": region,
+            "currency": _currency_for_region(region),
             "passwordHash": _password_hash(password),
             "otpHash": hashpw(otp.encode(), gensalt()).decode(),
             "otpExpiresAt": now + timedelta(minutes=10),
@@ -202,6 +214,9 @@ def signup_verify_otp():
         "displayName": challenge["displayName"],
         "firstName": first_name,
         "lastName": last_name,
+        "phone": challenge.get("phone"),
+        "region": challenge.get("region", "asia-india"),
+        "currency": challenge.get("currency", _currency_for_region(challenge.get("region", "asia-india"))),
         "passwordHash": challenge["passwordHash"],
         "role": _initial_role(challenge["email"], True),
         "isActive": True,

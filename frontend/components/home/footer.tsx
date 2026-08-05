@@ -161,7 +161,7 @@ export function Footer() {
                 alt="RK Logo"
                 width="120"
                 height="60"
-                className="h-16 w-auto"
+                className="rk-logo h-16 w-auto"
                 style={{ width: 'auto', height: '4rem', filter: 'brightness(0) invert(1)' }}
               />
             </div>
@@ -241,7 +241,7 @@ export function Footer() {
 
       <div className="flex flex-col items-center justify-center gap-4 bg-ivory px-6 py-10 text-center text-charcoal">
         <p className="text-sm tracking-[0.04em]">Copyright 2026 Rashi Kapoor Fashion Unicus Pvt. Ltd.</p>
-        <img src={brandLogoUrl} alt="RK Logo" width="72" height="52" className="h-14 w-auto" />
+        <img src={brandLogoUrl} alt="RK Logo" width="72" height="52" className="rk-logo h-14 w-auto" />
       </div>
     </footer>
   );

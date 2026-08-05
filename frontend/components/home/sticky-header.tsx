@@ -45,6 +45,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
   const [bagOpen, setBagOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
+  const [accountAttention, setAccountAttention] = useState(false);
   const [accountUser, setAccountUser] = useState<HeaderUser | null>(null);
   // Product cards can populate this list later through a wishlist action.
   const [wishlistItems, setWishlistItems] = useState<typeof collectionPages[number][]>([]);
@@ -130,6 +131,8 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
         setAccountOpen(false);
         router.push('/account');
       }
+    } catch {
+      setAccountOpen(false);
     } finally {
       setAccountLoading(false);
     }
@@ -140,7 +143,25 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
     window.localStorage.removeItem('rk_access_token');
     setAccountUser(null);
     setAccountOpen(false);
+    window.alert('Successfully signed out.');
     router.push('/');
+  };
+
+  const requireSignIn = (feature: 'wishlist' | 'shopping bag') => {
+    if (window.localStorage.getItem('rk_access_token')) return true;
+    window.alert(`Please sign in to view your ${feature}.`);
+    setMenuOpen(false);
+    setAccountAttention(true);
+    window.setTimeout(() => setAccountAttention(false), 1200);
+    return false;
+  };
+
+  const openWishlist = () => {
+    if (requireSignIn('wishlist')) setWishlistOpen(true);
+  };
+
+  const openBag = () => {
+    if (requireSignIn('shopping bag')) setBagOpen(true);
   };
 
   const searchResults = useMemo(() => {
@@ -221,7 +242,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
               alt="RK Logo"
               width="80"
               height="40"
-              className="h-10 w-auto"
+              className={cn('rk-logo h-10 w-auto', isTransparent && 'rk-logo-on-hero')}
               style={{ width: 'auto', height: '2.5rem', filter: isTransparent ? 'brightness(0) invert(1)' : undefined }}
             />
           </Link>
@@ -315,20 +336,20 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
           >
             <Search className="h-4 w-4" />
           </button>
-          <button type="button" onClick={() => setWishlistOpen(true)} className="border-0 bg-transparent p-0 text-current transition hover:opacity-70" aria-label="Wishlist">
+          <button type="button" onClick={openWishlist} className="border-0 bg-transparent p-0 text-current transition hover:opacity-70" aria-label="Wishlist">
             <Heart className="h-4 w-4" />
           </button>
           <div className="relative" onMouseEnter={() => accountUser && setAccountOpen(true)} onMouseLeave={() => setAccountOpen(false)}>
-            <button type="button" onClick={openAccount} className="border-0 bg-transparent p-0 text-current transition hover:opacity-70" aria-label="Account" aria-expanded={accountOpen}>
+            <button type="button" onClick={openAccount} className={cn('border-0 bg-transparent p-0 text-current transition hover:opacity-70', accountAttention && 'animate-[rk-account-blink_1.2s_ease-in-out]')} aria-label="Account" aria-expanded={accountOpen}>
               <UserRound className="h-4 w-4" />
             </button>
             <AnimatePresence>
               {accountOpen ? <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} className="absolute right-0 top-full z-50 mt-4 w-64 border border-black/10 bg-white p-5 text-charcoal shadow-[0_18px_45px_rgba(18,18,18,0.1)]" onMouseEnter={() => setAccountOpen(true)}>
-                {accountLoading ? <p className="text-xs text-charcoal/55">Checking your account…</p> : accountUser ? <><p className="text-[10px] uppercase tracking-[0.28em] text-charcoal/45">Signed in as</p><p className="mt-2 font-display text-2xl">{accountUser.firstName || accountUser.displayName || accountUser.username || 'RK member'}</p>{accountUser.username ? <p className="mt-1 text-xs text-charcoal/50">@{accountUser.username}</p> : null}<Link href="/profile" onClick={() => setAccountOpen(false)} className="mt-5 block rounded-full bg-ink px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-ivory transition hover:bg-gold">Manage profile</Link><button type="button" onClick={signOut} className="mt-3 w-full border border-black/10 px-4 py-3 text-[10px] uppercase tracking-[0.2em] text-charcoal/60 transition hover:border-red-500 hover:text-red-600">Sign out</button></> : null}
+                {accountLoading ? <p className="text-xs text-charcoal/55">Checking your account…</p> : accountUser ? <><p className="text-[10px] uppercase tracking-[0.28em] text-charcoal/45">Signed in as</p><p className="mt-2 font-display text-2xl">{accountUser.firstName || accountUser.displayName || accountUser.username || 'RK member'}</p>{accountUser.role !== 'customer' ? <span className="mt-2 inline-flex rounded-full border border-gold/50 px-2.5 py-1 text-[9px] uppercase tracking-[0.22em] text-gold">{accountUser.role}</span> : null}{accountUser.username ? <p className="mt-1 text-xs text-charcoal/50">@{accountUser.username}</p> : null}<Link href="/profile" onClick={() => setAccountOpen(false)} className="mt-5 block rounded-full bg-ink px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-ivory transition hover:bg-gold">Manage profile</Link><button type="button" onClick={signOut} className="mt-3 w-full border border-black/10 px-4 py-3 text-[10px] uppercase tracking-[0.2em] text-charcoal/60 transition hover:border-red-500 hover:text-red-600">Sign out</button></> : null}
               </motion.div> : null}
             </AnimatePresence>
           </div>
-          <button type="button" onClick={() => setBagOpen(true)} className="border-0 bg-transparent p-0 text-current transition hover:opacity-70" aria-label="Shopping Bag">
+          <button type="button" onClick={openBag} className="border-0 bg-transparent p-0 text-current transition hover:opacity-70" aria-label="Shopping Bag">
             <ShoppingBag className="h-4 w-4" />
           </button>
         </div>
@@ -422,7 +443,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
                   alt="RK Logo"
                   width="80"
                   height="40"
-                  className="h-10 w-auto"
+                  className={cn('rk-logo h-10 w-auto', isTransparent && 'rk-logo-on-hero')}
                   style={{ width: 'auto', height: '2.5rem' }}
                 />
                 <button onClick={() => setMenuOpen(false)} aria-label="Close menu">
@@ -527,14 +548,14 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
                       }
                       if (label === 'Wishlist') {
                         setMenuOpen(false);
-                        setWishlistOpen(true);
+                        openWishlist();
                       }
                       if (label === 'Shopping Bag') {
                         setMenuOpen(false);
-                        setBagOpen(true);
+                        openBag();
                       }
                     }}
-                    className="flex w-full items-center gap-4 border-b border-black/10 bg-white px-1 py-4 text-left transition hover:border-gold hover:text-gold"
+                    className={cn('flex w-full items-center gap-4 border-b border-black/10 bg-white px-1 py-4 text-left transition hover:border-gold hover:text-gold', label === 'Account' && accountAttention && 'animate-[rk-account-blink_1.2s_ease-in-out]')}
                   >
                     <Icon className="h-5 w-5" strokeWidth={1.5} />
                     <span>{label}</span>
@@ -542,7 +563,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
                 ))}
               </div>
               {accountOpen ? <div className="mt-5 border border-black/10 bg-ivory p-5 text-charcoal">
-                {accountLoading ? <p className="text-xs text-charcoal/55">Checking your account…</p> : accountUser ? <><p className="text-[10px] uppercase tracking-[0.28em] text-charcoal/45">Signed in as</p><p className="mt-2 font-display text-2xl">{accountUser.firstName || accountUser.displayName || accountUser.username || 'RK member'}</p><Link href="/profile" onClick={handleNavigation} className="mt-5 block rounded-full bg-ink px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-ivory">Manage profile</Link><button type="button" onClick={signOut} className="mt-3 w-full border border-black/10 px-4 py-3 text-[10px] uppercase tracking-[0.2em] text-charcoal/60">Sign out</button></> : null}
+                {accountLoading ? <p className="text-xs text-charcoal/55">Checking your account…</p> : accountUser ? <><p className="text-[10px] uppercase tracking-[0.28em] text-charcoal/45">Signed in as</p><p className="mt-2 font-display text-2xl">{accountUser.firstName || accountUser.displayName || accountUser.username || 'RK member'}</p>{accountUser.role !== 'customer' ? <span className="mt-2 inline-flex rounded-full border border-gold/50 px-2.5 py-1 text-[9px] uppercase tracking-[0.22em] text-gold">{accountUser.role}</span> : null}<Link href="/profile" onClick={handleNavigation} className="mt-5 block rounded-full bg-ink px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-ivory">Manage profile</Link><button type="button" onClick={signOut} className="mt-3 w-full border border-black/10 px-4 py-3 text-[10px] uppercase tracking-[0.2em] text-charcoal/60">Sign out</button></> : null}
               </div> : null}
             </motion.aside>
           </motion.div>
