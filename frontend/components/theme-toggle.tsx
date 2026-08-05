@@ -11,7 +11,8 @@ export function ThemeToggle() {
 
   useEffect(() => {
     const saved = window.localStorage.getItem(storageKey);
-    const nextDark = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    // RK starts in light mode unless the visitor has explicitly selected dark mode.
+    const nextDark = saved === 'dark';
     setDark(nextDark);
     document.documentElement.classList.toggle('dark', nextDark);
   }, []);
