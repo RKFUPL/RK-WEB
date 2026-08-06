@@ -166,7 +166,7 @@ function ProfilePageContent() {
   if (loading) return <div className="mx-auto max-w-6xl animate-pulse"><div className="h-8 w-40 rounded bg-charcoal/10" /><div className="mt-8 h-32 rounded-2xl bg-charcoal/10" /><div className="mt-6 h-96 rounded-2xl bg-charcoal/10" /></div>;
   if (!user) return null;
 
-  return <main className="min-h-screen bg-[radial-gradient(circle_at_top_right,_rgba(199,166,107,0.18),_transparent_35%),linear-gradient(135deg,#f8f6f2_0%,#f2eee7_100%)] px-5 py-8 text-charcoal md:px-10 lg:px-16">
+  return <main className="account-profile-page min-h-screen bg-[radial-gradient(circle_at_top_right,_rgba(199,166,107,0.18),_transparent_35%),linear-gradient(135deg,#f8f6f2_0%,#f2eee7_100%)] px-5 py-8 text-charcoal md:px-10 lg:px-16">
     <header className="mx-auto flex max-w-6xl items-center"><a href="/" className="inline-flex"><img src={brandLogoUrl} alt="RK Logo" className="rk-logo h-14 w-auto" /></a></header>
     <div className="mx-auto mt-16 max-w-6xl"><p className="text-[10px] uppercase tracking-[0.35em] text-gold">Personal space</p><div className="mt-3 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><h1 className="font-display text-6xl leading-none md:text-8xl">My profile.</h1><p className="mt-5 max-w-xl text-sm leading-7 text-charcoal/60">A quieter place to keep your RK experience personal.</p></div>{dirty ? <p className="text-xs text-charcoal/55">You have unsaved changes.</p> : null}</div></div>
     <div className="mx-auto mt-12 grid max-w-6xl gap-6 lg:grid-cols-[0.75fr_1.25fr]">

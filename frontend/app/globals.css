@@ -730,3 +730,63 @@ body {
   align-items: center;
   justify-content: center;
 }
+
+.dark .account-profile-page {
+  background: radial-gradient(circle at top right, rgba(199, 166, 107, 0.16), transparent 35%), linear-gradient(135deg, #171411 0%, #0f0d0c 100%) !important;
+  color: #f5f2ee !important;
+}
+
+.dark .account-profile-page section {
+  background: rgba(29, 25, 22, 0.82) !important;
+  border-color: rgba(245, 242, 238, 0.16) !important;
+  color: #f5f2ee !important;
+}
+
+.dark .account-profile-page :is(h1, h2, h3, p, label, button, span) {
+  color: #f5f2ee;
+}
+
+.dark .account-profile-page .text-gold {
+  color: #c7a66b !important;
+}
+
+.dark .account-profile-page input,
+.dark .account-profile-page select {
+  color: #f5f2ee !important;
+  border-color: rgba(245, 242, 238, 0.22) !important;
+  background-color: transparent !important;
+}
+
+.dark .account-profile-page input::placeholder {
+  color: rgba(245, 242, 238, 0.45) !important;
+}
+
+.dark .account-profile-page option {
+  background: #1d1916;
+  color: #f5f2ee;
+}
+
+.dark .account-profile-page .border-black\/5,
+.dark .account-profile-page .border-black\/8,
+.dark .account-profile-page .border-black\/10,
+.dark .account-profile-page .border-black\/15 {
+  border-color: rgba(245, 242, 238, 0.16) !important;
+}
+
+.dark .account-profile-page button[role="switch"] {
+  background: rgba(245, 242, 238, 0.22) !important;
+  border: 1px solid rgba(245, 242, 238, 0.28);
+}
+
+.dark .account-profile-page button[role="switch"][aria-checked="true"] {
+  background: #c7a66b !important;
+  border-color: #c7a66b;
+}
+
+.dark .account-profile-page button[role="switch"] span {
+  background: #f5f2ee !important;
+}
+
+.dark .account-profile-page button[role="switch"][aria-checked="true"] span {
+  background: #171411 !important;
+}
