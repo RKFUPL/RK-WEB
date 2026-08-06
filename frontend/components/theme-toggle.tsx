@@ -15,6 +15,13 @@ export function ThemeToggle() {
     const nextDark = saved === 'dark';
     setDark(nextDark);
     document.documentElement.classList.toggle('dark', nextDark);
+    const onThemeChange = (event: Event) => {
+      const next = (event as CustomEvent<boolean>).detail;
+      setDark(next);
+      document.documentElement.classList.toggle('dark', next);
+    };
+    window.addEventListener('rk-theme-change', onThemeChange);
+    return () => window.removeEventListener('rk-theme-change', onThemeChange);
   }, []);
 
   const toggle = () => {
@@ -23,6 +30,7 @@ export function ThemeToggle() {
     setDark(nextDark);
     window.localStorage.setItem(storageKey, nextDark ? 'dark' : 'light');
     document.documentElement.classList.toggle('dark', nextDark);
+    window.dispatchEvent(new CustomEvent('rk-theme-change', { detail: nextDark }));
     document.documentElement.classList.add('theme-transitioning');
     document.body.classList.add('theme-freeze');
     window.setTimeout(() => {
