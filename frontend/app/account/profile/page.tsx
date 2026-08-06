@@ -129,7 +129,7 @@ function ProfilePageContent() {
     if (!window.confirm('Delete your account? This will sign you out and deactivate your profile.')) return;
     const response = await fetch(`${apiBaseUrl}/api/auth/profile`, { method: 'DELETE', headers: { Authorization: `Bearer ${token()}` } });
     if (!response.ok) { setToast({ type: 'error', text: 'We could not delete your account.' }); return; }
-    window.localStorage.removeItem('rk_access_token'); window.location.assign('/account');
+    window.localStorage.removeItem('rk_access_token'); window.localStorage.removeItem('rk_auth_user'); window.location.assign('/account');
   };
 
   const requestEmailChange = async () => {

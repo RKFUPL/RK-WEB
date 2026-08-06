@@ -126,8 +126,9 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
       const response = await fetch(`${apiBaseUrl}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
       if (response.ok) {
         setAccountUser((await response.json()).user);
-      } else {
+      } else if (response.status === 401) {
         window.localStorage.removeItem('rk_access_token');
+        window.localStorage.removeItem('rk_auth_user');
         setAccountOpen(false);
         router.push('/account');
       }

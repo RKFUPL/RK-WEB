@@ -27,6 +27,10 @@ class DevelopmentConfig(BaseConfig):
 class ProductionConfig(BaseConfig):
     DEBUG = False
 
+    # Keep this value in Render's environment permanently. Rotating it on
+    # every deploy invalidates all tokens that are already in browsers.
+    JWT_SECRET_KEY = os.environ["JWT_SECRET_KEY"] if os.getenv("JWT_SECRET_KEY") else BaseConfig.JWT_SECRET_KEY
+
 
 def get_config() -> type[BaseConfig]:
     env = os.getenv("FLASK_ENV", "development").lower()

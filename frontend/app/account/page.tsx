@@ -106,9 +106,16 @@ export default function AccountPage() {
       return;
     }
     fetch(`${apiBaseUrl}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((response) => (response.ok ? response.json() : null))
+      .then((response) => {
+        if (response.status === 401) {
+          window.localStorage.removeItem('rk_access_token');
+          window.localStorage.removeItem('rk_auth_user');
+          return null;
+        }
+        return response.ok ? response.json() : null;
+      })
       .then((data) => data?.user && setUser(data.user))
-      .catch(() => window.localStorage.removeItem('rk_access_token'))
+      .catch(() => undefined)
       .finally(() => setAuthChecking(false));
   }, []);
 
@@ -158,6 +165,7 @@ export default function AccountPage() {
         throw new Error(errorMessage);
       }
       window.localStorage.setItem('rk_access_token', data.accessToken);
+      window.localStorage.setItem('rk_auth_user', JSON.stringify(data.user));
       window.location.replace('/');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Unable to sign in.');
@@ -201,6 +209,7 @@ export default function AccountPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? 'The signup code is invalid or expired.');
       window.localStorage.setItem('rk_access_token', data.accessToken);
+      window.localStorage.setItem('rk_auth_user', JSON.stringify(data.user));
       window.location.replace('/');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Unable to verify signup code.');
