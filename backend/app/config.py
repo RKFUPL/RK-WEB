@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 
 
 class BaseConfig:
@@ -6,6 +7,7 @@ class BaseConfig:
     MONGO_URI = os.getenv("MONGO_DB", os.getenv("MONGO_URI", "mongodb://localhost:27017/rashi_kapoor"))
     MONGO_DBNAME = os.getenv("DB_NAME", "rashi_kapoor")
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-me-too")
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(days=30)
     JWT_COOKIE_SECURE = True
     JWT_COOKIE_SAMESITE = "Lax"
     JWT_TOKEN_LOCATION = ["cookies", "headers"]
