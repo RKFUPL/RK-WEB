@@ -25,7 +25,15 @@ def create_app() -> Flask:
     app = Flask(__name__)
     app.config.from_object(get_config())
 
-    cors.init_app(app)
+    frontend_url = app.config.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+    allowed_origins = {"http://localhost:3000"}
+    if frontend_url and not frontend_url.startswith("http://localhost:"):
+        allowed_origins.add(frontend_url)
+    cors.init_app(
+        app,
+        resources={r"/api/*": {"origins": list(allowed_origins)}},
+        supports_credentials=True,
+    )
     jwt.init_app(app)
     limiter.init_app(app)
     mail.init_app(app)

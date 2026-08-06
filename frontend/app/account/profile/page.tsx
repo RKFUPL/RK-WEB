@@ -182,5 +182,5 @@ function ProfilePageContent() {
 }
 
 export default function ProfilePage() {
-  return <RbacGuard role="customer"><ProfilePageContent /></RbacGuard>;
+  return <RbacGuard><ProfilePageContent /></RbacGuard>;
 }
