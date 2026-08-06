@@ -35,6 +35,21 @@ def create_app() -> Flask:
         supports_credentials=True,
     )
     jwt.init_app(app)
+    # Treat malformed, expired, or differently-signed browser tokens as an
+    # unauthenticated session. This lets the frontend clear only that token
+    # and ask the user to sign in again instead of exposing Flask-JWT's 422.
+    @jwt.invalid_token_loader
+    def invalid_token(reason: str):
+        return {"error": "Authentication token is invalid."}, 401
+
+    @jwt.expired_token_loader
+    def expired_token(_jwt_header, _jwt_payload):
+        return {"error": "Authentication token has expired."}, 401
+
+    @jwt.unauthorized_loader
+    def missing_token(reason: str):
+        return {"error": "Authentication required."}, 401
+
     limiter.init_app(app)
     mail.init_app(app)
     mongo.init_app(app)
