@@ -1,0 +1,179 @@
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+
+PERIOD_DAYS = {"7d": 7, "30d": 30, "90d": 90}
+
+
+def period_window(period: str, now: datetime | None = None) -> tuple[str, datetime, datetime]:
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    selected = period if period in PERIOD_DAYS else "7d"
+    start = current - timedelta(days=PERIOD_DAYS[selected] - 1)
+    start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    return selected, start, current
+
+
+def as_datetime(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=value.tzinfo or timezone.utc).astimezone(timezone.utc)
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return parsed.replace(tzinfo=parsed.tzinfo or timezone.utc).astimezone(timezone.utc)
+        except ValueError:
+            return None
+    return None
+
+
+def number(value: object) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.replace(",", ""))
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
+def order_total(order: dict) -> float:
+    totals = order.get("totals") if isinstance(order.get("totals"), dict) else {}
+    for value in (order.get("total"), order.get("totalAmount"), order.get("grandTotal"), totals.get("total")):
+        if value is not None:
+            return max(0.0, number(value))
+    return 0.0
+
+
+def serialise_datetime(value: object) -> str | None:
+    parsed = as_datetime(value)
+    return parsed.isoformat().replace("+00:00", "Z") if parsed else None
+
+
+def build_dashboard(database, period: str, now: datetime | None = None) -> dict[str, Any]:
+    selected, start, current = period_window(period, now)
+    date_query = {"createdAt": {"$gte": start, "$lte": current}}
+
+    events = list(database.analytics_events.find(date_query, {
+        "event": 1, "visitorId": 1, "sessionId": 1, "path": 1,
+        "source": 1, "properties": 1, "createdAt": 1,
+    }).sort("createdAt", -1).limit(20))
+    page_view_query = {**date_query, "event": "page_view"}
+    visitor_ids = database.analytics_events.distinct("visitorId", page_view_query)
+    page_view_count = database.analytics_events.count_documents(page_view_query)
+    wishlist_adds = database.analytics_events.count_documents({**date_query, "event": "wishlist_add"})
+
+    order_query = {**date_query, "status": {"$nin": ["cancelled", "canceled", "refunded"]}}
+    order_count = 0
+    revenue = 0.0
+    settings = database.admin_settings.find_one({"_id": "store"}) or {}
+    low_stock_threshold = max(0, int(number(settings.get("lowStockThreshold", 5))))
+    low_stock_query = {
+        "isActive": {"$ne": False},
+        "$or": [
+            {"stock": {"$lte": low_stock_threshold}},
+            {"inventory": {"$lte": low_stock_threshold}},
+            {"inventory.quantity": {"$lte": low_stock_threshold}},
+        ],
+    }
+    low_stock = database.products.count_documents(low_stock_query)
+    new_customers = database.users.count_documents({**date_query, "$or": [{"role": "customer"}, {"role": {"$exists": False}}]})
+
+    review_values = [number(review.get("rating")) for review in database.reviews.find(date_query, {"rating": 1})]
+    review_values = [rating for rating in review_values if 0 < rating <= 5]
+    average_rating = sum(review_values) / len(review_values) if review_values else 0.0
+
+    sales_by_day: dict[str, dict[str, float]] = defaultdict(lambda: {"orders": 0, "revenue": 0.0})
+    product_sales: dict[str, dict[str, Any]] = {}
+    for order in database.orders.find(order_query):
+        order_count += 1
+        total = order_total(order)
+        revenue += total
+        created_at = as_datetime(order.get("createdAt"))
+        if created_at:
+            key = created_at.date().isoformat()
+            sales_by_day[key]["orders"] += 1
+            sales_by_day[key]["revenue"] += total
+        items = order.get("items") if isinstance(order.get("items"), list) else []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            product_id = str(item.get("productId") or item.get("sku") or item.get("name") or "Unknown")
+            entry = product_sales.setdefault(product_id, {
+                "id": product_id,
+                "name": str(item.get("name") or item.get("productName") or product_id),
+                "units": 0,
+                "revenue": 0.0,
+            })
+            quantity = max(1, int(number(item.get("quantity") or 1)))
+            entry["units"] += quantity
+            entry["revenue"] += number(item.get("price")) * quantity
+
+    conversion = (order_count / len(visitor_ids) * 100) if visitor_ids else 0.0
+
+    sales = []
+    cursor = start
+    while cursor.date() <= current.date():
+        key = cursor.date().isoformat()
+        values = sales_by_day[key]
+        sales.append({"date": key, "orders": int(values["orders"]), "revenue": round(values["revenue"], 2)})
+        cursor += timedelta(days=1)
+
+    traffic_rows = database.analytics_events.aggregate([
+        {"$match": page_view_query},
+        {"$group": {"_id": {"source": {"$ifNull": ["$source", "direct"]}, "visitorId": "$visitorId"}, "views": {"$sum": 1}}},
+        {"$group": {"_id": "$_id.source", "visitors": {"$sum": 1}, "views": {"$sum": "$views"}}},
+        {"$sort": {"visitors": -1}},
+    ])
+    traffic = [{"source": str(row.get("_id") or "direct"), "visitors": int(row.get("visitors", 0)), "views": int(row.get("views", 0))} for row in traffic_rows]
+
+    activity = []
+    for order in database.orders.find(order_query).sort("createdAt", -1).limit(6):
+        activity.append({
+            "id": str(order.get("_id")),
+            "type": "order",
+            "label": "Order received",
+            "detail": str(order.get("orderNumber") or order.get("number") or order.get("_id")),
+            "createdAt": serialise_datetime(order.get("createdAt")),
+        })
+    event_labels = {
+        "page_view": "Page viewed",
+        "product_view": "Product viewed",
+        "wishlist_add": "Wishlist addition",
+        "add_to_bag": "Added to bag",
+        "checkout_started": "Checkout started",
+    }
+    for event in events[:12]:
+        activity.append({
+            "id": str(event.get("_id")),
+            "type": str(event.get("event") or "event"),
+            "label": event_labels.get(str(event.get("event")), "Store activity"),
+            "detail": str((event.get("properties") or {}).get("productName") or event.get("path") or "Storefront"),
+            "createdAt": serialise_datetime(event.get("createdAt")),
+        })
+    activity.sort(key=lambda entry: entry.get("createdAt") or "", reverse=True)
+
+    return {
+        "period": selected,
+        "generatedAt": current.isoformat().replace("+00:00", "Z"),
+        "currency": "INR",
+        "metrics": {
+            "revenue": round(revenue, 2),
+            "orders": order_count,
+            "visitors": len(visitor_ids),
+            "pageViews": page_view_count,
+            "conversionRate": round(conversion, 2),
+            "lowStock": low_stock,
+            "newCustomers": new_customers,
+            "wishlistAdds": wishlist_adds,
+            "averageRating": round(average_rating, 2),
+        },
+        "sales": sales,
+        "trafficSources": traffic,
+        "bestSellingProducts": sorted(product_sales.values(), key=lambda entry: entry["units"], reverse=True)[:5],
+        "activity": activity[:10],
+    }

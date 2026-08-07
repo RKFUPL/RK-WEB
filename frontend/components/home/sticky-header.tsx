@@ -16,7 +16,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { brandLogoUrl, collectionPages, searchItems } from '@/lib/home-content';
 import { cn } from '@/lib/utils';
 
-type HeaderUser = { displayName?: string; firstName?: string; lastName?: string; username?: string; role?: 'customer' | 'staff' | 'admin' };
+type HeaderUser = { displayName?: string; firstName?: string; lastName?: string; username?: string; email?: string; role?: 'customer' | 'staff' | 'admin' };
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000';
 
 const mainLinks = [{ label: 'Lookbook', href: '/rk-lookbooks' }] as const;
@@ -35,6 +35,11 @@ const navItemClass =
 type StickyHeaderProps = {
   transparentAtTop?: boolean;
 };
+
+function AccountPreview({ user, onNavigate }: { user: HeaderUser; onNavigate: () => void }) {
+  const fullName = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.displayName || user.username || 'RK member';
+  return <><p className="text-[10px] uppercase tracking-[0.28em] text-charcoal/45">Signed in as</p><p className="mt-2 font-display text-2xl">{fullName}</p><span className="mt-2 inline-flex rounded-full border border-gold/50 px-2.5 py-1 text-[9px] uppercase tracking-[0.22em] text-gold">{user.role || 'customer'}</span><p className="mt-2 break-all text-xs text-charcoal/50">{user.email || 'No email available'}</p><Link href="/profile" onClick={onNavigate} className="mt-5 block rounded-full bg-ink px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-ivory transition hover:bg-gold">Manage profile</Link>{user.role === 'admin' ? <Link href="/admin" onClick={onNavigate} className="mt-3 block rounded-full border border-gold/60 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">Admin dashboard</Link> : user.role === 'staff' ? <Link href="/staff" onClick={onNavigate} className="mt-3 block rounded-full border border-gold/60 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">Staff dashboard</Link> : null}</>;
+}
 
 export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
   const [scrolled, setScrolled] = useState(false);
@@ -137,15 +142,6 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
     } finally {
       setAccountLoading(false);
     }
-  };
-
-  const signOut = () => {
-    if (!window.confirm('Sign out of your RK account?')) return;
-    window.localStorage.removeItem('rk_access_token');
-    setAccountUser(null);
-    setAccountOpen(false);
-    window.alert('Successfully signed out.');
-    router.push('/');
   };
 
   const requireSignIn = (feature: 'wishlist' | 'shopping bag') => {
@@ -346,7 +342,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
             </button>
             <AnimatePresence>
               {accountOpen ? <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} className="absolute right-0 top-full z-50 mt-4 w-64 border border-black/10 bg-white p-5 text-charcoal shadow-[0_18px_45px_rgba(18,18,18,0.1)]" onMouseEnter={() => setAccountOpen(true)}>
-                {accountLoading ? <p className="text-xs text-charcoal/55">Checking your account…</p> : accountUser ? <><p className="text-[10px] uppercase tracking-[0.28em] text-charcoal/45">Signed in as</p><p className="mt-2 font-display text-2xl">{accountUser.firstName || accountUser.displayName || accountUser.username || 'RK member'}</p>{accountUser.role !== 'customer' ? <span className="mt-2 inline-flex rounded-full border border-gold/50 px-2.5 py-1 text-[9px] uppercase tracking-[0.22em] text-gold">{accountUser.role}</span> : null}{accountUser.username ? <p className="mt-1 text-xs text-charcoal/50">@{accountUser.username}</p> : null}<Link href="/profile" onClick={() => setAccountOpen(false)} className="mt-5 block rounded-full bg-ink px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-ivory transition hover:bg-gold">Manage profile</Link>{accountUser.role === 'admin' ? <Link href="/admin" onClick={() => setAccountOpen(false)} className="mt-3 block rounded-full border border-gold/60 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">Admin dashboard</Link> : accountUser.role === 'staff' ? <Link href="/staff" onClick={() => setAccountOpen(false)} className="mt-3 block rounded-full border border-gold/60 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">Staff dashboard</Link> : null}<button type="button" onClick={signOut} className="mt-3 w-full border border-black/10 px-4 py-3 text-[10px] uppercase tracking-[0.2em] text-charcoal/60 transition hover:border-red-500 hover:text-red-600">Sign out</button></> : null}
+                {accountLoading ? <p className="text-xs text-charcoal/55">Checking your account…</p> : accountUser ? <AccountPreview user={accountUser} onNavigate={() => setAccountOpen(false)} /> : null}
               </motion.div> : null}
             </AnimatePresence>
           </div>
@@ -431,7 +427,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
             onClick={() => setMenuOpen(false)}
           >
             <motion.aside
-              className="absolute right-0 top-0 h-full w-[88vw] max-w-sm border-l border-black/6 bg-ivory px-6 py-6 shadow-2xl"
+              className="absolute right-0 top-0 h-full w-[88vw] max-w-sm border-l border-black/6 bg-ivory px-6 py-6 text-charcoal shadow-2xl"
               initial={{ x: '100%' }}
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
@@ -564,7 +560,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
                 ))}
               </div>
               {accountOpen ? <div className="mt-5 border border-black/10 bg-ivory p-5 text-charcoal">
-                {accountLoading ? <p className="text-xs text-charcoal/55">Checking your account…</p> : accountUser ? <><p className="text-[10px] uppercase tracking-[0.28em] text-charcoal/45">Signed in as</p><p className="mt-2 font-display text-2xl">{accountUser.firstName || accountUser.displayName || accountUser.username || 'RK member'}</p>{accountUser.role !== 'customer' ? <span className="mt-2 inline-flex rounded-full border border-gold/50 px-2.5 py-1 text-[9px] uppercase tracking-[0.22em] text-gold">{accountUser.role}</span> : null}<Link href="/profile" onClick={handleNavigation} className="mt-5 block rounded-full bg-ink px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-ivory">Manage profile</Link>{accountUser.role === 'admin' ? <Link href="/admin" onClick={handleNavigation} className="mt-3 block rounded-full border border-gold/60 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">Admin dashboard</Link> : accountUser.role === 'staff' ? <Link href="/staff" onClick={handleNavigation} className="mt-3 block rounded-full border border-gold/60 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">Staff dashboard</Link> : null}<button type="button" onClick={signOut} className="mt-3 w-full border border-black/10 px-4 py-3 text-[10px] uppercase tracking-[0.2em] text-charcoal/60">Sign out</button></> : null}
+                {accountLoading ? <p className="text-xs text-charcoal/55">Checking your account…</p> : accountUser ? <AccountPreview user={accountUser} onNavigate={handleNavigation} /> : null}
               </div> : null}
             </motion.aside>
           </motion.div>

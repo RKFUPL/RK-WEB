@@ -5,6 +5,8 @@ export type AuthUser = {
   email: string;
   username?: string;
   displayName?: string;
+  firstName?: string;
+  lastName?: string;
   role: Role;
   isActive: boolean;
   emailVerified: boolean;

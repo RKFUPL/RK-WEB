@@ -24,7 +24,12 @@ def _normalise_email(value: object) -> str:
 
 
 def _normalise_username(value: object) -> str:
-    return str(value or "").strip().lower()
+    return str(value or "").strip()
+
+
+def _identifier_query(identifier: str) -> dict:
+    """Match email case-insensitively and usernames exactly as entered."""
+    return {"$or": [{"email": _normalise_email(identifier)}, {"username": identifier}]}
 
 
 def _password_hash(password: str) -> str:
@@ -234,9 +239,9 @@ def signup_verify_otp():
 @limiter.limit("10 per 15 minutes")
 def login():
     payload = request.get_json(silent=True) or {}
-    identifier = str(payload.get("identifier") or "").strip().lower()
+    identifier = str(payload.get("identifier") or "").strip()
     password = payload.get("password")
-    user = _database().users.find_one({"$or": [{"email": identifier}, {"username": identifier}]})
+    user = _database().users.find_one(_identifier_query(identifier))
     if not user:
         return jsonify({"error": "User not found. Please sign in with an existing account."}), 404
     if not user.get("passwordHash") or not isinstance(password, str) or not checkpw(password.encode(), user["passwordHash"].encode()):
@@ -252,8 +257,8 @@ def login():
 @auth_bp.post("/forgot-password/request-otp")
 @limiter.limit("5 per 15 minutes")
 def forgot_password_request_otp():
-    identifier = str((request.get_json(silent=True) or {}).get("identifier") or "").strip().lower()
-    user = _database().users.find_one({"$or": [{"email": identifier}, {"username": identifier}]})
+    identifier = str((request.get_json(silent=True) or {}).get("identifier") or "").strip()
+    user = _database().users.find_one(_identifier_query(identifier))
     if not user:
         return jsonify({"message": "If the account exists, a recovery code has been sent."}), 202
     now = datetime.now(timezone.utc)
@@ -275,10 +280,10 @@ def forgot_password_request_otp():
 @limiter.limit("10 per 15 minutes")
 def forgot_password_reset():
     payload = request.get_json(silent=True) or {}
-    identifier = str(payload.get("identifier") or "").strip().lower()
+    identifier = str(payload.get("identifier") or "").strip()
     otp = str(payload.get("otp") or "").strip()
     password = payload.get("password")
-    user = _database().users.find_one({"$or": [{"email": identifier}, {"username": identifier}]})
+    user = _database().users.find_one(_identifier_query(identifier))
     challenge = _database().otp_challenges.find_one({"userId": user["_id"], "purpose": "forgot-password"}) if user else None
     now = datetime.now(timezone.utc)
     if not user or not challenge or not _valid_password(password) or len(otp) != 6 or _is_expired(challenge.get("otpExpiresAt"), now):
@@ -345,15 +350,18 @@ def update_profile():
             if key in {"firstName", "lastName"} and len(value) > 80:
                 return jsonify({"error": f"{key} is too long."}), 400
             updates[key] = value
+    if "firstName" in updates or "lastName" in updates:
+        full_name = f'{updates.get("firstName", current.get("firstName", ""))} {updates.get("lastName", current.get("lastName", ""))}'.strip()
+        if full_name:
+            updates["displayName"] = full_name
     if "username" in updates:
         if not re.fullmatch(r"[a-zA-Z0-9_.-]{3,30}", updates["username"]):
             return jsonify({"error": "Username must be 3–30 characters and use letters, numbers, dots, dashes, or underscores."}), 400
-        duplicate = users.find_one({"username": updates["username"].lower(), "_id": {"$ne": user_id}})
+        duplicate = users.find_one({"username": updates["username"], "_id": {"$ne": user_id}})
         if duplicate:
             return jsonify({"error": "That username is already in use."}), 409
-        updates["username"] = updates["username"].lower()
-    if "phone" in updates and updates["phone"] and not re.fullmatch(r"\+?[0-9\s().-]{7,20}", updates["phone"]):
-        return jsonify({"error": "Enter a valid phone number."}), 400
+    if "phone" in updates and not re.fullmatch(r"\+?[0-9\s().-]{7,20}", updates["phone"]):
+        return jsonify({"error": "A valid phone number is required."}), 400
     if "region" in payload:
         region = str(payload.get("region") or "").strip().lower()
         if region not in {"asia-india", "us", "europe", "anywhere-else"}:
@@ -372,7 +380,7 @@ def update_profile():
         updates["dob"] = None
     if "gender" in payload:
         gender = str(payload["gender"] or "").strip().lower()
-        if gender not in {"male", "female", "prefer-not-to-say", ""}:
+        if gender not in {"male", "female", "prefer-not-to-say"}:
             return jsonify({"error": "Please choose a valid gender option."}), 400
         updates["gender"] = gender
     if "profileImage" in payload:
@@ -387,6 +395,12 @@ def update_profile():
             updates[key] = payload[key]
     if payload.get("language") is not None and updates.get("language") not in {"English", "Hindi"}:
         return jsonify({"error": "Please choose a supported language."}), 400
+    if not str(updates.get("phone", current.get("phone")) or "").strip():
+        return jsonify({"error": "Phone number is required."}), 400
+    if not updates.get("dob", current.get("dob")):
+        return jsonify({"error": "Date of birth is required."}), 400
+    if updates.get("gender", current.get("gender")) not in {"male", "female", "prefer-not-to-say"}:
+        return jsonify({"error": "Gender is required."}), 400
     if not updates:
         return jsonify({"error": "No profile changes were submitted."}), 400
 

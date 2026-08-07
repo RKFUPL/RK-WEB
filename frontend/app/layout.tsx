@@ -4,6 +4,7 @@ import localFont from 'next/font/local';
 import { Inter, Cormorant_Garamond } from 'next/font/google';
 import './globals.css';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { AnalyticsTracker } from '@/components/analytics-tracker';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -34,6 +35,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
   return (
     <html lang="en" data-scroll-behavior="smooth">
       <body className={`${inter.variable} ${cormorant.variable} ${aakaar.variable} bg-ivory text-charcoal antialiased`}>
+        <AnalyticsTracker />
         {children}
         <ThemeToggle />
       </body>
