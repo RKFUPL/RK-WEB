@@ -12,7 +12,7 @@ export type AuthUser = {
   emailVerified: boolean;
 };
 
-export const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000';
+export const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || '';
 
 const cachedUserKey = 'rk_auth_user';
 

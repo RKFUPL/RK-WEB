@@ -69,7 +69,7 @@ function signupFieldError(field: SignupField, value: string) {
   return '';
 }
 
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000';
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || '';
 const inaaraImage = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305219/RASHI_KAPOOR_-_27-3-240879_xr10ue.jpg';
 const aakaarImage = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785586504/Rashi_Kapoor2496_zwpkfq.jpg';
 

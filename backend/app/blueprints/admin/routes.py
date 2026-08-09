@@ -114,7 +114,8 @@ def list_users():
 def dashboard_metrics():
     db = database()
     _ensure_dashboard_indexes(db)
-    return jsonify(build_dashboard(db, request.args.get("period", "7d"))), 200
+    current_visitor_id = str(request.headers.get("X-RK-Visitor-ID", "")).strip()[:128]
+    return jsonify(build_dashboard(db, request.args.get("period", "7d"), current_visitor_id=current_visitor_id)), 200
 
 
 @admin_bp.get("/resources/<resource>")

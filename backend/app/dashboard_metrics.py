@@ -54,13 +54,13 @@ def serialise_datetime(value: object) -> str | None:
     return parsed.isoformat().replace("+00:00", "Z") if parsed else None
 
 
-def build_dashboard(database, period: str, now: datetime | None = None) -> dict[str, Any]:
+def build_dashboard(database, period: str, now: datetime | None = None, current_visitor_id: str = "") -> dict[str, Any]:
     selected, start, current = period_window(period, now)
     date_query = {"createdAt": {"$gte": start, "$lte": current}}
 
     events = list(database.analytics_events.find(date_query, {
         "event": 1, "visitorId": 1, "sessionId": 1, "path": 1,
-        "source": 1, "properties": 1, "createdAt": 1,
+        "source": 1, "properties": 1, "customerName": 1, "createdAt": 1,
     }).sort("createdAt", -1).limit(20))
     page_view_query = {**date_query, "event": "page_view"}
     visitor_ids = database.analytics_events.distinct("visitorId", page_view_query)
@@ -82,6 +82,20 @@ def build_dashboard(database, period: str, now: datetime | None = None) -> dict[
     }
     low_stock = database.products.count_documents(low_stock_query)
     new_customers = database.users.count_documents({**date_query, "$or": [{"role": "customer"}, {"role": {"$exists": False}}]})
+    new_customer_rows = database.users.find(
+        {**date_query, "$or": [{"role": "customer"}, {"role": {"$exists": False}}]},
+        {"displayName": 1, "firstName": 1, "lastName": 1, "email": 1, "username": 1, "createdAt": 1},
+    ).sort("createdAt", -1).limit(20)
+    new_customers_list = []
+    for customer in new_customer_rows:
+        name = str(customer.get("displayName") or " ".join(filter(None, (customer.get("firstName"), customer.get("lastName")))) or "Unnamed customer")
+        new_customers_list.append({
+            "id": str(customer.get("_id")),
+            "name": name,
+            "email": str(customer.get("email") or ""),
+            "username": str(customer.get("username") or ""),
+            "createdAt": serialise_datetime(customer.get("createdAt")),
+        })
 
     review_values = [number(review.get("rating")) for review in database.reviews.find(date_query, {"rating": 1})]
     review_values = [rating for rating in review_values if 0 < rating <= 5]
@@ -131,6 +145,57 @@ def build_dashboard(database, period: str, now: datetime | None = None) -> dict[
     ])
     traffic = [{"source": str(row.get("_id") or "direct"), "visitors": int(row.get("visitors", 0)), "views": int(row.get("views", 0))} for row in traffic_rows]
 
+    visitor_rows = database.analytics_events.aggregate([
+        {"$match": page_view_query},
+        {"$sort": {"createdAt": -1}},
+        {"$group": {
+            "_id": "$visitorId",
+            "lastSeen": {"$first": "$createdAt"},
+            "firstSeen": {"$last": "$createdAt"},
+            "lastPath": {"$first": "$path"},
+            "source": {"$first": {"$ifNull": ["$source", "direct"]}},
+            "customerName": {"$max": {"$ifNull": ["$customerName", ""]}},
+            "userId": {"$max": {"$ifNull": ["$userId", ""]}},
+            "device": {"$first": {"$ifNull": ["$device", "desktop"]}},
+            "browser": {"$first": {"$ifNull": ["$browser", "Other"]}},
+            "os": {"$first": {"$ifNull": ["$os", "Other"]}},
+            "views": {"$sum": 1},
+            "sessions": {"$addToSet": "$sessionId"},
+            "pages": {"$addToSet": "$path"},
+        }},
+        {"$sort": {"lastSeen": -1}},
+        {"$limit": 20},
+    ])
+    active_cutoff = current - timedelta(minutes=5)
+    active_visitor_ids = database.analytics_events.distinct("visitorId", {
+        "event": "page_view",
+        "createdAt": {"$gte": active_cutoff, "$lte": current},
+    })
+    visitors = []
+    for index, visitor in enumerate(visitor_rows, start=1):
+        last_seen = as_datetime(visitor.get("lastSeen"))
+        visitor_id = str(visitor.get("_id") or "")
+        customer_name = str(visitor.get("customerName") or "").strip()
+        is_customer = bool(visitor.get("userId") or customer_name)
+        visitors.append({
+            "label": customer_name or f"Visitor {index}",
+            "kind": "customer" if is_customer else "visitor",
+            "customerName": customer_name or None,
+            "key": visitor_id[-6:] if visitor_id else "unknown",
+            "source": str(visitor.get("source") or "direct"),
+            "device": str(visitor.get("device") or "desktop"),
+            "browser": str(visitor.get("browser") or "Other"),
+            "os": str(visitor.get("os") or "Other"),
+            "lastPath": str(visitor.get("lastPath") or "/"),
+            "views": int(visitor.get("views", 0)),
+            "sessions": len(visitor.get("sessions") or []),
+            "pages": len(visitor.get("pages") or []),
+            "firstSeen": serialise_datetime(visitor.get("firstSeen")),
+            "lastSeen": serialise_datetime(visitor.get("lastSeen")),
+            "active": bool(last_seen and last_seen >= active_cutoff),
+            "current": bool(current_visitor_id and visitor_id == current_visitor_id),
+        })
+
     activity = []
     for order in database.orders.find(order_query).sort("createdAt", -1).limit(6):
         activity.append({
@@ -166,6 +231,7 @@ def build_dashboard(database, period: str, now: datetime | None = None) -> dict[
             "orders": order_count,
             "visitors": len(visitor_ids),
             "pageViews": page_view_count,
+            "activeVisitors": len(active_visitor_ids),
             "conversionRate": round(conversion, 2),
             "lowStock": low_stock,
             "newCustomers": new_customers,
@@ -174,6 +240,8 @@ def build_dashboard(database, period: str, now: datetime | None = None) -> dict[
         },
         "sales": sales,
         "trafficSources": traffic,
+        "visitorsList": visitors,
+        "newCustomersList": new_customers_list,
         "bestSellingProducts": sorted(product_sales.values(), key=lambda entry: entry["units"], reverse=True)[:5],
         "activity": activity[:10],
     }

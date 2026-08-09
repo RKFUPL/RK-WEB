@@ -16,7 +16,7 @@ export function AnalyticsTracker() {
     if (lastTrackedPath === pathname && now - lastTrackedAt < 1000) return;
     lastTrackedPath = pathname;
     lastTrackedAt = now;
-    trackAnalyticsEvent('page_view', {}, pathname);
+    trackAnalyticsEvent('page_view', { pageTitle: document.title }, pathname);
   }, [pathname]);
 
   return null;

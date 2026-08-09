@@ -17,7 +17,7 @@ import { brandLogoUrl, collectionPages, searchItems } from '@/lib/home-content';
 import { cn } from '@/lib/utils';
 
 type HeaderUser = { displayName?: string; firstName?: string; lastName?: string; username?: string; email?: string; role?: 'customer' | 'staff' | 'admin' };
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000';
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || '';
 
 const mainLinks = [{ label: 'Lookbook', href: '/rk-lookbooks' }] as const;
 

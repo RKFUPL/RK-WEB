@@ -5,6 +5,7 @@ export type AnalyticsProperties = {
   productId?: string;
   productName?: string;
   currency?: string;
+  pageTitle?: string;
   quantity?: number;
   value?: number;
 };
@@ -66,9 +67,13 @@ export function trackAnalyticsEvent(event: AnalyticsEventName, properties: Analy
     source: acquisitionSource(),
     properties,
   };
+  const accessToken = window.localStorage.getItem('rk_access_token');
   void fetch(`${apiBaseUrl}/api/analytics/events`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
     body: JSON.stringify(payload),
     keepalive: true,
   }).catch(() => undefined);
