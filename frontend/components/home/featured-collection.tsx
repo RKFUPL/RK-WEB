@@ -103,7 +103,7 @@ export function FeaturedCollection() {
         {phase > 0 ? <div className="absolute inset-x-6 bottom-5 z-40 flex items-center justify-between lg:inset-x-12 lg:bottom-8">
           <button type="button" aria-label="Previous Aakaar image" onClick={() => changeFrame(-1)} className="pointer-events-auto flex h-10 w-10 items-center justify-center border border-[#fff1df]/55 bg-black/10 text-lg text-[#fff1df] backdrop-blur-sm transition hover:border-gold hover:bg-gold hover:text-ink">←</button>
           <div className="pointer-events-auto flex items-center gap-2" aria-label="Aakaar image navigation">
-            {bannerFrames.map((frame, index) => <button key={frame.src} type="button" aria-label={`Show Aakaar image ${index + 1}`} aria-current={index === currentIndex} onClick={() => setCurrentIndex(index)} className={`h-1.5 w-1.5 rounded-full border border-[#fff1df]/80 transition ${index === currentIndex ? 'bg-[#fff1df]' : 'bg-transparent hover:bg-[#fff1df]/70'}`} />)}
+            {bannerFrames.map((frame, index) => <button key={frame.src} type="button" aria-label={`Show Aakaar image ${index + 1}`} aria-current={index === currentIndex} onClick={() => setCurrentIndex(index)} className={`h-3 w-3 rounded-full border-2 border-[#fff1df]/90 transition ${index === currentIndex ? 'scale-125 bg-[#fff1df]' : 'bg-transparent hover:bg-[#fff1df]/70'}`} />)}
           </div>
           <button type="button" aria-label="Next Aakaar image" onClick={() => changeFrame(1)} className="pointer-events-auto flex h-10 w-10 items-center justify-center border border-[#fff1df]/55 bg-black/10 text-lg text-[#fff1df] backdrop-blur-sm transition hover:border-gold hover:bg-gold hover:text-ink">→</button>
         </div> : null}
