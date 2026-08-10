@@ -3,20 +3,21 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Facebook, Instagram, Linkedin, Youtube } from 'lucide-react';
-import { brandLogoUrl, storeInteriorVideoUrl } from '@/lib/home-content';
+import { useState } from 'react';
+import { brandLogoUrl, featuredLooks, storeInteriorVideoUrl } from '@/lib/home-content';
 
 const footerColumns = [
   {
     title: 'Navigation',
-    links: ['Collections', 'Lookbook', 'About', 'Contact'],
+    links: ['Collections', 'Lookbook', 'About'],
   },
   {
     title: 'Company',
-    links: ['Story', 'Craftsmanship', 'Careers', 'Sustainability'],
+    links: ['Careers', 'Contact', 'Sustainability'],
   },
   {
     title: 'Policies',
-    links: ['Privacy', 'Terms', 'Cookies', 'Security'],
+    links: ['Privacy', 'Terms', 'Cookies', 'Shipping', 'Security'],
   },
 ] as const;
 
@@ -48,6 +49,7 @@ const storeLocations = [
 export function Footer() {
   const pathname = usePathname();
   const router = useRouter();
+  const [mediaFailed, setMediaFailed] = useState(false);
 
   const scrollToAbout = () => {
     const about = document.getElementById('about');
@@ -80,36 +82,48 @@ export function Footer() {
   };
 
   return (
-    <footer id="footer" className="border-t border-white/10 bg-ink text-ivory">
+    <footer id="footer" className="luxury-footer border-t border-gold/20 bg-ink text-ivory">
       {/* Video Section - Store Locator */}
-      <div className="relative w-full bg-ink">
-        <video
-          autoPlay
-          loop
-          muted
-          playsInline
-          className="w-full object-cover"
-          style={{ maxHeight: '400px' }}
-        >
-          <source src={storeInteriorVideoUrl} type="video/mp4" />
-        </video>
-        <div className="absolute inset-0 flex items-center justify-between px-6 lg:px-10 bg-white/30">
-          <div className="text-center">
-            <h3 className="font-display text-3xl tracking-[0.25em] text-black md:text-5xl font-bold drop-shadow-lg">STORE LOCATOR</h3>
-            <p className="mt-4 text-sm uppercase tracking-[0.38em] text-black font-bold drop-shadow-lg">Visit Our Stores</p>
+      <div className="relative w-full overflow-hidden bg-ink">
+        {mediaFailed ? (
+          <img src={featuredLooks[0].image} alt="Rashi Kapoor couture interior" className="h-[min(52vw,420px)] w-full object-cover object-center" />
+        ) : (
+          <video
+            autoPlay
+            loop
+            muted
+            playsInline
+            onError={() => setMediaFailed(true)}
+            className="h-[min(52vw,420px)] w-full object-cover object-center"
+            poster={featuredLooks[0].image}
+          >
+            <source src={storeInteriorVideoUrl} type="video/mp4" />
+          </video>
+        )}
+        <div className="absolute inset-0 flex items-end justify-between bg-gradient-to-t from-[#0c0908]/88 via-[#0c0908]/15 to-transparent px-6 pb-8 lg:px-12 lg:pb-10">
+          <div>
+            <p className="mb-3 text-[0.6rem] uppercase tracking-[0.36em] text-gold">The house in person</p>
+            <h3 className="font-display text-4xl leading-none tracking-[-0.03em] text-ivory md:text-6xl">Visit the house.</h3>
+            <p className="mt-4 text-[0.62rem] uppercase tracking-[0.34em] text-ivory/65">Kolkata · Mumbai</p>
           </div>
+          <span className="hidden border-l border-gold/70 pl-4 text-[0.58rem] uppercase leading-[1.8] tracking-[0.26em] text-ivory/60 md:block">Store locator<br />Private appointments<br />by invitation</span>
         </div>
       </div>
 
-      <div className="grid gap-px bg-white/10 md:grid-cols-2">
+      <div className="mx-auto max-w-7xl px-6 py-14 lg:px-10 lg:py-18">
+        <div className="mb-9 flex flex-wrap items-end justify-between gap-6 border-b border-white/10 pb-6">
+          <div><p className="text-[0.62rem] uppercase tracking-[0.36em] text-gold">Locations</p><h2 className="mt-3 font-display text-3xl leading-none text-ivory md:text-5xl">Kolkata &amp; Mumbai.</h2></div>
+          <p className="max-w-sm text-sm leading-7 text-ivory/55">Private appointments, considered fittings and a closer look at the craft behind every collection.</p>
+        </div>
+      <div className="grid gap-6 md:grid-cols-2">
         {storeLocations.map((location) => (
-          <div key={location.name} className="bg-ink">
+          <div key={location.name} className="overflow-hidden border border-white/10 bg-[#15100d]">
             <iframe
               title={`${location.name} map`}
               src={`https://www.google.com/maps?q=${encodeURIComponent(location.address)}&output=embed`}
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
-              className="h-64 w-full border-0 grayscale md:h-80"
+              className="h-52 w-full border-0 grayscale md:h-64"
             />
             <div className="flex items-center justify-between gap-4 px-6 py-5 lg:px-10">
               <div>
@@ -128,49 +142,29 @@ export function Footer() {
           </div>
         ))}
       </div>
-
-      {/* Contact Section */}
-      <div className="mx-auto max-w-7xl px-6 py-12 lg:px-10">
-        <div className="grid gap-8 border-b border-white/10 pb-12 md:grid-cols-2">
-          <div>
-            <a
-              href="mailto:contact@rashikapoorofficial.com"
-              className="font-display text-xl tracking-[0.2em] text-gold transition hover:text-ivory"
-            >
-              Contact Us
-            </a>
-          </div>
-          <div className="md:hidden">
-            <h4 className="font-display text-xl tracking-[0.2em] text-gold">Visit Us</h4>
-            <div className="mt-4 space-y-3 text-sm text-ivory/80">
-              <p>Flagship Store</p>
-              <p>Kolkata, India</p>
-              <p className="mt-4">Second Location</p>
-              <p>Mumbai, India</p>
-            </div>
-          </div>
-        </div>
       </div>
 
-      <div className="mx-auto max-w-7xl px-6 py-16 lg:px-10">
+      <div className="mx-auto max-w-7xl px-6 py-16 lg:px-10 lg:py-20">
         <div className="grid gap-10 lg:grid-cols-[1.2fr_1fr]">
           <div className="space-y-4">
             <div className="inline-flex items-center justify-center px-4 py-3">
               <img
                 src={brandLogoUrl}
                 alt="RK Logo"
-                width="120"
-                height="60"
-                className="rk-logo h-16 w-auto"
-                style={{ width: 'auto', height: '4rem', filter: 'brightness(0) invert(1)' }}
+                width="92"
+                height="48"
+                className="footer-brand-mark h-12 w-auto"
               />
             </div>
-            <p className="max-w-md text-sm leading-7 text-ivory/70">
-              Rashi Kapoor luxury womenswear. An editorial platform built to evolve with the house,
-              its collections, and future CMS-driven storytelling.
+            <p className="max-w-md font-display text-2xl leading-[1.08] text-ivory/90 md:text-3xl">
+              Fashion is not just what you wear,<br /><em className="text-gold">it&apos;s a legacy you carry.</em>
             </p>
+            <p className="max-w-md pt-3 text-sm leading-7 text-ivory/55">Rashi Kapoor luxury womenswear — where Indian craft is given a modern, enduring voice.</p>
+            <a href="mailto:contact@rashikapoorofficial.com" className="inline-block pt-2 text-xs uppercase tracking-[0.22em] text-ivory/70 transition hover:text-gold">
+              contact@rashikapoorofficial.com
+            </a>
           </div>
-          <div className="grid gap-8 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-8 sm:grid-cols-3">
             {footerColumns.map((column) => (
               <div key={column.title}>
                 <p className="text-xs uppercase tracking-[0.38em] text-ivory/45">{column.title}</p>
@@ -200,6 +194,8 @@ export function Footer() {
                             {link}
                           </Link>
                         )
+                      ) : column.title === 'Company' && link === 'Contact' ? (
+                        <a href="mailto:contact@rashikapoorofficial.com" className="transition hover:text-gold">{link}</a>
                       ) : (
                         <a
                           href={`#${link.toLowerCase().replace(/\s+/g, '-')}`}
@@ -239,9 +235,9 @@ export function Footer() {
         </div>
       </div>
 
-      <div className="flex flex-col items-center justify-center gap-4 bg-ivory px-6 py-10 text-center text-charcoal">
-        <p className="text-sm tracking-[0.04em]">Copyright 2026 Rashi Kapoor Fashion Unicus Pvt. Ltd.</p>
-        <img src={brandLogoUrl} alt="RK Logo" width="72" height="52" className="rk-logo h-14 w-auto" />
+      <div className="flex flex-col items-center justify-between gap-4 border-t border-white/10 bg-[#0a0908] px-6 py-6 text-center text-ivory/45 sm:flex-row sm:px-10">
+        <p className="text-[0.62rem] uppercase tracking-[0.2em]">© 2026 Rashi Kapoor Fashion Unicus Pvt. Ltd.</p>
+        <img src={brandLogoUrl} alt="RK Logo" width="48" height="34" className="footer-brand-mark h-8 w-auto opacity-75" />
       </div>
     </footer>
   );

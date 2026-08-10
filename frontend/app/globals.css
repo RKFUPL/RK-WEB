@@ -12,7 +12,7 @@
   --color-ivory: #f8f6f2;
   --color-sand: #ece3d4;
   --color-charcoal: #2a2622;
-  --color-gold: #c7a66b;
+  --color-gold: #b58a4c;
   --color-ink: #121212;
   --font-display: "Cormorant Garamond";
   --font-body: "Inter";
@@ -194,7 +194,7 @@ html.dark {
 
 .collections-kicker,
 .collections-card-subtitle {
-  color: #bd9450;
+  color: #b58a4c;
   font-size: 0.68rem;
   font-weight: 500;
   letter-spacing: 0.26em;
@@ -207,7 +207,7 @@ html.dark {
   width: 9.5rem;
   height: 1px;
   margin-top: 0.85rem;
-  background: #bd9450;
+  background: #b58a4c;
 }
 
 .collections-heading {
@@ -303,20 +303,29 @@ html.dark {
   overflow: hidden;
 }
 
-.shop-section-backdrop {
+.shop-categories-section::after {
+  content: '';
   position: absolute;
   inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(90deg, #f8f4ed 0%, rgba(248, 244, 237, 0.97) 32%, rgba(248, 244, 237, 0.76) 58%, rgba(248, 244, 237, 0.08) 100%);
+}
+
+.shop-section-backdrop {
+  position: absolute;
+  inset: 0 0 0 auto;
   z-index: 0;
   display: block;
-  width: 100%;
+  width: 58%;
   height: 100%;
   object-fit: cover;
-  object-position: center;
+  object-position: center right;
   pointer-events: none;
 }
 
 .shop-section-backdrop-light {
-  opacity: 0.78;
+  opacity: 0.7;
 }
 
 .shop-section-backdrop-dark {
@@ -329,6 +338,10 @@ html.dark {
 
 .dark .shop-categories-section .shop-section-backdrop-dark {
   opacity: 1;
+}
+
+.dark .shop-categories-section::after {
+  background: linear-gradient(90deg, #0b0b0b 0%, rgba(11, 11, 11, 0.97) 32%, rgba(11, 11, 11, 0.76) 58%, rgba(11, 11, 11, 0.12) 100%);
 }
 
 .newsletter-editorial-section {
@@ -747,7 +760,7 @@ body {
 }
 
 .dark .account-profile-page .text-gold {
-  color: #c7a66b !important;
+  color: #b58a4c !important;
 }
 
 .dark .account-profile-page input,
@@ -779,8 +792,8 @@ body {
 }
 
 .dark .account-profile-page button[role="switch"][aria-checked="true"] {
-  background: #c7a66b !important;
-  border-color: #c7a66b;
+  background: #b58a4c !important;
+  border-color: #b58a4c;
 }
 
 .dark .account-profile-page button[role="switch"] span {
@@ -826,4 +839,296 @@ body {
 
 .account-profile-page > .grid > section:nth-child(5) > div > button:last-child {
   display: none;
+}
+
+/* Editorial home art direction */
+.luxury-hero {
+  isolation: isolate;
+}
+
+.luxury-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  pointer-events: none;
+  border: 1px solid rgba(220, 187, 133, 0.22);
+}
+
+.hero-grain {
+  background-image: radial-gradient(rgba(255, 239, 218, 0.16) 0.65px, transparent 0.8px), radial-gradient(rgba(16, 8, 5, 0.18) 0.6px, transparent 0.8px);
+  background-position: 0 0, 11px 13px;
+  background-size: 19px 19px, 23px 23px;
+  mix-blend-mode: soft-light;
+}
+
+.shop-categories-section::before {
+  content: 'RK';
+  position: absolute;
+  left: -0.18em;
+  top: 10rem;
+  z-index: 1;
+  color: rgba(126, 90, 53, 0.065);
+  font-family: var(--font-display), serif;
+  font-size: clamp(15rem, 25vw, 28rem);
+  font-weight: 500;
+  letter-spacing: -0.12em;
+  line-height: 0.7;
+  pointer-events: none;
+}
+
+.collection-editorial-grid {
+  align-items: stretch;
+}
+
+.collection-editorial-card-image {
+  min-height: 0;
+}
+
+.collection-editorial-card {
+  box-shadow: 0 12px 35px rgba(46, 32, 20, 0.07);
+}
+
+.lookbook-feature-section {
+  max-width: none;
+  overflow: hidden;
+  background: #f8f6f2;
+  padding-top: 7rem;
+  padding-bottom: 5rem;
+}
+
+.lookbook-feature-layout {
+  display: grid;
+  min-height: 35rem;
+  grid-template-columns: minmax(17rem, 0.36fr) minmax(0, 0.64fr);
+  align-items: center;
+  gap: 2rem;
+}
+
+.lookbook-feature-copy {
+  position: relative;
+  z-index: 10;
+  padding-left: max(0rem, calc((100vw - 78rem) / 2));
+}
+
+.lookbook-editorial-collage {
+  position: relative;
+  min-height: 35rem;
+  isolation: isolate;
+}
+
+.lookbook-collage-card {
+  position: absolute;
+  width: 29%;
+  aspect-ratio: 3 / 4;
+  border: 1px solid rgba(126, 90, 53, 0.2);
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.08);
+  animation: lookbook-collage-enter 1s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--lookbook-index, 0) * 140ms);
+  transition: transform 500ms cubic-bezier(0.22, 1, 0.36, 1), z-index 0ms linear;
+}
+
+.lookbook-collage-card:nth-child(1) {
+  --lookbook-index: 0;
+  left: 0;
+  top: 18%;
+  width: 31%;
+  z-index: 1;
+  transform: rotate(-1deg);
+}
+
+.lookbook-collage-card:nth-child(2) {
+  --lookbook-index: 1;
+  left: 17%;
+  top: 10%;
+  width: 32%;
+  z-index: 2;
+  transform: rotate(0deg);
+}
+
+.lookbook-collage-card:nth-child(3) {
+  --lookbook-index: 2;
+  left: 34%;
+  top: 3%;
+  width: 34%;
+  z-index: 3;
+  transform: rotate(1deg);
+}
+
+.lookbook-collage-card:nth-child(4) {
+  --lookbook-index: 3;
+  left: 51%;
+  top: 10%;
+  width: 32%;
+  z-index: 4;
+  transform: rotate(-1deg);
+}
+
+.lookbook-collage-card:nth-child(5) {
+  --lookbook-index: 4;
+  right: 0;
+  top: 18%;
+  width: 31%;
+  z-index: 5;
+  transform: rotate(1deg);
+}
+
+.lookbook-collage-card:hover {
+  z-index: 20;
+  transform: rotate(0deg) scale(1.02) translateY(-0.2rem);
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.12);
+}
+
+.lookbook-ornament {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-top: 1rem;
+  color: rgba(181, 138, 76, 0.8);
+  font-size: 1.7rem;
+  line-height: 1;
+}
+
+.lookbook-ornament span {
+  height: 1px;
+  flex: 1;
+  background: rgba(181, 138, 76, 0.38);
+}
+
+@keyframes lookbook-collage-enter {
+  from {
+    opacity: 0;
+    translate: 0 2rem;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  .lookbook-feature-section {
+    padding-top: 5rem;
+    padding-bottom: 4rem;
+  }
+
+  .lookbook-feature-layout {
+    grid-template-columns: minmax(14rem, 0.38fr) minmax(0, 0.62fr);
+    gap: 1rem;
+  }
+
+  .lookbook-editorial-collage {
+    min-height: 29rem;
+  }
+}
+
+@media (max-width: 639px) {
+  .lookbook-feature-layout {
+    display: block;
+    min-height: 0;
+  }
+
+  .lookbook-feature-copy {
+    padding-left: 0;
+  }
+
+  .lookbook-editorial-collage {
+    margin-top: 3rem;
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1.25rem 1.5rem;
+  }
+
+  .lookbook-collage-card,
+  .lookbook-collage-card:nth-child(1),
+  .lookbook-collage-card:nth-child(2),
+  .lookbook-collage-card:nth-child(3),
+  .lookbook-collage-card:nth-child(4),
+  .lookbook-collage-card:nth-child(5) {
+    position: relative;
+    inset: auto;
+    width: min(78vw, 19rem);
+    aspect-ratio: 3 / 4;
+  }
+
+  .lookbook-collage-card:nth-child(even) {
+    align-self: flex-end;
+    transform: rotate(2deg);
+  }
+
+  .lookbook-collage-card:nth-child(odd) {
+    align-self: flex-start;
+    transform: rotate(-2deg);
+  }
+
+  .lookbook-collage-card:nth-child(n + 2) {
+    margin-top: -1.75rem;
+  }
+
+  .lookbook-ornament {
+    margin-top: 2rem;
+  }
+}
+
+.brand-story-section::after {
+  content: '';
+  position: absolute;
+  right: 7%;
+  bottom: 6%;
+  width: min(25vw, 22rem);
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(181, 138, 76, 0.48));
+  pointer-events: none;
+}
+
+.luxury-footer {
+  position: relative;
+  isolation: isolate;
+}
+
+.luxury-footer::before {
+  content: none;
+}
+
+.footer-brand-mark {
+  filter: brightness(0) saturate(100%) invert(58%) sepia(34%) saturate(707%) hue-rotate(358deg) brightness(90%) contrast(88%);
+}
+
+.luxury-footer > * {
+  position: relative;
+  z-index: 1;
+}
+
+@media (max-width: 767px) {
+  .shop-section-backdrop {
+    width: 100%;
+    opacity: 0.28;
+  }
+
+  .shop-categories-section::before {
+    top: 9rem;
+    left: -0.25em;
+    font-size: 15rem;
+  }
+
+  .shop-categories-section::after {
+    background: linear-gradient(180deg, rgba(248, 244, 237, 0.98) 0%, rgba(248, 244, 237, 0.88) 54%, rgba(248, 244, 237, 0.56) 100%);
+  }
+
+  .dark .shop-categories-section::after {
+    background: linear-gradient(180deg, rgba(11, 11, 11, 0.98) 0%, rgba(11, 11, 11, 0.88) 54%, rgba(11, 11, 11, 0.6) 100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collection-editorial-card,
+  .collection-editorial-card img,
+  .lookbook-collage-card,
+  .lookbook-collage-card img {
+    transition: none !important;
+    animation: none !important;
+  }
 }

@@ -19,7 +19,9 @@ import { cn } from '@/lib/utils';
 type HeaderUser = { displayName?: string; firstName?: string; lastName?: string; username?: string; email?: string; role?: 'customer' | 'staff' | 'admin' };
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || '';
 
-const mainLinks = [{ label: 'Lookbook', href: '/rk-lookbooks' }] as const;
+const mainLinks = [
+  { label: 'Lookbooks', href: '/rk-lookbooks' },
+] as const;
 
 const collectionLinks = collectionPages;
 
@@ -30,7 +32,7 @@ const utilityLinks = [
   { label: 'Shopping Bag', Icon: ShoppingBag },
 ] as const;
 const navItemClass =
-  'border-0 bg-transparent p-0 font-body text-[0.7rem] uppercase tracking-[0.28em] text-current transition hover:opacity-70';
+  'border-0 bg-transparent p-0 font-body text-[0.72rem] uppercase tracking-[0.25em] text-current transition duration-500 hover:text-gold';
 
 type StickyHeaderProps = {
   transparentAtTop?: boolean;
@@ -224,7 +226,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
     <header
       ref={headerRef}
       className={cn(
-        'fixed inset-x-0 top-0 z-[200] border-b transition-none',
+        'fixed inset-x-0 top-0 z-[200] border-b backdrop-blur-[2px] transition-[background-color,border-color,box-shadow,backdrop-filter] duration-500',
         isTransparent
           ? 'border-transparent bg-transparent text-white shadow-none'
           : 'border-black/6 bg-white text-charcoal shadow-[0_1px_0_rgba(0,0,0,0.04)]',
@@ -233,7 +235,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
     >
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-10">
         <div className="flex w-full items-center justify-between gap-4 lg:w-auto">
-          <Link href="/" className="flex items-center">
+          <Link href="/" className="flex items-center gap-3">
             <img
               src={brandLogoUrl}
               alt="RK Logo"
@@ -242,6 +244,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
               className={cn('rk-logo h-10 w-auto', isTransparent && 'rk-logo-on-hero')}
               style={{ width: 'auto', height: '2.5rem', filter: isTransparent ? 'brightness(0) invert(1)' : undefined }}
             />
+            <span className="hidden border-l border-current/30 pl-3 text-[0.58rem] uppercase leading-[1.15] tracking-[0.32em] sm:block">Rashi<br />Kapoor</span>
           </Link>
           <button
             type="button"
@@ -507,13 +510,8 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
                   <span>Collections</span>
                   <ChevronDown className="h-4 w-4 -rotate-90" />
                 </Link>
-                <Link
-                  href="/rk-lookbooks"
-                  onClick={handleNavigation}
-                  className="flex items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em]"
-                >
-                  <span>Lookbook</span>
-                  <ChevronDown className="h-4 w-4 -rotate-90" />
+                <Link href="/rk-lookbooks" onClick={handleNavigation} className="flex items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em]">
+                  <span>Lookbook</span><ChevronDown className="h-4 w-4 -rotate-90" />
                 </Link>
                 <button
                   type="button"

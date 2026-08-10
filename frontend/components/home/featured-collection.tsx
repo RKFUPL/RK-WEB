@@ -2,8 +2,8 @@
 
 import Image from 'next/image';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { aakarBannerBackgroundUrl, featuredCollection } from '@/lib/home-content';
+import { useEffect, useState } from 'react';
+import { aakarBannerBackgroundUrl } from '@/lib/home-content';
 
 const bannerFrames = [
   'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg',
@@ -13,86 +13,48 @@ const bannerFrames = [
   'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg',
 ] as const;
 
-function shuffle(source: readonly string[]) {
-  const items = [...source];
-  for (let i = items.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [items[i], items[j]] = [items[j], items[i]];
-  }
-  return items;
-}
+const lineRevealStart = 'polygon(100% 0%, 100% 100%, 100% 100%, 100% 0%)';
+const lineRevealEnd = 'polygon(0% 0%, 0% 100%, 100% 100%, 100% 0%)';
+
+type HeroPhase = 0 | 1;
+
+const titlePositions = {
+  0: { left: '50%', top: '50%', x: '-50%', y: '-50%', scale: 1, opacity: 1 },
+  1: { left: '5%', top: '49%', x: '0%', y: '0%', scale: 0.9, opacity: 0.96 },
+} as const;
 
 export function FeaturedCollection() {
-  const [order, setOrder] = useState<string[]>([...bannerFrames]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [showImage, setShowImage] = useState(false);
   const [isVisible, setIsVisible] = useState(true);
-
-  const timerRef = useRef<number | null>(null);
-
-  const activeImage = useMemo(() => order[currentIndex], [currentIndex, order]);
+  const [phase, setPhase] = useState<HeroPhase>(0);
+  const activeImage = bannerFrames[currentIndex];
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setShowImage(true);
-    }, 1800);
+    const settleTimer = window.setTimeout(() => setPhase(1), 1900);
 
-    return () => window.clearTimeout(timer);
+    return () => window.clearTimeout(settleTimer);
   }, []);
 
   useEffect(() => {
-    const clearTimer = () => {
-      if (timerRef.current !== null) {
-        window.clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-
-    const scheduleNext = () => {
-      clearTimer();
-
-      timerRef.current = window.setTimeout(() => {
-        setCurrentIndex((current) => {
-          const next = current + 1;
-          if (next >= order.length) {
-            setOrder(shuffle(bannerFrames));
-            return 0;
-          }
-          return next;
-        });
-
-        if (document.hidden) {
-          timerRef.current = null;
-          return;
-        }
-
-        scheduleNext();
-      }, 4800);
-    };
-
-    const handleVisibility = () => {
-      setIsVisible(!document.hidden);
-    };
-
+    const handleVisibility = () => setIsVisible(!document.hidden);
     document.addEventListener('visibilitychange', handleVisibility);
     handleVisibility();
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
 
-    if (showImage && isVisible) {
-      scheduleNext();
-    }
+  useEffect(() => {
+    if (!isVisible || phase === 0) return;
 
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibility);
-      clearTimer();
-    };
-  }, [currentIndex, isVisible, order.length, showImage]);
+    const timer = window.setInterval(() => {
+      setCurrentIndex((current) => (current + 1) % bannerFrames.length);
+    }, 5400);
+
+    return () => window.clearInterval(timer);
+  }, [isVisible, phase]);
 
   return (
-    <section
-      id="collections"
-      className="relative overflow-hidden border-y border-black/6 bg-[#8a3d38]"
-    >
-      <div className="relative min-h-[38rem] lg:min-h-[100svh]">
+    <section id="collections" className="relative overflow-hidden border-y border-black/6 bg-[#8a3d38] text-white">
+      <div className="relative min-h-[34rem] overflow-hidden lg:min-h-[calc(100svh-1.5rem)]">
         <Image
           src={aakarBannerBackgroundUrl}
           alt="Aakaar textured banner background"
@@ -103,80 +65,92 @@ export function FeaturedCollection() {
         />
 
         <AnimatePresence mode="sync" initial={false}>
-          {showImage ? (
+          {phase > 0 ? (
             <motion.div
               key={activeImage}
-              className="absolute inset-0"
-              initial={{ opacity: 0, clipPath: 'inset(0 100% 0 0)' }}
-              animate={{ opacity: 1, clipPath: 'inset(0 0% 0 0)' }}
-              exit={{ opacity: 0, clipPath: 'inset(0 0 0 100%)' }}
-              transition={{ duration: 1.9, ease: [0.4, 0, 0.2, 1] }}
+              className="absolute inset-0 overflow-hidden"
+              initial={{ opacity: 1, scale: 1.02, clipPath: lineRevealStart }}
+              animate={{
+                opacity: 1,
+                scale: 1,
+                clipPath: [lineRevealStart, lineRevealEnd],
+              }}
+              exit={{ opacity: 0, scale: 1.02 }}
+              transition={{
+                opacity: { duration: 1.6, ease: [0.4, 0, 0.2, 1] },
+                scale: { duration: 1.8, ease: [0.22, 1, 0.36, 1] },
+                clipPath: { duration: 1.8, ease: [0.22, 1, 0.36, 1] },
+              }}
             >
               <Image
                 src={activeImage}
-                alt="Rashi Kapoor campaign imagery"
+                alt="Rashi Kapoor Aakaar campaign"
                 fill
                 priority={currentIndex === 0}
                 sizes="100vw"
-                className="object-cover object-center brightness-100 saturate-100 contrast-100"
+                className="object-cover object-center"
               />
             </motion.div>
           ) : null}
         </AnimatePresence>
 
+        <div className="pointer-events-none absolute inset-x-6 top-28 z-20 flex items-start justify-between text-[0.58rem] uppercase tracking-[0.34em] text-[#fff1df]/75 lg:inset-x-12 lg:top-36">
+          <span>Rashi Kapoor / 2026</span>
+          <span className="hidden items-center gap-3 md:flex"><span className="h-px w-10 bg-gold/70" />Indian couture</span>
+        </div>
+
         <motion.div
-          className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center px-6 text-center"
-          style={{ color: '#ffffff' }}
-          initial={false}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.9, ease: 'easeOut' }}
+          className="pointer-events-none absolute z-30 whitespace-nowrap"
+          initial={titlePositions[0]}
+          animate={titlePositions[phase]}
+          transition={{
+            duration: 1.8,
+            ease: [0.22, 1, 0.36, 1],
+          }}
         >
-          <motion.div
-            className="flex flex-col items-center gap-3"
-            initial={false}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.8, ease: 'easeOut' }}
-          >
-            <motion.h2
-              className="font-aakaar text-[clamp(2.8rem,10vw,6.5rem)] leading-[0.9] tracking-[0.04em] drop-shadow-[0_1px_18px_rgba(0,0,0,0.2)]"
-              style={{ color: '#e3cec4' }}
-              initial={false}
-              animate={{ opacity: 1, letterSpacing: '0.04em' }}
-              transition={{ duration: 0.9, ease: 'easeOut' }}
-            >
-              AAKAAR
-            </motion.h2>
-            {showImage ? (
-              <div className="mt-1 flex flex-col items-center gap-4">
-                <motion.p
-                  className="text-[clamp(0.68rem,1.8vw,0.92rem)] uppercase tracking-[0.46em]"
-                  style={{ color: '#ffffff', opacity: 0.82 }}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 1.0, ease: 'easeOut', delay: 0.15 }}
-                >
-                  COMING SOON
-                </motion.p>
-                <motion.a
-                  href="/collections/aakaar-insights"
-                  className="pointer-events-auto inline-flex items-center justify-center border border-white/65 px-5 py-3 text-[0.7rem] uppercase tracking-[0.34em] text-white transition duration-300 hover:bg-black hover:text-white"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 1.0, ease: 'easeOut', delay: 0.28 }}
-                >
-                  {featuredCollection.cta}
-                </motion.a>
-              </div>
-            ) : (
-              <p
-                className="text-[clamp(0.68rem,1.8vw,0.92rem)] uppercase tracking-[0.46em]"
-                style={{ color: '#ffffff', opacity: 0.82 }}
-              >
-                COMING SOON
-              </p>
-            )}
-          </motion.div>
+          <h1 className="font-aakaar text-[clamp(4rem,13vw,11rem)] leading-[0.78] tracking-[0.04em] text-[#fff1df] drop-shadow-[0_1px_22px_rgba(0,0,0,0.2)]">
+            AAKAAR
+          </h1>
         </motion.div>
+
+        <AnimatePresence mode="wait">
+          {phase === 0 ? (
+            <motion.p
+              key="intro-copy"
+              className="pointer-events-none absolute inset-x-0 top-[58%] z-30 text-center text-[0.68rem] uppercase tracking-[0.46em] text-[#fff1df]/80"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.5, delay: 0.35 }}
+            >
+              Coming soon
+            </motion.p>
+          ) : (
+            <motion.div
+              key="settled-copy"
+              className="pointer-events-none absolute inset-x-6 bottom-12 z-20 flex items-end justify-between gap-8 lg:inset-x-12 lg:bottom-20"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.35, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <div>
+                <p className="max-w-xs font-display text-xl leading-[1.05] text-[#fff1df]/90 md:text-2xl">
+                  Timeless elegance.<br /><em className="text-gold">Modern luxury.</em>
+                </p>
+                <div className="mt-7 flex flex-wrap items-center gap-5">
+                  <p className="text-[clamp(0.6rem,1.2vw,0.78rem)] uppercase tracking-[0.42em] text-[#fff1df]/85">Coming soon</p>
+                  <a href="/collections/aakaar-insights" className="pointer-events-auto inline-flex items-center justify-center border border-gold/70 px-5 py-3 text-[0.62rem] uppercase tracking-[0.28em] text-[#fff1df] transition duration-500 hover:bg-gold hover:text-ink">
+                    Explore Aakaar <span className="ml-3 text-base">→</span>
+                  </a>
+                </div>
+              </div>
+
+              <div className="hidden max-w-[10rem] border-l border-gold/60 pl-5 text-[0.57rem] uppercase leading-[1.8] tracking-[0.25em] text-[#fff1df]/65 md:block">
+                <span className="text-gold">A new chapter</span><br />in movement,<br />texture &amp;<br />quiet couture.
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </section>
   );

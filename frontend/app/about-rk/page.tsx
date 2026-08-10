@@ -75,7 +75,7 @@ export default function AboutRkPage() {
               />
             </div>
 
-            <div className="grid gap-4 md:grid-cols-3">
+            <div id="craftsmanship" className="scroll-mt-32 grid gap-4 md:grid-cols-3">
               {aboutSections.map((section) => (
                 <div key={section.title} className="border border-black/10 bg-white px-6 py-6">
                   <p className="text-[0.63rem] uppercase tracking-[0.35em] text-charcoal/40">

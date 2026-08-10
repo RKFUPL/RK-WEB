@@ -36,11 +36,11 @@ export const featuredCollection = {
 };
 
 export const featuredCollectionFrames = [
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor474_cqm17y.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg',
   'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg',
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor2418_nebluo.jpg',
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303897/Rashi_Kapoor306_dnwh99.jpg',
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303897/Rashi_Kapoor187_nx9fpm.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487994/Rashi_Kapoor2418_compressed_8000kb_qkke56.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488013/Rashi_Kapoor306_compressed_8000kb_vnw8a0.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487943/Rashi_Kapoor187_compressed_8000kb_e5k7xn.jpg',
 ] as const;
 
 export const collectionPages: readonly CollectionPage[] = [
@@ -113,7 +113,7 @@ export const searchItems = [
 export const categoryItems: readonly CategoryItem[] = [
   {
     title: 'Aakaar',
-    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785304593/Rashi_Kapoor1351_xzrpyx.jpg',
+    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg',
     href: '/collections/aakaar-insights',
   },
   {
@@ -147,7 +147,7 @@ export const featuredLooks = [
   {
     title: 'Look 01',
     caption: 'Hand-finished drape, softened tailoring',
-    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor474_cqm17y.jpg',
+    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg',
     span: 'lg:col-span-5 lg:row-span-2',
   },
   {
@@ -159,20 +159,58 @@ export const featuredLooks = [
   {
     title: 'Look 03',
     caption: 'Occasionwear with sculpted volume',
-    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor2418_nebluo.jpg',
+    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487994/Rashi_Kapoor2418_compressed_8000kb_qkke56.jpg',
     span: 'lg:col-span-4',
   },
   {
     title: 'Look 04',
     caption: 'Bridal motion, quiet opulence',
-    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303897/Rashi_Kapoor306_dnwh99.jpg',
+    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488013/Rashi_Kapoor306_compressed_8000kb_vnw8a0.jpg',
     span: 'lg:col-span-4',
   },
   {
     title: 'Look 05',
     caption: 'Resort ease in a luxury frame',
-    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303897/Rashi_Kapoor187_nx9fpm.jpg',
+    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487943/Rashi_Kapoor187_compressed_8000kb_e5k7xn.jpg',
     span: 'lg:col-span-8',
+  },
+] as const;
+
+export const lookbookCovers = [
+  {
+    title: 'Inaara',
+    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861901/Inaara_hn30rg.png',
+    href: '/rk-lookbooks/inaara',
+    caption: 'A luminous, celebratory edit.',
+    span: 'lg:col-span-8',
+  },
+  {
+    title: 'Anamika',
+    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861902/Anamika_ojeh19.png',
+    href: '/rk-lookbooks/anamika',
+    caption: 'A softer, movement-led chapter.',
+    span: 'lg:col-span-5 lg:row-span-2',
+  },
+  {
+    title: 'Hastakala',
+    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785862112/Hastakala_kcb6la.png',
+    href: '/rk-lookbooks/hasthkala',
+    caption: 'A craft-first visual story.',
+    span: 'lg:col-span-3',
+  },
+  {
+    title: 'Espiritu Libre',
+    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861902/Espi_bbvgfh.png',
+    href: '/rk-lookbooks/espiritu-libre',
+    caption: 'A free-spirited chapter in motion.',
+    span: 'lg:col-span-4',
+  },
+  {
+    title: 'Sandook',
+    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861901/Sandook_h0rfqg.png',
+    href: '/rk-lookbooks/sandook',
+    caption: 'A treasured archive of the house.',
+    span: 'lg:col-span-4',
   },
 ] as const;
 
@@ -186,48 +224,42 @@ export const brandStory = {
 
 export const testimonials = [
   {
-    quote:
-      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer vitae justo eget magna.',
+    quote: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer vitae justo eget magna.',
     name: 'Ananya S.',
     role: 'Client',
   },
   {
-    quote:
-      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt.',
+    quote: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt.',
     name: 'Meher K.',
     role: 'Client',
   },
   {
-    quote:
-      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Ut enim ad minim veniam quis.',
+    quote: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Ut enim ad minim veniam quis.',
     name: 'Ritika P.',
     role: 'Client',
   },
   {
-    quote:
-      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Duis aute irure dolor in.',
+    quote: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Duis aute irure dolor in.',
     name: 'Naina V.',
     role: 'Client',
   },
   {
-    quote:
-      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Excepteur sint occaecat cupidatat.',
+    quote: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Excepteur sint occaecat cupidatat.',
     name: 'Sana M.',
     role: 'Client',
   },
   {
-    quote:
-      'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nunc dignissim, massa at.',
+    quote: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nunc dignissim, massa at.',
     name: 'Diya R.',
     role: 'Client',
   },
 ] as const;
 
 export const instagramItems = [
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor474_cqm17y.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg',
   'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg',
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor2418_nebluo.jpg',
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303897/Rashi_Kapoor306_dnwh99.jpg',
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303897/Rashi_Kapoor187_nx9fpm.jpg',
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785303898/Rashi_Kapoor474_cqm17y.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487994/Rashi_Kapoor2418_compressed_8000kb_qkke56.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488013/Rashi_Kapoor306_compressed_8000kb_vnw8a0.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487943/Rashi_Kapoor187_compressed_8000kb_e5k7xn.jpg',
+  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg',
 ] as const;

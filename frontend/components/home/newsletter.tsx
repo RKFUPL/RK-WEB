@@ -12,16 +12,16 @@ export function Newsletter() {
 
   return (
     <section id="journal" className="newsletter-editorial-section bg-ivory">
-      <div className="mx-auto w-full max-w-7xl px-6 py-20 lg:px-10 lg:py-28">
-      <div className="grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center lg:gap-20">
-        <div className="max-w-xl space-y-7">
+      <div className="mx-auto w-full max-w-[90rem] px-6 py-24 lg:px-12 lg:py-36">
+      <div className="grid gap-14 lg:grid-cols-[0.72fr_1.28fr] lg:items-center lg:gap-24">
+        <div className="max-w-xl space-y-8">
           <div className="space-y-5">
-            <p className="text-xs uppercase tracking-[0.38em] text-charcoal/50">House notes</p>
-            <h2 className="font-display text-6xl leading-[0.88] text-charcoal md:text-8xl">Join the House.</h2>
-            <p className="max-w-md text-base leading-8 text-charcoal/70">
-              Be the first to discover new collections, exclusive launches, lookbooks, and stories from the world of RK.
+            <div className="flex items-center gap-4"><p className="text-[0.62rem] uppercase tracking-[0.38em] text-gold">House notes</p><span className="h-px w-14 bg-gold/60" /></div>
+            <h2 className="font-display text-[clamp(4rem,7vw,7.5rem)] leading-[0.82] tracking-[-0.04em] text-charcoal">Join<br /><em className="text-gold">the House.</em></h2>
+            <p className="max-w-md font-display text-2xl leading-[1.2] text-charcoal/70 md:text-3xl">
+              A private line into new collections, craftsmanship stories, lookbooks, launches and considered previews from the world of RK.
             </p>
-            <ul className="space-y-3 text-sm uppercase tracking-[0.18em] text-charcoal/65">
+            <ul className="grid gap-3 text-[0.68rem] uppercase tracking-[0.2em] text-charcoal/65 sm:grid-cols-2">
               {features.map((feature) => (
                 <li key={feature} className="flex items-center gap-3">
                   <Check className="h-3.5 w-3.5 text-charcoal/55" strokeWidth={1.5} />
@@ -42,7 +42,7 @@ export function Newsletter() {
                 placeholder="Your email"
                 className="min-w-0 flex-1 bg-transparent px-0 py-3 text-sm text-charcoal outline-none placeholder:text-charcoal/40"
               />
-              <button type="submit" className="bg-charcoal px-6 py-3 text-xs uppercase tracking-[0.28em] text-ivory transition-colors duration-150 hover:bg-gold hover:text-ink">
+              <button type="submit" className="bg-charcoal px-7 py-4 text-[0.65rem] uppercase tracking-[0.28em] text-ivory transition-colors duration-500 hover:bg-gold hover:text-ink">
                 Subscribe
               </button>
             </div>
@@ -51,13 +51,13 @@ export function Newsletter() {
         </div>
 
         <motion.div
-          className="relative aspect-[4/5] overflow-hidden bg-sand lg:aspect-[5/6]"
+          className="relative aspect-[4/5] overflow-hidden border border-black/10 bg-sand p-3 lg:aspect-[1.08/1]"
           initial={{ opacity: 0, y: 24 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.18 }}
           transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
         >
-          <Image src={brandStory.image} alt="Rashi Kapoor campaign" fill sizes="(max-width: 1024px) 100vw, 50vw" className="object-cover object-center" />
+          <div className="relative h-full w-full overflow-hidden"><Image src={brandStory.image} alt="Rashi Kapoor campaign" fill sizes="(max-width: 1024px) 100vw, 58vw" className="object-cover object-center transition duration-[1400ms] hover:scale-[1.04]" /><div className="absolute inset-0 bg-gradient-to-t from-[#17100d]/30 to-transparent" /></div>
         </motion.div>
       </div>
       </div>

@@ -9,7 +9,7 @@ const config: Config = {
         ivory: '#f8f6f2',
         sand: '#ece3d4',
         charcoal: '#2a2622',
-        gold: '#c7a66b',
+        gold: '#b58a4c',
         ink: '#121212',
       },
       boxShadow: {

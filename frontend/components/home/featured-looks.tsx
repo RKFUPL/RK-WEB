@@ -1,38 +1,53 @@
 import Image from 'next/image';
-import { featuredLooks } from '@/lib/home-content';
+import Link from 'next/link';
+import { ArrowRight } from 'lucide-react';
+import { lookbookCovers } from '@/lib/home-content';
 import { SectionShell } from './section-shell';
-import { cn } from '@/lib/utils';
 
 export function FeaturedLooks() {
   return (
-    <SectionShell id="lookbook">
-      <div className="max-w-2xl space-y-4">
-        <p className="text-xs uppercase tracking-[0.38em] text-charcoal/50">Featured Looks</p>
-        <h2 className="font-display text-4xl leading-none text-charcoal md:text-6xl">
-          Editorial compositions with room to breathe.
-        </h2>
+    <SectionShell id="lookbook" className="lookbook-feature-section">
+      <div className="lookbook-feature-layout">
+        <div className="lookbook-feature-copy">
+          <p className="text-[0.65rem] uppercase tracking-[0.38em] text-gold">RK Lookbooks</p>
+          <h2 className="mt-9 max-w-[23rem] font-display text-[clamp(2.65rem,3.7vw,4rem)] leading-[0.98] tracking-[-0.035em] text-charcoal">
+            Stories told through silhouette and movement.
+          </h2>
+          <span className="mt-9 block h-px w-12 bg-gold/75" />
+          <p className="mt-8 max-w-[20rem] text-sm leading-6 text-charcoal/70">
+            Each lookbook is a reflection of our design philosophy—where every silhouette moves with intention and every detail tells a story.
+          </p>
+          <Link href="/rk-lookbooks" className="mt-10 inline-flex items-center gap-5 border-b border-gold/70 pb-3 text-[0.65rem] uppercase tracking-[0.3em] text-charcoal transition hover:text-gold">
+            Explore all lookbooks <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+
+        <div className="lookbook-editorial-collage">
+          {lookbookCovers.map((look, index) => (
+            <Link
+              key={look.title}
+              href={look.href}
+              className="lookbook-collage-card group relative block overflow-hidden bg-white"
+            >
+              <Image
+                src={look.image}
+                alt={`${look.title} lookbook`}
+                fill
+                sizes="(max-width: 639px) 78vw, (max-width: 1023px) 44vw, 24vw"
+                className="object-cover object-center transition duration-700 group-hover:scale-[1.035]"
+              />
+              <div className="absolute inset-x-0 bottom-0 flex items-end gap-3 bg-[#2b201b]/82 px-3 py-3 text-ivory backdrop-blur-[1px]">
+                <span className="text-[0.52rem] tracking-[0.25em] text-gold/85">{String(index + 1).padStart(2, '0')}</span>
+                <div>
+                  <p className="text-[0.61rem] uppercase tracking-[0.25em]">{look.title}</p>
+                  <p className="mt-1 text-[0.5rem] uppercase tracking-[0.27em] text-ivory/68">Lookbook</p>
+                </div>
+              </div>
+            </Link>
+          ))}
+        </div>
       </div>
-      <div className="mt-10 grid auto-rows-[16rem] gap-5 lg:grid-cols-12 lg:auto-rows-[12rem]">
-        {featuredLooks.map((look) => (
-          <article
-            key={look.title}
-            className={cn('group relative overflow-hidden bg-white shadow-[0_16px_40px_rgba(18,18,18,0.05)]', look.span)}
-          >
-            <Image
-              src={look.image}
-              alt={look.title}
-              fill
-              sizes="(max-width: 1024px) 100vw, 33vw"
-              className="object-cover object-center transition duration-700 group-hover:scale-[1.04]"
-            />
-            <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(248,246,242,0)_0%,rgba(18,18,18,0.18)_100%)]" />
-            <div className="absolute inset-x-0 bottom-0 p-5 text-ivory">
-              <p className="text-[0.64rem] uppercase tracking-[0.35em] text-ivory/70">{look.title}</p>
-              <p className="mt-2 max-w-xs text-sm leading-6">{look.caption}</p>
-            </div>
-          </article>
-        ))}
-      </div>
+      <div className="lookbook-ornament" aria-hidden="true"><span />✿<span /></div>
     </SectionShell>
   );
 }

@@ -209,10 +209,10 @@ export function Services() {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, amount: 0.12 }}
                 transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-                className={`group relative min-w-0 shrink-0 basis-full pt-4 text-left before:absolute before:left-0 before:right-0 before:top-0 before:h-px before:origin-left before:scale-x-0 before:bg-gold before:transition-transform before:duration-150 before:ease-out group-hover:before:scale-x-100 md:basis-[calc((100%-2rem)/2)] xl:basis-[calc((100%-4rem)/3)] ${start === index ? 'before:scale-x-100' : ''}`}
+                className={`group relative min-w-0 shrink-0 basis-full pt-4 text-left before:absolute before:left-0 before:right-0 before:top-0 before:h-px before:origin-left before:scale-x-0 before:bg-gold before:transition-transform before:duration-300 group-hover:before:scale-x-100 md:basis-[calc((100%-2rem)/2)] xl:basis-[calc((100%-4rem)/3)] ${start === index ? 'before:scale-x-100' : ''}`}
               >
-                <div className="flex aspect-[3/4] items-center justify-center overflow-hidden bg-black text-center text-[0.62rem] uppercase tracking-[0.3em] text-white/80 transition-colors duration-300 group-hover:text-gold">
-                  Photo not found
+                <div className="flex aspect-[3/4] items-center justify-center overflow-hidden bg-[#151515] text-center text-[0.62rem] uppercase tracking-[0.3em] text-white/55">
+                  Image not found
                 </div>
                 <div className="border-l border-black/10 py-6 pl-5 dark:border-white/15 md:pl-7">
                   <p className="font-display text-5xl leading-none text-gold">“</p>

@@ -1,4 +1,3 @@
-import Image from 'next/image';
 import Link from 'next/link';
 import { ArrowUpRight } from 'lucide-react';
 
@@ -6,6 +5,7 @@ type CategoryCardProps = {
   title: string;
   image?: string;
   href?: string;
+  index?: number;
 };
 
 const categoryFont: Record<string, string> = {
@@ -14,28 +14,41 @@ const categoryFont: Record<string, string> = {
   Inaara: 'RK Inaara',
   Sandook: 'RK Sandook',
 };
-const categoryFontSize: Record<string, string> = { Hastakala: '1.45rem' };
 
-export function CategoryCard({ title, image, href }: CategoryCardProps) {
+const categoryFontSize: Record<string, string> = { Hastakala: '1.15rem' };
+
+const categoryObjectPosition: Record<string, string> = {
+  Aakaar: 'center 32%',
+  Anamika: 'center 42%',
+  Hastakala: 'center 38%',
+  Inaara: 'center 36%',
+  Naqab: 'center 34%',
+  Sandook: 'center 45%',
+};
+
+export function CategoryCard({ title, image, href, index = 0 }: CategoryCardProps) {
   const content = (
-    <article className="theme-card group flex h-full flex-col justify-between border border-black/6 bg-white p-5 transition hover:-translate-y-0.5 hover:shadow-[0_20px_50px_rgba(18,18,18,0.06)]">
-      <div className="flex items-start justify-between">
-        <div className="space-y-2">
-          <h3 style={{ fontFamily: categoryFont[title] ?? 'var(--font-aakaar)', fontSize: categoryFontSize[title] }} className="text-3xl text-charcoal">{title}</h3>
-        </div>
-        <ArrowUpRight className="h-5 w-5 text-charcoal/40 transition group-hover:text-gold" />
+    <article className={`theme-card collection-editorial-card collection-editorial-card-${index} group relative h-full border border-black/12 bg-white/80 p-2 backdrop-blur-[2px] transition duration-500 hover:border-gold/65`}>
+      <div className="relative z-10 flex min-h-8 items-center justify-between px-1">
+        <h3
+          style={{ fontFamily: categoryFont[title] ?? 'var(--font-aakaar)', fontSize: categoryFontSize[title] }}
+          className="text-[1.22rem] leading-none text-charcoal"
+        >
+          {title}
+        </h3>
+        <ArrowUpRight className="h-4 w-4 text-charcoal/45 transition duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-gold" />
       </div>
-      <div className="mt-8 aspect-[3/4] overflow-hidden border border-black/8 bg-[linear-gradient(180deg,#f8f6f2_0%,#f1ece3_100%)]">
+
+      <div className="collection-editorial-card-image relative mt-1 aspect-[4/5] overflow-hidden bg-[linear-gradient(180deg,#f8f6f2_0%,#f1ece3_100%)]">
         {image ? (
-          <div className="relative h-full w-full">
-            <Image
-              src={image}
-              alt={title}
-              fill
-              sizes="(min-width: 1024px) 33vw, (min-width: 768px) 50vw, 100vw"
-              className="object-cover object-center transition duration-700 group-hover:scale-[1.03]"
-            />
-          </div>
+          <img
+            src={image}
+            alt={title}
+            style={{ objectPosition: categoryObjectPosition[title] ?? 'center center' }}
+            loading={index < 3 ? 'eager' : 'lazy'}
+            decoding="async"
+            className="block h-full w-full object-cover transition duration-700 ease-out group-hover:scale-[1.025]"
+          />
         ) : (
           <div className="flex h-full items-center justify-center border border-dashed border-black/10 bg-white/45 text-[0.62rem] uppercase tracking-[0.35em] text-charcoal/35">
             Placeholder Image
@@ -45,13 +58,5 @@ export function CategoryCard({ title, image, href }: CategoryCardProps) {
     </article>
   );
 
-  if (href) {
-    return (
-      <Link href={href} className="block h-full">
-        {content}
-      </Link>
-    );
-  }
-
-  return content;
+  return href ? <Link href={href} className="block h-full">{content}</Link> : content;
 }
