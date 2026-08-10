@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Facebook, Instagram, Linkedin, Youtube } from 'lucide-react';
 import { useState } from 'react';
 import { brandLogoUrl, featuredLooks, storeInteriorVideoUrl } from '@/lib/home-content';
+import { CAREERS_URL } from '@/lib/external-links';
 
 const footerColumns = [
   {
@@ -194,6 +195,8 @@ export function Footer() {
                             {link}
                           </Link>
                         )
+                      ) : column.title === 'Company' && link === 'Careers' ? (
+                        <a href={CAREERS_URL} className="transition hover:text-gold">{link}</a>
                       ) : column.title === 'Company' && link === 'Contact' ? (
                         <a href="mailto:contact@rashikapoorofficial.com" className="transition hover:text-gold">{link}</a>
                       ) : (
