@@ -25,12 +25,19 @@ const titlePositions = {
 
 export function FeaturedCollection() {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [rotationReset, setRotationReset] = useState(0);
   const [isVisible, setIsVisible] = useState(true);
   const [phase, setPhase] = useState<HeroPhase>(0);
   const activeFrame = bannerFrames[currentIndex];
 
+  const selectFrame = (index: number) => {
+    setCurrentIndex(index);
+    setRotationReset((current) => current + 1);
+  };
+
   const changeFrame = (direction: -1 | 1) => {
     setCurrentIndex((current) => (current + direction + bannerFrames.length) % bannerFrames.length);
+    setRotationReset((reset) => reset + 1);
   };
 
   useEffect(() => {
@@ -54,7 +61,7 @@ export function FeaturedCollection() {
     }, 5400);
 
     return () => window.clearInterval(timer);
-  }, [isVisible, phase]);
+  }, [isVisible, phase, rotationReset]);
 
   return (
     <section id="collections" className="relative overflow-hidden border-y border-black/6 bg-[#8a3d38] text-white">
@@ -103,7 +110,7 @@ export function FeaturedCollection() {
         {phase > 0 ? <div className="absolute inset-x-6 bottom-5 z-40 flex items-center justify-between lg:inset-x-12 lg:bottom-8">
           <button type="button" aria-label="Previous Aakaar image" onClick={() => changeFrame(-1)} className="pointer-events-auto flex h-10 w-10 items-center justify-center border border-[#fff1df]/55 bg-black/10 text-lg text-[#fff1df] backdrop-blur-sm transition hover:border-gold hover:bg-gold hover:text-ink">←</button>
           <div className="pointer-events-auto flex items-center gap-2" aria-label="Aakaar image navigation">
-            {bannerFrames.map((frame, index) => <button key={frame.src} type="button" aria-label={`Show Aakaar image ${index + 1}`} aria-current={index === currentIndex} onClick={() => setCurrentIndex(index)} className={`h-3 w-3 rounded-full border-2 border-[#fff1df]/90 transition ${index === currentIndex ? 'scale-125 bg-[#fff1df]' : 'bg-transparent hover:bg-[#fff1df]/70'}`} />)}
+            {bannerFrames.map((frame, index) => <button key={frame.src} type="button" aria-label={`Show Aakaar image ${index + 1}`} aria-current={index === currentIndex} onClick={() => selectFrame(index)} className={`h-3 w-3 rounded-full border-2 border-[#fff1df]/90 transition ${index === currentIndex ? 'scale-125 bg-[#fff1df]' : 'bg-transparent hover:bg-[#fff1df]/70'}`} />)}
           </div>
           <button type="button" aria-label="Next Aakaar image" onClick={() => changeFrame(1)} className="pointer-events-auto flex h-10 w-10 items-center justify-center border border-[#fff1df]/55 bg-black/10 text-lg text-[#fff1df] backdrop-blur-sm transition hover:border-gold hover:bg-gold hover:text-ink">→</button>
         </div> : null}

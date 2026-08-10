@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Footer } from '@/components/home/footer';
 import { StickyHeader } from '@/components/home/sticky-header';
 import { SectionShell } from '@/components/home/section-shell';
@@ -54,10 +54,7 @@ export default function RkLookbooksPage() {
   const initialIndex = Math.max(0, featuredLookbooks.findIndex((lookbook) => lookbook.title === 'INAARA'));
   const [spotlightIndex, setSpotlightIndex] = useState(initialIndex);
   const [paused, setPaused] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
   const shelfRef = useRef<HTMLDivElement | null>(null);
-  const dragStart = useRef({ x: 0, scrollLeft: 0 });
-  const dragged = useRef(false);
   const activeSpotlight = featuredLookbooks[spotlightIndex] ?? featuredLookbooks[0];
   const activeCover = useMemo(() => coverByTitle.get(activeSpotlight?.title.toUpperCase()), [activeSpotlight]);
 
@@ -83,31 +80,6 @@ export default function RkLookbooksPage() {
 
   const scrollShelf = (direction: -1 | 1) => shelfRef.current?.scrollBy({ left: direction * 310, behavior: 'smooth' });
 
-  const startDrag = (event: PointerEvent<HTMLDivElement>) => {
-    const shelf = shelfRef.current;
-    if (!shelf || event.button !== 0) return;
-    dragStart.current = { x: event.clientX, scrollLeft: shelf.scrollLeft };
-    dragged.current = false;
-    setIsDragging(true);
-    event.preventDefault();
-    shelf.setPointerCapture(event.pointerId);
-  };
-
-  const moveDrag = (event: PointerEvent<HTMLDivElement>) => {
-    const shelf = shelfRef.current;
-    if (!shelf || !shelf.hasPointerCapture(event.pointerId)) return;
-    const distance = event.clientX - dragStart.current.x;
-    if (Math.abs(distance) > 5) dragged.current = true;
-    if (dragged.current) event.preventDefault();
-    shelf.scrollLeft = dragStart.current.scrollLeft - distance;
-  };
-
-  const endDrag = (event: PointerEvent<HTMLDivElement>) => {
-    const shelf = shelfRef.current;
-    if (shelf?.hasPointerCapture(event.pointerId)) shelf.releasePointerCapture(event.pointerId);
-    setIsDragging(false);
-  };
-
   return (
     <main className="rk-lookbooks-archive bg-ivory text-charcoal">
       <StickyHeader />
@@ -120,7 +92,7 @@ export default function RkLookbooksPage() {
           </div>
 
           {activeSpotlight ? <div className="relative mx-auto w-full max-w-[31rem]" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
-            <Link href={activeSpotlight.href ?? '/rk-lookbooks'} className="group relative block aspect-[3/4] overflow-hidden rounded-[3px] bg-black">
+            <Link href={activeSpotlight.href ?? '/rk-lookbooks'} target={activeSpotlight.href ? '_blank' : undefined} rel={activeSpotlight.href ? 'noopener noreferrer' : undefined} className="group relative block aspect-[3/4] overflow-hidden rounded-[3px] bg-black">
               <motion.img key={activeSpotlight.title} src={activeCover} alt={`${activeSpotlight.title} lookbook cover`} className="absolute inset-0 h-full w-full object-cover" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7, ease: 'easeOut' }} />
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-black/10 transition duration-500 group-hover:from-black/85" />
               <motion.div key={`${activeSpotlight.title}-copy`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7, delay: 0.1 }} className="absolute inset-x-0 bottom-0 z-30 p-7 text-white md:p-10">
@@ -140,10 +112,10 @@ export default function RkLookbooksPage() {
         <section className="lookbook-explore-section relative left-1/2 mt-28 w-screen -translate-x-1/2 px-0 py-10 pb-24 md:mt-40">
           <div className="mx-auto w-full max-w-7xl px-6 md:px-10">
           <div className="flex items-end justify-between border-b border-black/15 pb-5"><div><p className="text-xs uppercase tracking-[0.38em] text-charcoal/45">The archive</p><h2 className="mt-3 font-display text-5xl leading-none md:text-7xl">Explore all lookbooks</h2></div><div className="hidden items-center gap-3 md:flex"><button type="button" aria-label="Scroll archive left" onClick={() => scrollShelf(-1)} className="flex h-10 w-10 items-center justify-center border border-black/15 transition hover:border-charcoal"><ArrowLeft className="h-4 w-4" /></button><button type="button" aria-label="Scroll archive right" onClick={() => scrollShelf(1)} className="flex h-10 w-10 items-center justify-center border border-black/15 transition hover:border-charcoal"><ArrowRight className="h-4 w-4" /></button></div></div>
-          <div ref={shelfRef} onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} className={`rk-archive-shelf mt-12 flex gap-8 overflow-x-auto overscroll-x-contain pb-8 touch-pan-x select-none md:gap-10 ${isDragging ? 'is-dragging' : ''}`}>
+          <div ref={shelfRef} className="rk-archive-shelf mt-12 flex gap-8 overflow-x-auto overscroll-x-contain pb-8 touch-pan-x select-none md:gap-10">
             {lookbooks.map((lookbook, index) => {
               const cover = coverByTitle.get(lookbook.title.toUpperCase());
-              return <Link key={lookbook.title} href={lookbook.href ?? '/rk-lookbooks'} target={lookbook.href ? '_blank' : undefined} rel={lookbook.href ? 'noopener noreferrer' : undefined} onClick={(event) => { if (dragged.current) { event.preventDefault(); dragged.current = false; } }} className={`group relative w-[16rem] shrink-0 pt-4 text-left before:absolute before:left-0 before:right-0 before:top-0 before:h-px before:origin-left before:scale-x-0 before:bg-gold before:transition-transform before:duration-150 before:ease-out group-hover:before:scale-x-100 md:w-[17rem] ${activeSpotlight?.title === lookbook.title ? 'before:scale-x-100' : ''}`}>
+              return <Link key={lookbook.title} href={lookbook.href ?? '/rk-lookbooks'} target={lookbook.href ? '_blank' : undefined} rel={lookbook.href ? 'noopener noreferrer' : undefined} className={`group relative w-[16rem] shrink-0 pt-4 text-left before:absolute before:left-0 before:right-0 before:top-0 before:h-px before:origin-left before:scale-x-0 before:bg-gold before:transition-transform before:duration-150 before:ease-out group-hover:before:scale-x-100 md:w-[17rem] ${activeSpotlight?.title === lookbook.title ? 'before:scale-x-100' : ''}`}>
                 <div className={`relative aspect-[3/4] w-full overflow-hidden rounded-[3px] ${lookbook.comingSoon ? 'border border-black/10 dark:border-white/25' : 'bg-sand'}`}>
                   {lookbook.comingSoon ? <div className="flex h-full items-center justify-center bg-black/[0.02] text-center text-[0.62rem] uppercase tracking-[0.35em] text-black transition-colors duration-150 group-hover:text-gold dark:bg-white/[0.02] dark:text-black">Coming<br />Soon</div> : cover ? <img src={cover} alt={`${lookbook.title} cover`} draggable={false} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03] group-hover:brightness-90" /> : null}
                   <span className="absolute left-4 top-4 font-display text-3xl text-white/80 drop-shadow">{String(index + 1).padStart(2, '0')}</span>
