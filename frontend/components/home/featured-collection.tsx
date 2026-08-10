@@ -6,11 +6,11 @@ import { useEffect, useState } from 'react';
 import { aakarBannerBackgroundUrl } from '@/lib/home-content';
 
 const bannerFrames = [
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg',
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488013/Rashi_Kapoor306_compressed_8000kb_vnw8a0.jpg',
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487994/Rashi_Kapoor2418_compressed_8000kb_qkke56.jpg',
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487943/Rashi_Kapoor187_compressed_8000kb_e5k7xn.jpg',
-  'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg',
+  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg', label: 'Aakaar', href: '/collections/aakaar-insights' },
+  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488013/Rashi_Kapoor306_compressed_8000kb_vnw8a0.jpg', label: 'Aakaar', href: '/collections/aakaar-insights' },
+  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487994/Rashi_Kapoor2418_compressed_8000kb_qkke56.jpg', label: 'Aakaar', href: '/collections/aakaar-insights' },
+  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487943/Rashi_Kapoor187_compressed_8000kb_e5k7xn.jpg', label: 'Aakaar', href: '/collections/aakaar-insights' },
+  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg', label: 'Aakaar', href: '/collections/aakaar-insights' },
 ] as const;
 
 const lineRevealStart = 'polygon(100% 0%, 100% 100%, 100% 100%, 100% 0%)';
@@ -27,7 +27,11 @@ export function FeaturedCollection() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(true);
   const [phase, setPhase] = useState<HeroPhase>(0);
-  const activeImage = bannerFrames[currentIndex];
+  const activeFrame = bannerFrames[currentIndex];
+
+  const changeFrame = (direction: -1 | 1) => {
+    setCurrentIndex((current) => (current + direction + bannerFrames.length) % bannerFrames.length);
+  };
 
   useEffect(() => {
     const settleTimer = window.setTimeout(() => setPhase(1), 1900);
@@ -67,7 +71,7 @@ export function FeaturedCollection() {
         <AnimatePresence mode="sync" initial={false}>
           {phase > 0 ? (
             <motion.div
-              key={activeImage}
+              key={activeFrame.src}
               className="absolute inset-0 overflow-hidden"
               initial={{ opacity: 1, scale: 1.02, clipPath: lineRevealStart }}
               animate={{
@@ -82,17 +86,27 @@ export function FeaturedCollection() {
                 clipPath: { duration: 1.8, ease: [0.22, 1, 0.36, 1] },
               }}
             >
-              <Image
-                src={activeImage}
-                alt="Rashi Kapoor Aakaar campaign"
-                fill
-                priority={currentIndex === 0}
-                sizes="100vw"
-                className="object-cover object-center"
-              />
+              <a href={activeFrame.href} aria-label={`Open ${activeFrame.label} collection`} className="absolute inset-0 block">
+                <Image
+                  src={activeFrame.src}
+                  alt={`Rashi Kapoor ${activeFrame.label} campaign`}
+                  fill
+                  priority={currentIndex === 0}
+                  sizes="100vw"
+                  className="object-cover object-center"
+                />
+              </a>
             </motion.div>
           ) : null}
         </AnimatePresence>
+
+        {phase > 0 ? <div className="absolute inset-x-6 bottom-5 z-40 flex items-center justify-between lg:inset-x-12 lg:bottom-8">
+          <button type="button" aria-label="Previous Aakaar image" onClick={() => changeFrame(-1)} className="pointer-events-auto flex h-10 w-10 items-center justify-center border border-[#fff1df]/55 bg-black/10 text-lg text-[#fff1df] backdrop-blur-sm transition hover:border-gold hover:bg-gold hover:text-ink">←</button>
+          <div className="pointer-events-auto flex items-center gap-2" aria-label="Aakaar image navigation">
+            {bannerFrames.map((frame, index) => <button key={frame.src} type="button" aria-label={`Show Aakaar image ${index + 1}`} aria-current={index === currentIndex} onClick={() => setCurrentIndex(index)} className={`h-1.5 w-1.5 rounded-full border border-[#fff1df]/80 transition ${index === currentIndex ? 'bg-[#fff1df]' : 'bg-transparent hover:bg-[#fff1df]/70'}`} />)}
+          </div>
+          <button type="button" aria-label="Next Aakaar image" onClick={() => changeFrame(1)} className="pointer-events-auto flex h-10 w-10 items-center justify-center border border-[#fff1df]/55 bg-black/10 text-lg text-[#fff1df] backdrop-blur-sm transition hover:border-gold hover:bg-gold hover:text-ink">→</button>
+        </div> : null}
 
         <div className="pointer-events-none absolute inset-x-6 top-28 z-20 flex items-start justify-between text-[0.58rem] uppercase tracking-[0.34em] text-[#fff1df]/75 lg:inset-x-12 lg:top-36">
           <span>Rashi Kapoor / 2026</span>
@@ -139,7 +153,7 @@ export function FeaturedCollection() {
                 </p>
                 <div className="mt-7 flex flex-wrap items-center gap-5">
                   <p className="text-[clamp(0.6rem,1.2vw,0.78rem)] uppercase tracking-[0.42em] text-[#fff1df]/85">Coming soon</p>
-                  <a href="/collections/aakaar-insights" className="pointer-events-auto inline-flex items-center justify-center border border-gold/70 px-5 py-3 text-[0.62rem] uppercase tracking-[0.28em] text-[#fff1df] transition duration-500 hover:bg-gold hover:text-ink">
+                  <a href={activeFrame.href} className="pointer-events-auto inline-flex items-center justify-center border border-gold/70 px-5 py-3 text-[0.62rem] uppercase tracking-[0.28em] text-[#fff1df] transition duration-500 hover:bg-gold hover:text-ink">
                     Explore Aakaar <span className="ml-3 text-base">→</span>
                   </a>
                 </div>

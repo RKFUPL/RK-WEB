@@ -20,7 +20,7 @@ type Lookbook = {
 };
 
 const lookbooks: Lookbook[] = [
-  { title: 'Aakaar', subtitle: 'The debut moodboard of the house.', description: 'Editorial frames, campaign stills, and collection notes gathered into one visual archive.', comingSoon: true },
+  { title: 'Aakaar', subtitle: 'The debut moodboard of the house.', description: 'Editorial frames, campaign stills, and collection notes gathered into one visual archive.', href: '/collections/aakaar-insights', comingSoon: true },
   { title: 'Anamika', subtitle: 'A softer, more movement-led chapter.', description: 'An evolving lookbook space for future drops, references, and campaign imagery.', href: '/rk-lookbooks/anamika', fontFamily: 'RK Anamika', fontSize: 'clamp(2rem, 5vw, 4rem)' },
   { title: 'Hastakala', subtitle: 'A craft-first presentation.', description: 'Reserved for hand-finished stories, artisan detail, and heirloom-inspired styling.', href: '/rk-lookbooks/hasthkala', fontFamily: 'RK Hastakala', fontSize: 'clamp(1.35rem, 3.5vw, 2.7rem)' },
   { title: 'SANDOOK', subtitle: 'A treasured archive of the house.', description: 'A visual story of heirloom moods, considered detail, and timeless occasion dressing.', href: '/rk-lookbooks/sandook', fontFamily: 'RK Sandook', fontSize: 'clamp(2rem, 5vw, 4rem)' },
@@ -120,7 +120,7 @@ export default function RkLookbooksPage() {
           </div>
 
           {activeSpotlight ? <div className="relative mx-auto w-full max-w-[31rem]" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
-            <Link href={activeSpotlight.href ?? '/rk-lookbooks'} target={activeSpotlight.href ? '_blank' : undefined} rel={activeSpotlight.href ? 'noopener noreferrer' : undefined} className="group relative block aspect-[3/4] overflow-hidden rounded-[3px] bg-black">
+            <Link href={activeSpotlight.href ?? '/rk-lookbooks'} className="group relative block aspect-[3/4] overflow-hidden rounded-[3px] bg-black">
               <motion.img key={activeSpotlight.title} src={activeCover} alt={`${activeSpotlight.title} lookbook cover`} className="absolute inset-0 h-full w-full object-cover" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7, ease: 'easeOut' }} />
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-black/10 transition duration-500 group-hover:from-black/85" />
               <motion.div key={`${activeSpotlight.title}-copy`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7, delay: 0.1 }} className="absolute inset-x-0 bottom-0 z-30 p-7 text-white md:p-10">
@@ -143,7 +143,7 @@ export default function RkLookbooksPage() {
           <div ref={shelfRef} onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} className={`rk-archive-shelf mt-12 flex gap-8 overflow-x-auto overscroll-x-contain pb-8 touch-pan-x select-none md:gap-10 ${isDragging ? 'is-dragging' : ''}`}>
             {lookbooks.map((lookbook, index) => {
               const cover = coverByTitle.get(lookbook.title.toUpperCase());
-              return <Link key={lookbook.title} href={lookbook.href ?? '/rk-lookbooks'} target={lookbook.href ? '_blank' : undefined} rel={lookbook.href ? 'noopener noreferrer' : undefined} onClick={(event) => { if (dragged.current) { event.preventDefault(); dragged.current = false; } }} className={`group relative w-[16rem] shrink-0 pt-4 text-left before:absolute before:left-0 before:right-0 before:top-0 before:h-px before:origin-left before:scale-x-0 before:bg-gold before:transition-transform before:duration-150 before:ease-out group-hover:before:scale-x-100 md:w-[17rem] ${activeSpotlight?.title === lookbook.title ? 'before:scale-x-100' : ''}`}>
+              return <Link key={lookbook.title} href={lookbook.href ?? '/rk-lookbooks'} onClick={(event) => { if (dragged.current) { event.preventDefault(); dragged.current = false; } }} className={`group relative w-[16rem] shrink-0 pt-4 text-left before:absolute before:left-0 before:right-0 before:top-0 before:h-px before:origin-left before:scale-x-0 before:bg-gold before:transition-transform before:duration-150 before:ease-out group-hover:before:scale-x-100 md:w-[17rem] ${activeSpotlight?.title === lookbook.title ? 'before:scale-x-100' : ''}`}>
                 <div className={`relative aspect-[3/4] w-full overflow-hidden rounded-[3px] ${lookbook.comingSoon ? 'border border-black/10 dark:border-white/25' : 'bg-sand'}`}>
                   {lookbook.comingSoon ? <div className="flex h-full items-center justify-center bg-black/[0.02] text-center text-[0.62rem] uppercase tracking-[0.35em] text-black transition-colors duration-150 group-hover:text-gold dark:bg-white/[0.02] dark:text-black">Coming<br />Soon</div> : cover ? <img src={cover} alt={`${lookbook.title} cover`} draggable={false} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03] group-hover:brightness-90" /> : null}
                   <span className="absolute left-4 top-4 font-display text-3xl text-white/80 drop-shadow">{String(index + 1).padStart(2, '0')}</span>
