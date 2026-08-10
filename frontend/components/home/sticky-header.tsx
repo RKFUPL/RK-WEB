@@ -14,7 +14,6 @@ import {
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { brandLogoUrl, collectionPages, searchItems } from '@/lib/home-content';
-import { CAREERS_URL } from '@/lib/external-links';
 import { cn } from '@/lib/utils';
 
 type HeaderUser = { displayName?: string; firstName?: string; lastName?: string; username?: string; email?: string; role?: 'customer' | 'staff' | 'admin' };
@@ -315,10 +314,6 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
             </Link>
           ))}
 
-          <a href={CAREERS_URL} onClick={handleNavigation} className={navItemClass}>
-            Careers
-          </a>
-
           <button type="button" onClick={scrollToAbout} className={navItemClass}>
             About
           </button>
@@ -518,9 +513,6 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
                 <Link href="/rk-lookbooks" onClick={handleNavigation} className="flex items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em]">
                   <span>Lookbook</span><ChevronDown className="h-4 w-4 -rotate-90" />
                 </Link>
-                <a href={CAREERS_URL} onClick={handleNavigation} className="flex items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em]">
-                  <span>Careers</span><ChevronDown className="h-4 w-4 -rotate-90" />
-                </a>
                 <button
                   type="button"
                   onClick={scrollToAbout}
