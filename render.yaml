@@ -8,6 +8,8 @@ services:
     healthCheckPath: /
     autoDeploy: true
     envVars:
+      - key: NEXT_PUBLIC_CAREERS_URL
+        value: https://rkfupl-careers.onrender.com/
       - key: BACKEND_INTERNAL_URL
         fromService:
           type: web
@@ -22,3 +24,15 @@ services:
     startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT
     healthCheckPath: /api/health
     autoDeploy: true
+
+  - type: web
+    name: rkfupl-careers
+    env: node
+    rootDir: careers
+    buildCommand: npm install --no-audit --no-fund && npm run build
+    startCommand: npm run start -- -p $PORT
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NEXT_PUBLIC_MAIN_SITE_URL
+        value: https://rkfupl.onrender.com/

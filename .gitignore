@@ -2,6 +2,9 @@
 frontend/.next/
 frontend/node_modules/
 frontend/tsconfig.tsbuildinfo
+careers/.next/
+careers/node_modules/
+careers/tsconfig.tsbuildinfo
 
 # Python
 backend/__pycache__/

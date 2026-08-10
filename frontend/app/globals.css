@@ -912,70 +912,79 @@ body {
 }
 
 .lookbook-editorial-collage {
+  --lookbook-card-width: 25%;
   position: relative;
+  width: 100%;
+  max-width: 53rem;
   min-height: 35rem;
+  margin-left: auto;
   isolation: isolate;
 }
 
 .lookbook-collage-card {
   position: absolute;
-  width: 29%;
-  aspect-ratio: 3 / 4;
+  width: var(--lookbook-card-width);
+  aspect-ratio: 20 / 29;
   border: 1px solid rgba(126, 90, 53, 0.2);
   box-shadow: 0 15px 35px rgba(0, 0, 0, 0.08);
   animation: lookbook-collage-enter 1s cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: calc(var(--lookbook-index, 0) * 140ms);
-  transition: transform 500ms cubic-bezier(0.22, 1, 0.36, 1), z-index 0ms linear;
+  animation-delay: calc(var(--lookbook-index, 0) * 100ms);
+  rotate: var(--lookbook-rotation, 0deg);
+  transition: rotate 500ms cubic-bezier(0.22, 1, 0.36, 1), scale 500ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 500ms ease, z-index 0ms linear;
 }
 
 .lookbook-collage-card:nth-child(1) {
   --lookbook-index: 0;
+  --lookbook-rotation: -8deg;
   left: 0;
-  top: 18%;
-  width: 31%;
+  top: 16%;
   z-index: 1;
-  transform: rotate(-1deg);
 }
 
 .lookbook-collage-card:nth-child(2) {
   --lookbook-index: 1;
-  left: 17%;
+  --lookbook-rotation: -5deg;
+  left: 15%;
   top: 10%;
-  width: 32%;
   z-index: 2;
-  transform: rotate(0deg);
 }
 
 .lookbook-collage-card:nth-child(3) {
   --lookbook-index: 2;
-  left: 34%;
-  top: 3%;
-  width: 34%;
+  --lookbook-rotation: -2deg;
+  left: 30%;
+  top: 5%;
   z-index: 3;
-  transform: rotate(1deg);
 }
 
 .lookbook-collage-card:nth-child(4) {
   --lookbook-index: 3;
-  left: 51%;
-  top: 10%;
-  width: 32%;
+  --lookbook-rotation: 2deg;
+  left: 45%;
+  top: 5%;
   z-index: 4;
-  transform: rotate(-1deg);
 }
 
 .lookbook-collage-card:nth-child(5) {
   --lookbook-index: 4;
-  right: 0;
-  top: 18%;
-  width: 31%;
+  --lookbook-rotation: 5deg;
+  left: 60%;
+  top: 10%;
   z-index: 5;
-  transform: rotate(1deg);
+}
+
+.lookbook-collage-card:nth-child(6) {
+  --lookbook-index: 5;
+  --lookbook-rotation: 8deg;
+  left: 75%;
+  top: 16%;
+  z-index: 6;
 }
 
 .lookbook-collage-card:hover {
   z-index: 20;
-  transform: rotate(0deg) scale(1.02) translateY(-0.2rem);
+  rotate: 0deg;
+  scale: 1.02;
   box-shadow: 0 18px 38px rgba(0, 0, 0, 0.12);
 }
 
@@ -999,10 +1008,14 @@ body {
   from {
     opacity: 0;
     translate: 0 2rem;
+    scale: 0.97;
+    rotate: 0deg;
   }
   to {
     opacity: 1;
     translate: 0 0;
+    scale: 1;
+    rotate: var(--lookbook-rotation, 0deg);
   }
 }
 
@@ -1047,7 +1060,8 @@ body {
   .lookbook-collage-card:nth-child(2),
   .lookbook-collage-card:nth-child(3),
   .lookbook-collage-card:nth-child(4),
-  .lookbook-collage-card:nth-child(5) {
+  .lookbook-collage-card:nth-child(5),
+  .lookbook-collage-card:nth-child(6) {
     position: relative;
     inset: auto;
     width: min(78vw, 19rem);
@@ -1056,12 +1070,12 @@ body {
 
   .lookbook-collage-card:nth-child(even) {
     align-self: flex-end;
-    transform: rotate(2deg);
+    rotate: 2deg;
   }
 
   .lookbook-collage-card:nth-child(odd) {
     align-self: flex-start;
-    transform: rotate(-2deg);
+    rotate: -2deg;
   }
 
   .lookbook-collage-card:nth-child(n + 2) {

@@ -178,6 +178,13 @@ export const featuredLooks = [
 
 export const lookbookCovers = [
   {
+    title: 'Aakaar',
+    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg',
+    href: '/collections/aakaar-insights',
+    caption: 'A new chapter in movement and form.',
+    span: 'lg:col-span-4',
+  },
+  {
     title: 'Inaara',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861901/Inaara_hn30rg.png',
     href: '/rk-lookbooks/inaara',
