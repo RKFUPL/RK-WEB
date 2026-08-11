@@ -1,81 +1,46 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { lookbookCovers } from '@/lib/home-content';
+import { Volume2, VolumeX } from 'lucide-react';
+import { useRef, useState } from 'react';
 
-const VIDEO_SRC = 'https://res.cloudinary.com/fm1bwbrd/video/upload/v1786389568/RK_LFW_EDIT_1_-compressed_sefgri.mp4';
-const VIDEO_POSTER = lookbookCovers[0].image;
-const VIDEO_POSITION_DESKTOP = 'center center';
-const VIDEO_POSITION_MOBILE = 'center center';
+const VIDEO_SRC = 'https://video.wixstatic.com/video/afed36_2e5b8660523d4d1eaaac8173ecd89d8f/720p/mp4/file.mp4';
 
 export function FeaturedLooks() {
-  const sectionRef = useRef<HTMLElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [ready, setReady] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isInView, setIsInView] = useState(false);
-  const [reducedMotion, setReducedMotion] = useState(false);
+  const [muted, setMuted] = useState(true);
 
-  useEffect(() => {
-    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const update = () => setReducedMotion(media.matches);
-    update();
-    media.addEventListener('change', update);
-    return () => media.removeEventListener('change', update);
-  }, []);
-
-  useEffect(() => {
-    const section = sectionRef.current;
+  const toggleMute = () => {
     const video = videoRef.current;
-    if (!section || !video) return;
-
-    const play = () => {
-      if (reducedMotion) return;
-      void video.play().catch(() => undefined);
-    };
-    const pause = () => video.pause();
-    const observer = new IntersectionObserver(([entry]) => {
-      const visible = entry.isIntersecting && entry.intersectionRatio >= 0.5;
-      setIsInView(visible);
-      if (visible) play();
-      else if (!entry.isIntersecting || entry.intersectionRatio < 0.2) pause();
-    }, { threshold: [0.2, 0.5, 0.75] });
-
-    observer.observe(section);
-    return () => observer.disconnect();
-  }, [reducedMotion]);
+    if (!video) return;
+    const nextMuted = !video.muted;
+    video.muted = nextMuted;
+    setMuted(nextMuted);
+  };
 
   return (
-    <section ref={sectionRef} id="lookbook" aria-label="Rashi Kapoor fashion film" className="relative isolate h-[100svh] min-h-[38rem] overflow-hidden bg-ink text-ivory">
+    <section id="lookbook" aria-label="Rashi Kapoor fashion film" className="relative isolate h-[100svh] min-h-[38rem] overflow-hidden bg-black">
       <video
         ref={videoRef}
-        autoPlay={!reducedMotion}
-        muted
-        playsInline
+        src={VIDEO_SRC}
+        autoPlay
         loop
-        preload="auto"
-        poster={VIDEO_POSTER}
-        onLoadedData={() => setReady(true)}
-        onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
+        muted={muted}
+        playsInline
+        preload="metadata"
+        controls={false}
+        onCanPlay={(event) => void event.currentTarget.play().catch(() => undefined)}
+        className="absolute inset-0 h-full w-full object-cover object-center"
         aria-label="Rashi Kapoor fashion film"
-        className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-1000 ${ready ? 'opacity-100' : 'opacity-0'}`}
-        style={{ objectPosition: `var(--video-position-desktop, ${VIDEO_POSITION_DESKTOP})` }}
+      />
+      <button
+        type="button"
+        onClick={toggleMute}
+        aria-label={muted ? 'Unmute fashion film' : 'Mute fashion film'}
+        title={muted ? 'Unmute' : 'Mute'}
+        className="absolute bottom-6 right-6 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-white/60 bg-black/30 text-white backdrop-blur-sm transition hover:border-gold hover:bg-gold hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white lg:bottom-10 lg:right-10"
       >
-        <source src={VIDEO_SRC} type="video/mp4" />
-      </video>
-
-      <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/5 to-black/10" aria-hidden="true" />
-      <div className="absolute left-6 top-24 z-10 text-[0.6rem] uppercase tracking-[0.38em] text-white/75 lg:left-12 lg:top-32">RK Films</div>
-
-      {!ready ? <div className="absolute inset-0 z-20 grid place-items-center text-[0.6rem] uppercase tracking-[0.38em] text-white/65">Loading film</div> : null}
-      {ready && isInView && !isPlaying && !reducedMotion ? <button type="button" onClick={() => { const video = videoRef.current; if (video) void video.play().catch(() => undefined); }} className="absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 border border-white/65 bg-black/25 px-6 py-3 text-[0.6rem] uppercase tracking-[0.35em] text-white backdrop-blur-sm transition hover:border-gold hover:bg-gold hover:text-ink">Play film</button> : null}
-
-      <style jsx>{`
-        @media (max-width: 639px) {
-          section { --video-position-desktop: ${VIDEO_POSITION_MOBILE}; }
-        }
-      `}</style>
+        {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+      </button>
     </section>
   );
 }

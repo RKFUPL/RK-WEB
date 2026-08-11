@@ -1238,7 +1238,36 @@ body {
 }
 
 .footer-brand-mark {
+  filter: brightness(0) invert(1);
+}
+
+.dark .footer-brand-mark {
   filter: brightness(0) saturate(100%) invert(58%) sepia(34%) saturate(707%) hue-rotate(358deg) brightness(90%) contrast(88%);
+}
+
+.footer-signature-scene {
+  display: grid;
+  min-height: clamp(12rem, 22vw, 20rem);
+  padding: 1.5rem;
+  place-items: center;
+  overflow: hidden;
+  background-color: #f6f0e7;
+  background-image: url('https://res.cloudinary.com/fm1bwbrd/image/upload/v1786433551/fc0f1482-3c43-4d94-9aa9-7c84e4098d50_rzfx6e.png');
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.dark .footer-signature-scene {
+  background-color: #050505;
+  background-image: url('https://res.cloudinary.com/fm1bwbrd/image/upload/v1786433634/4419ac29-afc3-4398-bb87-414250163197_yo1fpw.png');
+}
+
+.footer-signature-art {
+  display: block;
+  width: min(90vw, 52rem);
+  height: min(18rem, 24vw);
+  object-fit: contain;
 }
 
 .luxury-footer > * {
