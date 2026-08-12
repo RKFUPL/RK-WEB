@@ -109,6 +109,7 @@ export default function AccountPage() {
       .then((response) => {
         if (response.status === 401) {
           window.localStorage.removeItem('rk_access_token');
+          window.localStorage.removeItem('rk_auth_token');
           window.localStorage.removeItem('rk_auth_user');
           return null;
         }
@@ -165,6 +166,7 @@ export default function AccountPage() {
         throw new Error(errorMessage);
       }
       window.localStorage.setItem('rk_access_token', data.accessToken);
+      window.localStorage.setItem('rk_auth_token', data.accessToken);
       window.localStorage.setItem('rk_auth_user', JSON.stringify(data.user));
       window.location.replace('/');
     } catch (error) {
@@ -209,6 +211,7 @@ export default function AccountPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? 'The signup code is invalid or expired.');
       window.localStorage.setItem('rk_access_token', data.accessToken);
+      window.localStorage.setItem('rk_auth_token', data.accessToken);
       window.localStorage.setItem('rk_auth_user', JSON.stringify(data.user));
       window.location.replace('/');
     } catch (error) {

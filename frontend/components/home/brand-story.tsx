@@ -7,13 +7,13 @@ export function BrandStory() {
   return (
     <section id="about" className="brand-story-section bg-ivory">
       <img
-        src="https://res.cloudinary.com/fm1bwbrd/image/upload/v1785924919/download_vjn60l.png"
+        src="https://res.cloudinary.com/fm1bwbrd/image/upload/v1785930123/d8de58e0-7866-4bbd-8867-492437e4a0a2_wlonjn.png"
         alt=""
         aria-hidden="true"
         className="brand-story-backdrop brand-story-backdrop-light"
       />
       <img
-        src="https://res.cloudinary.com/fm1bwbrd/image/upload/v1785924823/download_tvu6fp.png"
+        src="https://res.cloudinary.com/fm1bwbrd/image/upload/v1785930253/ba920197-4968-4936-909f-447d9f64fdb3_seally.png"
         alt=""
         aria-hidden="true"
         className="brand-story-backdrop brand-story-backdrop-dark"

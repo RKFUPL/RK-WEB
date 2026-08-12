@@ -43,23 +43,26 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     if (response.ok) {
       const user = (await response.json()).user as AuthUser;
       window.localStorage.setItem(cachedUserKey, JSON.stringify(user));
+      window.localStorage.setItem('rk_auth_token', token);
       return user;
     }
     if (response.status === 401) {
       window.localStorage.removeItem('rk_access_token');
       window.localStorage.removeItem(cachedUserKey);
+      window.localStorage.removeItem('rk_auth_token');
       return null;
     }
+    return null;
   } catch {
-    // Keep the token and cached identity through a Render cold start or a
-    // temporary network failure. It can be validated again on the next load.
+    // The database response is authoritative. Do not render a stale cached
+    // account when the current identity cannot be verified.
   }
-  const cached = window.localStorage.getItem(cachedUserKey);
-  return cached ? (JSON.parse(cached) as AuthUser) : null;
+  return null;
 }
 
 export function logout() {
   window.localStorage.removeItem('rk_access_token');
+  window.localStorage.removeItem('rk_auth_token');
   window.localStorage.removeItem(cachedUserKey);
   window.location.assign('/account');
 }

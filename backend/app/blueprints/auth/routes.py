@@ -57,19 +57,22 @@ def _send_otp_email(email: str, otp: str) -> None:
 
 
 def _public_user(user: dict) -> dict:
+    first_name = user.get("firstName") or str(user.get("displayName") or "").split(" ")[0]
+    last_name = user.get("lastName") or " ".join(str(user.get("displayName") or "").split(" ")[1:])
+    canonical_name = " ".join(filter(None, (first_name, last_name))) or user.get("displayName")
     return {
         "id": str(user["_id"]),
         "email": user["email"],
         "username": user.get("username"),
-        "displayName": user.get("displayName"),
+        "displayName": canonical_name,
         "phone": user.get("phone"),
         "gender": user.get("gender"),
         "role": user.get("role", "customer"),
         "isActive": user.get("isActive", True),
         "emailVerified": user.get("emailVerified", False),
         "profileImage": user.get("profileImage"),
-        "firstName": user.get("firstName", user.get("displayName", "").split(" ")[0]),
-        "lastName": user.get("lastName", " ".join(user.get("displayName", "").split(" ")[1:])),
+        "firstName": first_name,
+        "lastName": last_name,
         "dob": user.get("dob"),
         "language": user.get("language", "English"),
         "region": user.get("region", "asia-india"),

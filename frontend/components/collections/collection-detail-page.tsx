@@ -7,7 +7,38 @@ type CollectionDetailPageProps = {
   collection: CollectionPage;
 };
 
+const collectionEditorial: Record<string, { summary: string; next: string }> = {
+  Aakaar: {
+    summary: 'Aakaar establishes the house language through sculpted drape, controlled volume, and couture surfaces that move with the wearer. Its campaign balances precision with ease, allowing texture, proportion, and hand-finished detail to remain visible in every silhouette.',
+    next: 'The collection story will continue with campaign chapters, construction details, and a closer view of its signature silhouettes. Each addition will preserve the collection’s original editorial rhythm.',
+  },
+  Anamika: {
+    summary: 'Anamika explores anonymity and presence through deep tones, architectural lines, and silhouettes that reveal themselves through movement. The collection uses contrast and measured construction to create an atmosphere that feels cinematic while remaining grounded in modern occasion dressing.',
+    next: 'Discover the collection alongside its dedicated editorial lookbook, where each frame expands its atmospheric visual language. New studies will connect that atmosphere to individual garments.',
+  },
+  Hastakala: {
+    summary: 'Hastakala centres the hand of the maker, pairing refined wedding silhouettes with patient surface work and heirloom-inspired detail. Every element is considered as part of a complete composition, from the fall of the fabric to the rhythm and placement of its ornamentation.',
+    next: 'The next chapter will document its embroidery, finishing, and artisan processes through close campaign studies. These details will reveal the patience behind every finished piece.',
+  },
+  Inaara: {
+    summary: 'Inaara is a luminous occasion edit shaped by floral colour, fluid proportion, and pieces that feel celebratory without losing ease. Its visual language is bright yet composed, bringing expressive surfaces and graceful movement together for contemporary festive wardrobes.',
+    next: 'Explore its campaign and lookbook as the collection grows into a fuller archive of festive dressing and movement. Future chapters will follow its colour, craft, and fluidity.',
+  },
+  Naqab: {
+    summary: 'Naqab builds drama through veiled layers, evening depth, and a measured interplay between concealment, texture, and presence. Shadow, transparency, and structured detail shape a collection that reveals its character gradually rather than presenting every element at once.',
+    next: 'Future additions will trace the collection from shadowed campaign imagery to individual studies of its layered construction. The archive will make those concealed details easier to discover.',
+  },
+  Sandook: {
+    summary: 'Sandook draws on the idea of a treasured archive, bringing soft heirloom colour and considered craft into modern occasion dressing. The collection translates memory into wearable form through gentle palettes, balanced embellishment, and silhouettes intended to feel relevant beyond a single season.',
+    next: 'Continue into the Sandook lookbook for a visual story of keepsakes, intimate celebration, and enduring silhouettes. Later chapters will deepen its conversation between memory and modernity.',
+  },
+};
+
 export function CollectionDetailPage({ collection }: CollectionDetailPageProps) {
+  const editorial = collectionEditorial[collection.name] ?? {
+    summary: collection.summary,
+    next: `Explore more of ${collection.name} through future campaign stories and editorial details from the house.`,
+  };
   const collectionFontFace = collection.fontUrl
     ? `@font-face { font-family: "${collection.fontFamily}"; src: url("${collection.fontUrl}"); font-display: swap; }`
     : '';
@@ -49,15 +80,13 @@ export function CollectionDetailPage({ collection }: CollectionDetailPageProps) 
               <div className="border border-black/10 bg-white px-6 py-6">
                 <p className="text-[0.63rem] uppercase tracking-[0.35em] text-charcoal/40">Summary</p>
                 <p className="mt-3 text-sm leading-7 text-charcoal/70">
-                  This page can later become a CMS-driven collection story with lookbook imagery,
-                  product edits, and editorial copy.
+                  {editorial.summary}
                 </p>
               </div>
               <div className="border border-black/10 bg-white px-6 py-6">
                 <p className="text-[0.63rem] uppercase tracking-[0.35em] text-charcoal/40">Next Step</p>
                 <p className="mt-3 text-sm leading-7 text-charcoal/70">
-                  We can easily expand this template with shopping links, gallery blocks, or a
-                  launch countdown when you are ready.
+                  {editorial.next}
                 </p>
               </div>
             </div>

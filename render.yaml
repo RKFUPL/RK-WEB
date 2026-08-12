@@ -8,6 +8,8 @@ services:
     healthCheckPath: /
     autoDeploy: true
     envVars:
+      - key: NEXT_PUBLIC_SITE_URL
+        value: https://rkfupl.onrender.com
       - key: BACKEND_INTERNAL_URL
         fromService:
           type: web

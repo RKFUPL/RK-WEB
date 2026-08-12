@@ -100,9 +100,14 @@ def record_event():
 
     customer_name = ""
     if signed_in_user:
+        # Internal accounts must never be recorded as storefront customers or
+        # traffic visitors. Their admin/staff dashboard activity is separate
+        # from customer analytics.
+        if signed_in_user.get("role") in {"admin", "staff"}:
+            return jsonify({"recorded": True}), 202
         customer_name = _safe_text(
-            signed_in_user.get("displayName")
-            or " ".join(filter(None, (signed_in_user.get("firstName"), signed_in_user.get("lastName"))))
+            " ".join(filter(None, (signed_in_user.get("firstName"), signed_in_user.get("lastName"))))
+            or signed_in_user.get("displayName")
             or "Signed-in customer",
             120,
         )

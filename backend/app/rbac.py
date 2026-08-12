@@ -41,6 +41,12 @@ def current_user():
     if missing:
         users.update_one({"_id": user_id}, {"$set": missing})
         user.update(missing)
+    canonical_name = " ".join(filter(None, (user.get("firstName"), user.get("lastName"))))
+    if canonical_name and user.get("displayName") != canonical_name:
+        # firstName/lastName are the editable profile fields, so keep the
+        # denormalized displayName in sync instead of serving a stale old name.
+        users.update_one({"_id": user_id}, {"$set": {"displayName": canonical_name}})
+        user["displayName"] = canonical_name
     return user
 
 

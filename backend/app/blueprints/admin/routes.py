@@ -115,7 +115,27 @@ def dashboard_metrics():
     db = database()
     _ensure_dashboard_indexes(db)
     current_visitor_id = str(request.headers.get("X-RK-Visitor-ID", "")).strip()[:128]
-    return jsonify(build_dashboard(db, request.args.get("period", "7d"), current_visitor_id=current_visitor_id)), 200
+    viewer = current_user() or {}
+    viewer_name = str(
+        " ".join(filter(None, (viewer.get("firstName"), viewer.get("lastName"))))
+        or viewer.get("displayName")
+        or viewer.get("username")
+        or "Admin"
+    ).strip()
+    dashboard = build_dashboard(
+        db,
+        request.args.get("period", "7d"),
+        current_visitor_id=current_visitor_id,
+    )
+    # The authenticated dashboard browser is an internal live session. Keep it
+    # visible without counting it as storefront customer traffic.
+    dashboard["internalSession"] = {
+        "name": viewer_name,
+        "role": str(viewer.get("role") or "admin"),
+        "online": True,
+        "currentDevice": True,
+    }
+    return jsonify(dashboard), 200
 
 
 @admin_bp.get("/resources/<resource>")

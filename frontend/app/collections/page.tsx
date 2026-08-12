@@ -84,7 +84,7 @@ export default function CollectionsPage() {
             </h1>
             <span className="block h-px w-14 bg-gold" />
             <p className="max-w-sm text-sm leading-7 text-charcoal/65 md:text-base md:leading-8">
-              A curated expression of our design philosophy. Each collection is a story woven in fabric, texture and craftsmanship.
+              A curated expression of our design philosophy. Each collection is a story woven in fabric, texture and craftsmanship, with its own palette, proportion, and distinct editorial point of view.
             </p>
           </header>
 

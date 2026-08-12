@@ -57,15 +57,26 @@ def serialise_datetime(value: object) -> str | None:
 def build_dashboard(database, period: str, now: datetime | None = None, current_visitor_id: str = "") -> dict[str, Any]:
     selected, start, current = period_window(period, now)
     date_query = {"createdAt": {"$gte": start, "$lte": current}}
+    internal_user_ids = [
+        user["_id"]
+        for user in database.users.find({"role": {"$in": ["admin", "staff"]}}, {"_id": 1})
+    ]
+    public_event_query: dict[str, Any] = {**date_query, "userId": {"$nin": internal_user_ids}}
+    if current_visitor_id:
+        # The analytics visitor id predates authentication and survives login.
+        # Exclude the dashboard viewer's entire browser identity so anonymous
+        # events created before an admin/staff login cannot appear as a current
+        # storefront visitor.
+        public_event_query["visitorId"] = {"$ne": current_visitor_id}
 
-    events = list(database.analytics_events.find(date_query, {
+    events = list(database.analytics_events.find(public_event_query, {
         "event": 1, "visitorId": 1, "sessionId": 1, "path": 1,
         "source": 1, "properties": 1, "customerName": 1, "createdAt": 1,
     }).sort("createdAt", -1).limit(20))
-    page_view_query = {**date_query, "event": "page_view"}
+    page_view_query = {**public_event_query, "event": "page_view"}
     visitor_ids = database.analytics_events.distinct("visitorId", page_view_query)
     page_view_count = database.analytics_events.count_documents(page_view_query)
-    wishlist_adds = database.analytics_events.count_documents({**date_query, "event": "wishlist_add"})
+    wishlist_adds = database.analytics_events.count_documents({**public_event_query, "event": "wishlist_add"})
 
     order_query = {**date_query, "status": {"$nin": ["cancelled", "canceled", "refunded"]}}
     order_count = 0
@@ -88,7 +99,7 @@ def build_dashboard(database, period: str, now: datetime | None = None, current_
     ).sort("createdAt", -1).limit(20)
     new_customers_list = []
     for customer in new_customer_rows:
-        name = str(customer.get("displayName") or " ".join(filter(None, (customer.get("firstName"), customer.get("lastName")))) or "Unnamed customer")
+        name = str(" ".join(filter(None, (customer.get("firstName"), customer.get("lastName")))) or customer.get("displayName") or "Unnamed customer")
         new_customers_list.append({
             "id": str(customer.get("_id")),
             "name": name,
@@ -167,10 +178,14 @@ def build_dashboard(database, period: str, now: datetime | None = None, current_
         {"$limit": 20},
     ])
     active_cutoff = current - timedelta(minutes=5)
-    active_visitor_ids = database.analytics_events.distinct("visitorId", {
+    active_visitor_query: dict[str, Any] = {
         "event": "page_view",
         "createdAt": {"$gte": active_cutoff, "$lte": current},
-    })
+        "userId": {"$nin": internal_user_ids},
+    }
+    if current_visitor_id:
+        active_visitor_query["visitorId"] = {"$ne": current_visitor_id}
+    active_visitor_ids = database.analytics_events.distinct("visitorId", active_visitor_query)
     visitors = []
     for index, visitor in enumerate(visitor_rows, start=1):
         last_seen = as_datetime(visitor.get("lastSeen"))
@@ -193,7 +208,7 @@ def build_dashboard(database, period: str, now: datetime | None = None, current_
             "firstSeen": serialise_datetime(visitor.get("firstSeen")),
             "lastSeen": serialise_datetime(visitor.get("lastSeen")),
             "active": bool(last_seen and last_seen >= active_cutoff),
-            "current": bool(current_visitor_id and visitor_id == current_visitor_id),
+            "current": False,
         })
 
     activity = []

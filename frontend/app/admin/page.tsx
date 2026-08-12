@@ -25,7 +25,7 @@ type DashboardData = {
   trafficSources: Array<{ source: string; visitors: number; views: number }>;
   visitorsList: Array<{
     label: string;
-    kind: 'customer' | 'visitor';
+    kind: 'customer' | 'visitor' | 'admin' | 'staff';
     customerName: string | null;
     key: string;
     source: string;
@@ -44,6 +44,12 @@ type DashboardData = {
   newCustomersList: Array<{ id: string; name: string; email: string; username: string; createdAt: string | null }>;
   bestSellingProducts: Array<{ id: string; name: string; units: number; revenue: number }>;
   activity: Array<{ id: string; type: string; label: string; detail: string; createdAt: string | null }>;
+  internalSession?: {
+    name: string;
+    role: 'admin' | 'staff';
+    online: boolean;
+    currentDevice: boolean;
+  };
 };
 
 const currency = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
@@ -125,7 +131,25 @@ export default function AdminDashboard() {
   const visitorDeviceIcon = (device: string) => device === 'mobile' ? Smartphone : device === 'tablet' ? Tablet : Monitor;
   const visitorData = data?.visitorsList ?? [];
   const customerData = data?.newCustomersList ?? [];
-  const visibleVisitors = visitorData.filter((visitor) => !sourceFilter || visitor.source === sourceFilter);
+  const internalSessionRow: DashboardData['visitorsList'][number] | null = data?.internalSession?.online ? {
+    label: data.internalSession.name,
+    kind: data.internalSession.role,
+    customerName: data.internalSession.name,
+    key: 'internal-current-device',
+    source: 'Internal',
+    device: typeof navigator !== 'undefined' && /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
+    browser: typeof navigator !== 'undefined' ? (/Edg/i.test(navigator.userAgent) ? 'Edge' : /Chrome/i.test(navigator.userAgent) ? 'Chrome' : /Safari/i.test(navigator.userAgent) ? 'Safari' : /Firefox/i.test(navigator.userAgent) ? 'Firefox' : 'Other') : 'Other',
+    os: typeof navigator !== 'undefined' ? (/Windows/i.test(navigator.userAgent) ? 'Windows' : /Mac OS/i.test(navigator.userAgent) ? 'macOS' : /Android/i.test(navigator.userAgent) ? 'Android' : /iPhone|iPad/i.test(navigator.userAgent) ? 'iOS' : 'Other') : 'Other',
+    lastPath: '/admin',
+    views: 0,
+    sessions: 1,
+    pages: 1,
+    firstSeen: data.generatedAt,
+    lastSeen: data.generatedAt,
+    active: true,
+    current: true,
+  } : null;
+  const visibleVisitors = [internalSessionRow, ...visitorData].filter((visitor): visitor is DashboardData['visitorsList'][number] => visitor !== null && (visitor.kind === 'admin' || visitor.kind === 'staff' || !sourceFilter || visitor.source === sourceFilter));
   const chooseTrafficSource = (source: string) => {
     setSourceFilter((current) => current === source ? null : source);
     window.setTimeout(() => visitorPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
@@ -153,10 +177,25 @@ export default function AdminDashboard() {
 
     <div ref={visitorPanelRef} className="scroll-mt-24"><Card>
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><h2 className="text-[15px] font-semibold">Customers & visitors</h2><p className="mt-1 text-xs text-[#8a9098]">Signed-in customers show their account name. Other sessions remain anonymous visitors.</p>{sourceFilter ? <button type="button" onClick={() => setSourceFilter(null)} className="mt-2 text-[10px] uppercase tracking-[.12em] text-[#9a7a4d] hover:underline">Showing {sourceFilter} · Clear filter</button> : null}</div>
-        <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-[10px] font-medium uppercase tracking-[.12em] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />{metrics ? `${metrics.activeVisitors ?? 0} live · ${visitorData.filter((visitor) => visitor.current).length} current device` : 'Loading'}</span>
+        <div><h2 className="text-[15px] font-semibold">Customers & visitors</h2><p className="mt-1 text-xs text-[#8a9098]">The current admin session is identified separately and excluded from storefront visitor totals.</p>{sourceFilter ? <button type="button" onClick={() => setSourceFilter(null)} className="mt-2 text-[10px] uppercase tracking-[.12em] text-[#9a7a4d] hover:underline">Showing {sourceFilter} · Clear filter</button> : null}</div>
+        <div className="flex flex-wrap justify-end gap-2">
+          {data?.internalSession?.online ? <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-[10px] font-medium uppercase tracking-[.12em] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />{data.internalSession.name} · {data.internalSession.role} live · current device</span> : null}
+          <span className="inline-flex items-center gap-2 rounded-full bg-[#f4efe7] px-3 py-1.5 text-[10px] font-medium uppercase tracking-[.12em] text-[#7f6744] dark:bg-white/[.06] dark:text-white/65"><span className={`h-1.5 w-1.5 rounded-full ${(metrics?.activeVisitors ?? 0) > 0 ? 'bg-emerald-500' : 'bg-[#bca989]'}`} />{metrics ? `${metrics.activeVisitors ?? 0} storefront visitors live` : 'Loading'}</span>
+        </div>
       </div>
-      {visibleVisitors.length ? <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[720px] text-left"><thead><tr className="border-b border-black/[.06] text-[10px] uppercase tracking-[.14em] text-[#9aa0a8] dark:border-white/[.08]"><th className="pb-3 font-medium">Customer / visitor</th><th className="pb-3 font-medium">Last page</th><th className="pb-3 font-medium">Source</th><th className="pb-3 font-medium">Device</th><th className="pb-3 font-medium">Activity</th><th className="pb-3 text-right font-medium">Last seen</th></tr></thead><tbody className="divide-y divide-black/[.06] dark:divide-white/[.08]">{visibleVisitors.map((visitor) => { const DeviceIcon = visitorDeviceIcon(visitor.device); return <tr key={`${visitor.key}-${visitor.lastSeen}`} role="button" tabIndex={0} onClick={() => setSelectedVisitor(visitor)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedVisitor(visitor); } }} className="cursor-pointer text-xs transition hover:bg-[#faf8f4] focus:bg-[#faf8f4] focus:outline-none dark:hover:bg-white/[.03] dark:focus:bg-white/[.03]"><td className="py-3"><div className="flex items-center gap-3"><span className={`grid h-8 w-8 place-items-center rounded-full ${visitor.active || visitor.current ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400' : 'bg-[#f4efe7] text-[#9a7a4d]'}`}><Globe2 size={15} /></span><div><p className="font-medium">{visitor.label}{visitor.kind === 'customer' ? <span className="ml-2 text-[10px] font-normal text-[#9a7a4d]">Customer</span> : <span className="ml-2 text-[10px] font-normal text-[#9298a0]">Visitor</span>}{visitor.current ? <span className="ml-2 text-[10px] font-normal text-emerald-600">Current device</span> : null}</p><p className="mt-0.5 text-[10px] text-[#9aa0a8]">ID …{visitor.key}</p></div></div></td><td className="max-w-[190px] truncate py-3 text-[#6e747d]" title={visitor.lastPath}>{visitor.lastPath}</td><td className="py-3 capitalize text-[#6e747d]">{visitor.source}</td><td className="py-3"><div className="flex items-center gap-2 text-[#6e747d]"><DeviceIcon size={15} /><span>{visitor.device} · {visitor.browser}</span></div></td><td className="py-3 text-[#6e747d]">{visitor.views} views · {visitor.pages} pages</td><td className="py-3 text-right text-[#9298a0]">{visitor.current ? <span className="mr-2 text-emerald-600">Current device</span> : visitor.active ? <span className="mr-2 text-emerald-600">Live</span> : null}{relativeTime(visitor.lastSeen)}</td></tr>; })}</tbody></table></div> : <Empty title="No visitors yet" copy="Once someone opens the storefront, their anonymous session will appear here." />}
+      {visibleVisitors.length ? <div className="mt-5 overflow-x-auto">
+        <table className="w-full min-w-[720px] text-left">
+          <thead><tr className="border-b border-black/[.06] text-[10px] uppercase tracking-[.14em] text-[#9aa0a8] dark:border-white/[.08]"><th className="pb-3 font-medium">Account / customer / visitor</th><th className="pb-3 font-medium">Last page</th><th className="pb-3 font-medium">Source</th><th className="pb-3 font-medium">Device</th><th className="pb-3 font-medium">Activity</th><th className="pb-3 text-right font-medium">Last seen</th></tr></thead>
+          <tbody className="divide-y divide-black/[.06] dark:divide-white/[.08]">{visibleVisitors.map((visitor) => {
+            const DeviceIcon = visitorDeviceIcon(visitor.device);
+            const internal = visitor.kind === 'admin' || visitor.kind === 'staff';
+            return <tr key={`${visitor.key}-${visitor.lastSeen}`} role="button" tabIndex={0} onClick={() => setSelectedVisitor(visitor)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedVisitor(visitor); } }} className={`cursor-pointer text-xs transition hover:bg-[#faf8f4] focus:bg-[#faf8f4] focus:outline-none dark:hover:bg-white/[.03] dark:focus:bg-white/[.03] ${internal ? 'bg-emerald-50/35 dark:bg-emerald-500/[.04]' : ''}`}>
+              <td className="py-3"><div className="flex items-center gap-3"><span className={`grid h-8 w-8 place-items-center rounded-full ${visitor.active || visitor.current ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400' : 'bg-[#f4efe7] text-[#9a7a4d]'}`}><Globe2 size={15} /></span><div><p className="font-medium">{visitor.label}<span className={`ml-2 text-[10px] font-normal ${internal ? 'text-emerald-600' : visitor.kind === 'customer' ? 'text-[#9a7a4d]' : 'text-[#9298a0]'}`}>{internal ? visitor.kind : visitor.kind === 'customer' ? 'Customer' : 'Visitor'}</span>{visitor.current ? <span className="ml-2 text-[10px] font-normal text-emerald-600">Current device</span> : null}</p><p className="mt-0.5 text-[10px] text-[#9aa0a8]">{internal ? 'Authenticated internal session' : `ID …${visitor.key}`}</p></div></div></td>
+              <td className="max-w-[190px] truncate py-3 text-[#6e747d]" title={visitor.lastPath}>{visitor.lastPath}</td><td className="py-3 capitalize text-[#6e747d]">{visitor.source}</td><td className="py-3"><div className="flex items-center gap-2 text-[#6e747d]"><DeviceIcon size={15} /><span>{visitor.device} · {visitor.browser}</span></div></td><td className="py-3 text-[#6e747d]">{internal ? 'Dashboard session' : `${visitor.views} views · ${visitor.pages} pages`}</td><td className="py-3 text-right text-[#9298a0]">{visitor.current ? <span className="mr-2 text-emerald-600">Current device · Live</span> : visitor.active ? <span className="mr-2 text-emerald-600">Live</span> : null}{relativeTime(visitor.lastSeen)}</td>
+            </tr>;
+          })}</tbody>
+        </table>
+      </div> : <Empty title="No visitors yet" copy="Once someone opens the storefront, their anonymous session will appear here." />}
     </Card></div>
 
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{metricCards.slice(4).map(([label, value, Icon, detail]) => <Card key={label} onClick={label === 'New customers' ? () => setAudiencePopup('customers') : undefined}><span className="grid h-9 w-9 place-items-center rounded-xl bg-[#f4efe7] text-[#9a7a4d]"><Icon size={17} /></span><p className="mt-4 text-xs text-[#8a9098]">{label}</p><p className="mt-1 text-2xl font-semibold">{loading && !data ? '…' : value}</p><p className="mt-2 text-[11px] text-[#a2a7ad]">{detail}</p>{label === 'New customers' ? <p className="mt-3 text-[10px] uppercase tracking-[.12em] text-[#9a7a4d]">Tap to view customers</p> : null}</Card>)}</div>

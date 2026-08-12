@@ -2,6 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+.shopping-bag-panel {
+  background-color: #fffdf9 !important;
+}
+
+.shopping-bag-panel > * {
+  background-color: inherit !important;
+}
+
+.dark .shopping-bag-panel {
+  background-color: #121212 !important;
+}
+
 @keyframes rk-account-blink {
   0%, 100% { opacity: 1; }
   15%, 35% { opacity: 0.25; }
@@ -895,7 +907,7 @@ body {
   max-width: none;
   overflow: hidden;
   background-color: #f6f0e7;
-  background-image: url('https://res.cloudinary.com/fm1bwbrd/image/upload/v1785924919/download_vjn60l.png');
+  background-image: url('https://res.cloudinary.com/fm1bwbrd/image/upload/v1785934366/174c6b2b-830d-47ab-b2f7-27ff728c5384_ybxqdk.png');
   background-position: center;
   background-size: cover;
   padding-top: 7rem;
@@ -914,7 +926,7 @@ body {
 
 .dark .lookbook-feature-section {
   background-color: #0c0a09;
-  background-image: url('https://res.cloudinary.com/fm1bwbrd/image/upload/v1785924823/download_tvu6fp.png');
+  background-image: url('https://res.cloudinary.com/fm1bwbrd/image/upload/v1785934628/5ffc37c0-a1a9-49ec-83e8-90c425fdd1ec_gk6csn.png');
   background-position: center;
   background-size: cover;
 }

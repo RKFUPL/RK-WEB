@@ -1,15 +1,17 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect } from 'react';
 
 type LookbookIntroProps = {
   name: string;
   number: string;
   url: string;
+  description: string;
 };
 
 
-export function LookbookIntro({ name, number, url }: LookbookIntroProps) {
+export function LookbookIntro({ name, number, url, description }: LookbookIntroProps) {
   useEffect(() => {
     const timeoutId = window.setTimeout(() => window.location.replace(url), 4400);
     return () => window.clearTimeout(timeoutId);
@@ -27,7 +29,13 @@ export function LookbookIntro({ name, number, url }: LookbookIntroProps) {
           <span className="mt-3 block text-[1.08em] italic tracking-[0.01em] text-white/90 md:mt-5">{name}</span>
         </h1>
         <div style={{ opacity: 0, transform: 'translateY(24px)' }} className="intro-details mt-10 flex flex-col items-center gap-5 md:mt-14">
+          <p className="max-w-xl text-sm leading-7 text-white/70">{description}</p>
           <p className="text-[0.6rem] uppercase tracking-[0.5em] text-white/55">Opening lookbook</p>
+          <nav aria-label="Lookbook navigation" className="flex items-center gap-6 text-[0.58rem] uppercase tracking-[0.32em] text-white/65">
+            <Link href="/" className="transition hover:text-white">Home</Link>
+            <span aria-hidden="true" className="h-px w-7 bg-white/25" />
+            <Link href="/rk-lookbooks" className="transition hover:text-white">Lookbook archive</Link>
+          </nav>
         </div>
       </div>
       <style jsx>{`

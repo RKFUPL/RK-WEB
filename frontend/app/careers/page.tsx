@@ -1,6 +1,9 @@
 import Link from 'next/link';
 import { Footer } from '@/components/home/footer';
 import { StickyHeader } from '@/components/home/sticky-header';
+import { pageMetadata } from '@/lib/site-metadata';
+
+export const metadata = pageMetadata('Careers', 'Explore careers and opportunities at the Rashi Kapoor fashion house.', '/careers');
 
 export default function CareersPage() {
   return (

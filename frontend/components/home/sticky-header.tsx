@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
+import { createPortal } from 'react-dom';
 import {
   ChevronDown,
   Heart,
@@ -55,6 +56,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
   const [accountAttention, setAccountAttention] = useState(false);
   const [accountUser, setAccountUser] = useState<HeaderUser | null>(null);
   const [videoSectionVisible, setVideoSectionVisible] = useState(false);
+  const [mounted, setMounted] = useState(false);
   // Product cards can populate this list later through a wishlist action.
   const [wishlistItems, setWishlistItems] = useState<typeof collectionPages[number][]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -62,6 +64,10 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
   const pathname = usePathname();
   const router = useRouter();
   const isTransparent = ((transparentAtTop && !scrolled) || videoSectionVisible) && !searchOpen;
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -104,11 +110,11 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
   }, []);
 
   useEffect(() => {
-    document.body.style.overflow = menuOpen ? 'hidden' : '';
+    document.body.style.overflow = menuOpen || wishlistOpen || bagOpen ? 'hidden' : '';
     return () => {
       document.body.style.overflow = '';
     };
-  }, [menuOpen]);
+  }, [bagOpen, menuOpen, wishlistOpen]);
 
   useLayoutEffect(() => {
     const header = headerRef.current;
@@ -160,6 +166,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
         setAccountUser((await response.json()).user);
       } else if (response.status === 401) {
         window.localStorage.removeItem('rk_access_token');
+        window.localStorage.removeItem('rk_auth_token');
         window.localStorage.removeItem('rk_auth_user');
         setAccountOpen(false);
         router.push('/account');
@@ -546,8 +553,8 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
 
               <div className="mt-8 space-y-3 text-xs uppercase tracking-[0.3em] text-charcoal/60">
                 {utilityLinks.map(({ label, Icon }) => (
+                  <div key={label}>
                   <button
-                    key={label}
                     type="button"
                     onClick={() => {
                       if (label === 'Search') setSearchOpen(true);
@@ -568,11 +575,17 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
                     <Icon className="h-5 w-5" strokeWidth={1.5} />
                     <span>{label}</span>
                   </button>
+                  {label === 'Account' && accountOpen ? (
+                    <div className="mt-3 border border-black/10 bg-ivory p-5 text-charcoal">
+                      {accountLoading ? <p className="text-xs text-charcoal/55">Checking your account…</p> : accountUser ? <AccountPreview user={accountUser} onNavigate={handleNavigation} /> : null}
+                    </div>
+                  ) : null}
+                  </div>
                 ))}
               </div>
-              {accountOpen ? <div className="mt-5 border border-black/10 bg-ivory p-5 text-charcoal">
+              {/*
                 {accountLoading ? <p className="text-xs text-charcoal/55">Checking your account…</p> : accountUser ? <AccountPreview user={accountUser} onNavigate={handleNavigation} /> : null}
-              </div> : null}
+              */}
             </motion.aside>
           </motion.div>
         ) : null}
@@ -655,40 +668,37 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
         ) : null}
       </AnimatePresence>
 
-      <AnimatePresence>
+      {mounted ? createPortal(<AnimatePresence>
         {bagOpen ? (
           <motion.div
-            className="fixed inset-0 z-[180] bg-ink/40"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[300] bg-black/60"
             onClick={() => setBagOpen(false)}
           >
             <motion.aside
               role="dialog"
               aria-modal="true"
               aria-labelledby="bag-drawer-title"
-              className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-white text-charcoal shadow-2xl"
+              className="shopping-bag-panel fixed inset-y-0 right-0 isolate flex h-[100dvh] min-h-[100dvh] w-full max-w-md flex-col overflow-hidden bg-[#fffdf9] text-charcoal opacity-100 shadow-2xl dark:bg-[#121212] dark:text-white"
               initial={{ x: '100%' }}
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
               onClick={(event) => event.stopPropagation()}
             >
-              <div className="flex items-center justify-between border-b border-black/10 px-6 py-5">
+              <div className="flex items-center justify-between border-b border-black/10 bg-[#fffdf9] px-6 py-5 dark:border-white/10 dark:bg-[#121212]">
                 <h2 id="bag-drawer-title" className="font-display text-2xl">Shopping Bag</h2>
                 <button type="button" onClick={() => setBagOpen(false)} aria-label="Close shopping bag">
-                  <X className="h-5 w-5 text-charcoal/60 transition hover:text-gold" />
+                  <X className="h-5 w-5 text-charcoal/60 transition hover:text-gold dark:text-white/60" />
                 </button>
               </div>
-              <div className="flex flex-1 items-center justify-center px-8 text-center text-sm text-charcoal/55">
+              <div className="flex min-h-0 flex-1 items-center justify-center bg-[#fffdf9] px-8 text-center text-sm text-charcoal/55 dark:bg-[#121212] dark:text-white/60">
                 Your bag is empty.
               </div>
-              <div className="border-t border-black/10 px-6 py-5">
+              <div className="border-t border-black/10 bg-[#fffdf9] px-6 py-5 dark:border-white/10 dark:bg-[#121212]">
                 <Link
                   href="/bag"
                   onClick={() => setBagOpen(false)}
-                  className="flex w-full items-center justify-center border border-charcoal px-5 py-4 text-xs uppercase tracking-[0.24em] transition hover:border-gold hover:text-gold"
+                  className="flex w-full items-center justify-center border border-charcoal px-5 py-4 text-xs uppercase tracking-[0.24em] transition hover:border-gold hover:text-gold dark:border-white/60"
                 >
                   View full bag
                 </Link>
@@ -696,7 +706,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
             </motion.aside>
           </motion.div>
         ) : null}
-      </AnimatePresence>
+      </AnimatePresence>, document.body) : null}
     </header>
   );
 }
