@@ -9,6 +9,7 @@ from ...extensions import limiter
 from ...rbac import database
 
 analytics_bp = Blueprint("analytics", __name__)
+storefront_activity_bp = Blueprint("storefront_activity", __name__)
 
 EVENT_NAMES = {
     "page_view",
@@ -16,6 +17,7 @@ EVENT_NAMES = {
     "wishlist_add",
     "add_to_bag",
     "checkout_started",
+    "presence",
 }
 TRAFFIC_SOURCES = {"direct", "search", "social", "email", "referral"}
 ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
@@ -65,6 +67,7 @@ def _client_os(user_agent: str) -> str:
 
 
 @analytics_bp.post("/events")
+@storefront_activity_bp.post("/activity")
 @limiter.limit("120 per minute")
 def record_event():
     payload = request.get_json(silent=True) or {}

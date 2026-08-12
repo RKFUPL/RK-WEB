@@ -69,7 +69,7 @@ def build_dashboard(database, period: str, now: datetime | None = None, current_
         # storefront visitor.
         public_event_query["visitorId"] = {"$ne": current_visitor_id}
 
-    events = list(database.analytics_events.find(public_event_query, {
+    events = list(database.analytics_events.find({**public_event_query, "event": {"$ne": "presence"}}, {
         "event": 1, "visitorId": 1, "sessionId": 1, "path": 1,
         "source": 1, "properties": 1, "customerName": 1, "createdAt": 1,
     }).sort("createdAt", -1).limit(20))
@@ -179,17 +179,24 @@ def build_dashboard(database, period: str, now: datetime | None = None, current_
     ])
     active_cutoff = current - timedelta(minutes=5)
     active_visitor_query: dict[str, Any] = {
-        "event": "page_view",
+        "event": {"$in": ["page_view", "presence"]},
         "createdAt": {"$gte": active_cutoff, "$lte": current},
         "userId": {"$nin": internal_user_ids},
     }
     if current_visitor_id:
         active_visitor_query["visitorId"] = {"$ne": current_visitor_id}
     active_visitor_ids = database.analytics_events.distinct("visitorId", active_visitor_query)
+    active_last_seen = {
+        str(row.get("_id") or ""): row.get("lastSeen")
+        for row in database.analytics_events.aggregate([
+            {"$match": active_visitor_query},
+            {"$group": {"_id": "$visitorId", "lastSeen": {"$max": "$createdAt"}}},
+        ])
+    }
     visitors = []
     for index, visitor in enumerate(visitor_rows, start=1):
-        last_seen = as_datetime(visitor.get("lastSeen"))
         visitor_id = str(visitor.get("_id") or "")
+        last_seen = as_datetime(active_last_seen.get(visitor_id) or visitor.get("lastSeen"))
         customer_name = str(visitor.get("customerName") or "").strip()
         is_customer = bool(visitor.get("userId") or customer_name)
         visitors.append({
@@ -206,8 +213,8 @@ def build_dashboard(database, period: str, now: datetime | None = None, current_
             "sessions": len(visitor.get("sessions") or []),
             "pages": len(visitor.get("pages") or []),
             "firstSeen": serialise_datetime(visitor.get("firstSeen")),
-            "lastSeen": serialise_datetime(visitor.get("lastSeen")),
-            "active": bool(last_seen and last_seen >= active_cutoff),
+            "lastSeen": serialise_datetime(last_seen),
+            "active": visitor_id in active_visitor_ids,
             "current": False,
         })
 

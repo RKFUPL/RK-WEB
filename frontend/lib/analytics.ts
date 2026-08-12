@@ -1,6 +1,6 @@
 import { apiBaseUrl } from '@/lib/rbac';
 
-export type AnalyticsEventName = 'page_view' | 'product_view' | 'wishlist_add' | 'add_to_bag' | 'checkout_started';
+export type AnalyticsEventName = 'page_view' | 'product_view' | 'wishlist_add' | 'add_to_bag' | 'checkout_started' | 'presence';
 export type AnalyticsProperties = {
   productId?: string;
   productName?: string;
@@ -68,7 +68,7 @@ export function trackAnalyticsEvent(event: AnalyticsEventName, properties: Analy
     properties,
   };
   const accessToken = window.localStorage.getItem('rk_access_token');
-  void fetch(`${apiBaseUrl}/api/analytics/events`, {
+  void fetch(`${apiBaseUrl}/api/storefront/activity`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
