@@ -14,18 +14,16 @@ type Lookbook = {
   subtitle: string;
   description: string;
   href?: string;
-  fontFamily?: string;
-  fontSize?: string;
   comingSoon?: boolean;
 };
 
 const lookbooks: Lookbook[] = [
   { title: 'Aakaar', subtitle: 'The debut moodboard of the house.', description: 'Editorial frames, campaign stills, and collection notes gathered into one visual archive.', href: '/collections/aakaar-insights', comingSoon: true },
-  { title: 'Anamika', subtitle: 'A softer, more movement-led chapter.', description: 'An evolving lookbook space for future drops, references, and campaign imagery.', href: '/rk-lookbooks/anamika', fontFamily: 'RK Anamika', fontSize: 'clamp(2rem, 5vw, 4rem)' },
-  { title: 'Hastakala', subtitle: 'A craft-first presentation.', description: 'Reserved for hand-finished stories, artisan detail, and heirloom-inspired styling.', href: '/rk-lookbooks/hasthkala', fontFamily: 'var(--font-display)' },
-  { title: 'SANDOOK', subtitle: 'A treasured archive of the house.', description: 'A visual story of heirloom moods, considered detail, and timeless occasion dressing.', href: '/rk-lookbooks/sandook', fontFamily: 'RK Sandook', fontSize: 'clamp(2rem, 5vw, 4rem)' },
-  { title: 'Espiritu Libre', subtitle: 'A free-spirited visual chapter.', description: 'An evolving lookbook of movement, expression, and liberated silhouettes.', href: '/rk-lookbooks/espiritu-libre', fontFamily: 'RK Espiritu', fontSize: 'clamp(1.45rem, 3.7vw, 2.9rem)' },
-  { title: 'INAARA', subtitle: 'A luminous, celebratory chapter.', description: 'A lookbook shaped by fluid lines, occasion dressing, and a softer sense of radiance.', href: '/rk-lookbooks/inaara', fontFamily: 'RK Inaara', fontSize: 'clamp(2rem, 5vw, 4rem)' },
+  { title: 'Anamika', subtitle: 'A softer, more movement-led chapter.', description: 'An evolving lookbook space for future drops, references, and campaign imagery.', href: '/rk-lookbooks/anamika' },
+  { title: 'Hastakala', subtitle: 'A craft-first presentation.', description: 'Reserved for hand-finished stories, artisan detail, and heirloom-inspired styling.', href: '/rk-lookbooks/hasthkala' },
+  { title: 'Sandook', subtitle: 'A treasured archive of the house.', description: 'A visual story of heirloom moods, considered detail, and timeless occasion dressing.', href: '/rk-lookbooks/sandook' },
+  { title: 'Espiritu Libre', subtitle: 'A free-spirited visual chapter.', description: 'An evolving lookbook of movement, expression, and liberated silhouettes.', href: '/rk-lookbooks/espiritu-libre' },
+  { title: 'Inaara', subtitle: 'A luminous, celebratory chapter.', description: 'A lookbook shaped by fluid lines, occasion dressing, and a softer sense of radiance.', href: '/rk-lookbooks/inaara' },
 ];
 
 const coverByTitle = new Map([
@@ -42,11 +40,10 @@ const lookbookExploreDarkBackground = 'https://res.cloudinary.com/fm1bwbrd/image
 
 const featuredLookbooks = lookbooks.filter((lookbook) => !lookbook.comingSoon && lookbook.href && coverByTitle.has(lookbook.title.toUpperCase()));
 
-function titleStyle(lookbook: Lookbook) {
+function titleStyle() {
   return {
-    fontFamily: lookbook.fontFamily ?? 'var(--font-aakaar)',
-    fontSize: lookbook.fontSize ?? 'clamp(2.2rem, 6vw, 4.6rem)',
-    wordSpacing: lookbook.title === 'Espiritu Libre' ? '0.2em' : undefined,
+    fontFamily: 'var(--font-display)',
+    fontSize: 'clamp(1.8rem, 3.8vw, 3rem)',
   };
 }
 
@@ -97,7 +94,7 @@ export default function RkLookbooksPage() {
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-black/10 transition duration-500 group-hover:from-black/85" />
               <motion.div key={`${activeSpotlight.title}-copy`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7, delay: 0.1 }} className="absolute inset-x-0 bottom-0 z-30 p-7 text-white md:p-10">
                 <p className="text-[0.6rem] uppercase tracking-[0.38em] text-white/60">Featured lookbook</p>
-                <h2 style={titleStyle(activeSpotlight)} className="mt-4 leading-[0.82] tracking-[0.025em]">{activeSpotlight.title}</h2>
+                <h2 style={titleStyle()} className="mt-4 leading-[0.82] tracking-[0.025em]">{activeSpotlight.title}</h2>
                 <p className="mt-5 text-[0.65rem] uppercase tracking-[0.32em] text-white/65">Spring Summer 2026</p>
                 <p className="mt-4 max-w-md text-sm leading-6 text-white/75">{activeSpotlight.description}</p>
                 <span className="mt-7 inline-flex items-center gap-3 text-[0.62rem] uppercase tracking-[0.3em]">Read lookbook <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1.5" /></span>
@@ -117,10 +114,10 @@ export default function RkLookbooksPage() {
               const cover = coverByTitle.get(lookbook.title.toUpperCase());
               return <Link key={lookbook.title} href={lookbook.href ?? '/rk-lookbooks'} target={lookbook.href ? '_blank' : undefined} rel={lookbook.href ? 'noopener noreferrer' : undefined} className={`group relative w-[16rem] shrink-0 pt-4 text-left before:absolute before:left-0 before:right-0 before:top-0 before:h-px before:origin-left before:scale-x-0 before:bg-gold before:transition-transform before:duration-150 before:ease-out group-hover:before:scale-x-100 md:w-[17rem] ${activeSpotlight?.title === lookbook.title ? 'before:scale-x-100' : ''}`}>
                 <div className={`relative aspect-[3/4] w-full overflow-hidden rounded-[3px] ${lookbook.comingSoon ? 'border border-black/10 dark:border-white/25' : 'bg-sand'}`}>
-                  {lookbook.comingSoon ? <div className="flex h-full items-center justify-center bg-black/[0.02] text-center text-[0.62rem] uppercase tracking-[0.35em] text-black transition-colors duration-150 group-hover:text-gold dark:bg-white/[0.02] dark:text-black">Coming<br />Soon</div> : cover ? <img src={cover} alt={`${lookbook.title} cover`} draggable={false} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03] group-hover:brightness-90" /> : null}
+                  {lookbook.comingSoon ? <div className="flex h-full items-center justify-center bg-black/[0.02] text-center text-[0.62rem] uppercase tracking-[0.35em] text-white transition-colors duration-150 group-hover:text-gold dark:bg-white/[0.02] dark:text-white">Coming<br />Soon</div> : cover ? <img src={cover} alt={`${lookbook.title} cover`} draggable={false} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03] group-hover:brightness-90" /> : null}
                   <span className="absolute left-4 top-4 font-display text-3xl text-white/80 drop-shadow">{String(index + 1).padStart(2, '0')}</span>
                 </div>
-                <h3 style={titleStyle(lookbook)} className="mt-6 min-h-[3.5rem] text-3xl leading-[0.88] text-charcoal transition-colors duration-150 group-hover:text-gold">{lookbook.title}</h3>
+                <h3 style={titleStyle()} className="mt-6 min-h-[3.5rem] whitespace-normal break-words text-3xl leading-[0.88] text-charcoal transition-colors duration-150 group-hover:text-gold">{lookbook.title}</h3>
                 <p className="mt-3 text-[0.6rem] uppercase tracking-[0.32em] text-charcoal/45 transition-colors duration-150 group-hover:text-gold">{lookbook.comingSoon ? 'Coming soon' : 'SS26'}</p>
                 <p className="mt-4 max-w-[16rem] text-sm leading-6 text-charcoal/60 transition-colors duration-150 group-hover:text-gold">{lookbook.description}</p>
                 <span className="mt-6 inline-flex items-center gap-3 text-[0.6rem] uppercase tracking-[0.3em] text-charcoal/65 transition-colors duration-150 group-hover:text-gold md:opacity-0 md:group-hover:opacity-100">Read lookbook <ArrowRight className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-1.5" /></span>

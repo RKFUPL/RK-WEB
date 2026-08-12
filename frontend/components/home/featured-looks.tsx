@@ -28,6 +28,7 @@ export function FeaturedLooks() {
         playsInline
         preload="metadata"
         controls={false}
+        onContextMenu={(event) => event.preventDefault()}
         onCanPlay={(event) => void event.currentTarget.play().catch(() => undefined)}
         className="absolute inset-0 h-full w-full object-cover object-center"
         aria-label="Rashi Kapoor fashion film"

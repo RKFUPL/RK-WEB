@@ -8,16 +8,6 @@ type LookbookIntroProps = {
   url: string;
 };
 
-const lookbookFont: Record<string, string> = {
-  Anamika: 'RK Anamika',
-  Hastakala: 'var(--font-display)',
-  Hasthkala: 'var(--font-display)',
-  'Espiritu Libre': 'RK Espiritu',
-  Sandook: 'RK Sandook',
-  SANDOOK: 'RK Sandook',
-  Inaara: 'RK Inaara',
-  INAARA: 'RK Inaara',
-};
 
 export function LookbookIntro({ name, number, url }: LookbookIntroProps) {
   useEffect(() => {
@@ -32,7 +22,7 @@ export function LookbookIntro({ name, number, url }: LookbookIntroProps) {
       <div className="relative z-10 flex w-full max-w-6xl flex-col items-center">
         <p style={{ opacity: 0, transform: 'translateY(24px)' }} className="intro-label text-[0.58rem] uppercase tracking-[0.55em] text-white/55 md:text-[0.65rem]">RK Lookbook / {number}</p>
         <div style={{ opacity: 0, transform: 'scaleX(0)' }} className="intro-rule mt-8 h-px w-20 bg-white/45 md:mt-10" />
-        <h1 style={{ opacity: 0, transform: 'translateY(24px)', fontFamily: lookbookFont[name] ?? 'var(--font-aakaar)' }} className="intro-title mt-8 max-w-6xl text-[clamp(3.2rem,9vw,8.5rem)] leading-[0.9] tracking-[0.025em] text-white md:mt-10">
+        <h1 style={{ opacity: 0, transform: 'translateY(24px)', fontFamily: 'var(--font-display)' }} className="intro-title mt-8 max-w-6xl text-[clamp(3.2rem,9vw,8.5rem)] leading-[0.9] tracking-[0.025em] text-white md:mt-10">
           Welcome to the world of
           <span className="mt-3 block text-[1.08em] italic tracking-[0.01em] text-white/90 md:mt-5">{name}</span>
         </h1>

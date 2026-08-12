@@ -1270,6 +1270,18 @@ body {
   object-fit: contain;
 }
 
+.footer-signature-dark {
+  display: none;
+}
+
+.dark .footer-signature-light {
+  display: none;
+}
+
+.dark .footer-signature-dark {
+  display: block;
+}
+
 .luxury-footer > * {
   position: relative;
   z-index: 1;

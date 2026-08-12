@@ -32,7 +32,8 @@ const socialLinks = {
   x: 'https://x.com/',
 } as const;
 
-const footerSignatureImage = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1786436593/c8656a05-d9aa-40c3-9544-c6a128eca22b_khuwk2.png';
+const footerSignatureLightImage = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1786444616/RK_black_transparent_aihsgm.svg';
+const footerSignatureDarkImage = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1786444193/RK_gold_transparent_puoxne.svg';
 
 const storeLocations = [
   {
@@ -180,9 +181,9 @@ export function Footer() {
                             {link}
                           </button>
                         ) : link === 'About' ? (
-                          <button type="button" onClick={scrollToAbout} className="transition hover:text-gold">
+                          <Link href="/about-rk" className="transition hover:text-gold">
                             {link}
-                          </button>
+                          </Link>
                         ) : (
                           <Link
                             href={
@@ -245,7 +246,8 @@ export function Footer() {
         <img src={brandLogoUrl} alt="RK Logo" width="48" height="34" className="footer-brand-mark h-8 w-auto opacity-75" />
       </div>
       <div className="footer-signature-scene" aria-label="Rashi Kapoor signature artwork">
-        <img src={footerSignatureImage} alt="Rashi Kapoor floral monogram" className="footer-signature-art" />
+        <img src={footerSignatureLightImage} alt="Rashi Kapoor floral monogram" className="footer-signature-art footer-signature-light" />
+        <img src={footerSignatureDarkImage} alt="Rashi Kapoor floral monogram" className="footer-signature-art footer-signature-dark" />
       </div>
     </footer>
   );

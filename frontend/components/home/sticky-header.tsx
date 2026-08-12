@@ -40,7 +40,7 @@ type StickyHeaderProps = {
 
 function AccountPreview({ user, onNavigate }: { user: HeaderUser; onNavigate: () => void }) {
   const fullName = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.displayName || user.username || 'RK member';
-  return <><p className="text-[10px] uppercase tracking-[0.28em] text-charcoal/45">Signed in as</p><p className="mt-2 font-display text-2xl">{fullName}</p><span className="mt-2 inline-flex rounded-full border border-gold/50 px-2.5 py-1 text-[9px] uppercase tracking-[0.22em] text-gold">{user.role || 'customer'}</span><p className="mt-2 break-all text-xs text-charcoal/50">{user.email || 'No email available'}</p><Link href="/profile" onClick={onNavigate} className="mt-5 block rounded-full bg-ink px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-ivory transition hover:bg-gold">Manage profile</Link>{user.role === 'admin' ? <Link href="/admin" onClick={onNavigate} className="mt-3 block rounded-full border border-gold/60 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">Admin dashboard</Link> : user.role === 'staff' ? <Link href="/staff" onClick={onNavigate} className="mt-3 block rounded-full border border-gold/60 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">Staff dashboard</Link> : null}</>;
+  return <><p className="text-[10px] uppercase tracking-[0.28em] text-charcoal/45">Signed in as</p><p className="mt-2 font-display text-2xl">{fullName}</p><span className="mt-2 inline-flex rounded-full border border-gold/50 px-2.5 py-1 text-[9px] uppercase tracking-[0.22em] text-gold">{user.role || 'customer'}</span><p className="mt-2 break-all text-xs text-charcoal/50">{user.email || 'No email available'}</p><Link href="/profile" onClick={onNavigate} className="mt-5 block rounded-full bg-ink px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-ivory transition hover:bg-gold">Manage profile</Link>{user.role === 'admin' ? <Link href="/admin" onClick={onNavigate} className="mt-3 block rounded-full border border-gold/60 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">Admin dashboard</Link> : user.role === 'staff' ? <Link href="/staff" onClick={onNavigate} className="mt-3 block rounded-full border border-gold/60 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">Staff dashboard</Link> : <Link href="/account/profile" onClick={onNavigate} className="mt-3 block rounded-full border border-gold/60 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">Client dashboard</Link>}</>;
 }
 
 export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
@@ -54,13 +54,14 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
   const [accountLoading, setAccountLoading] = useState(false);
   const [accountAttention, setAccountAttention] = useState(false);
   const [accountUser, setAccountUser] = useState<HeaderUser | null>(null);
+  const [videoSectionVisible, setVideoSectionVisible] = useState(false);
   // Product cards can populate this list later through a wishlist action.
   const [wishlistItems, setWishlistItems] = useState<typeof collectionPages[number][]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const headerRef = useRef<HTMLElement | null>(null);
   const pathname = usePathname();
   const router = useRouter();
-  const isTransparent = transparentAtTop && !scrolled && !searchOpen;
+  const isTransparent = ((transparentAtTop && !scrolled) || videoSectionVisible) && !searchOpen;
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -68,6 +69,30 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
+
+  useEffect(() => {
+    const updateVideoVisibility = () => {
+      const videoSection = document.getElementById('lookbook');
+      if (!videoSection) {
+        setVideoSectionVisible(false);
+        return;
+      }
+
+      const headerHeight = headerRef.current?.getBoundingClientRect().height ?? 0;
+      const sectionBounds = videoSection.getBoundingClientRect();
+      const hasReachedVideo = sectionBounds.top <= headerHeight;
+      const hasPassedVideo = sectionBounds.bottom <= headerHeight;
+      setVideoSectionVisible(hasReachedVideo && !hasPassedVideo);
+    };
+
+    updateVideoVisibility();
+    window.addEventListener('scroll', updateVideoVisibility, { passive: true });
+    window.addEventListener('resize', updateVideoVisibility);
+    return () => {
+      window.removeEventListener('scroll', updateVideoVisibility);
+      window.removeEventListener('resize', updateVideoVisibility);
+    };
+  }, [pathname]);
 
   useEffect(() => {
     const token = window.localStorage.getItem('rk_access_token');
@@ -190,19 +215,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
 
   const scrollToAbout = () => {
     handleNavigation();
-
-    const about = document.getElementById('about');
-    if (about) {
-      about.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      return;
-    }
-
-    if (pathname !== '/') {
-      router.push('/');
-      window.setTimeout(() => {
-        document.getElementById('about')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 100);
-    }
+    router.push('/about-rk');
   };
 
   const scrollToFooter = () => {
@@ -430,7 +443,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
             onClick={() => setMenuOpen(false)}
           >
             <motion.aside
-              className="absolute right-0 top-0 h-full w-[88vw] max-w-sm border-l border-black/6 bg-ivory px-6 py-6 text-charcoal shadow-2xl"
+              className="absolute right-0 top-0 h-[100dvh] w-[88vw] max-w-sm overflow-y-auto overscroll-contain border-l border-black/6 bg-ivory px-6 py-6 text-charcoal shadow-2xl"
               initial={{ x: '100%' }}
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
