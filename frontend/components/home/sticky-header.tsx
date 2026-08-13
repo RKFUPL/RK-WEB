@@ -222,7 +222,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
 
   const scrollToAbout = () => {
     handleNavigation();
-    router.push('/about-rk');
+    router.push('/about');
   };
 
   const scrollToFooter = () => {

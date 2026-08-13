@@ -2,15 +2,16 @@
 
 import Image from 'next/image';
 import { AnimatePresence, motion } from 'framer-motion';
+import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { aakarBannerBackgroundUrl } from '@/lib/home-content';
 
 const bannerFrames = [
-  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg', label: 'Aakaar', href: '/collections/aakaar-insights' },
-  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488013/Rashi_Kapoor306_compressed_8000kb_vnw8a0.jpg', label: 'Aakaar', href: '/collections/aakaar-insights' },
-  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487994/Rashi_Kapoor2418_compressed_8000kb_qkke56.jpg', label: 'Aakaar', href: '/collections/aakaar-insights' },
-  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487943/Rashi_Kapoor187_compressed_8000kb_e5k7xn.jpg', label: 'Aakaar', href: '/collections/aakaar-insights' },
-  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg', label: 'Aakaar', href: '/collections/aakaar-insights' },
+  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg', label: 'Aakaar' },
+  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488013/Rashi_Kapoor306_compressed_8000kb_vnw8a0.jpg', label: 'Aakaar' },
+  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487994/Rashi_Kapoor2418_compressed_8000kb_qkke56.jpg', label: 'Aakaar' },
+  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487943/Rashi_Kapoor187_compressed_8000kb_e5k7xn.jpg', label: 'Aakaar' },
+  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg', label: 'Aakaar' },
 ] as const;
 
 const lineRevealStart = 'polygon(100% 0%, 100% 100%, 100% 100%, 100% 0%)';
@@ -93,27 +94,25 @@ export function FeaturedCollection() {
                 clipPath: { duration: 1.8, ease: [0.22, 1, 0.36, 1] },
               }}
             >
-              <a href={activeFrame.href} aria-label={`Open ${activeFrame.label} collection`} className="absolute inset-0 block">
-                <Image
-                  src={activeFrame.src}
-                  alt={`Rashi Kapoor ${activeFrame.label} campaign`}
-                  fill
-                  priority={currentIndex === 0}
-                  sizes="100vw"
-                  className="object-cover object-center"
-                />
-              </a>
+              <Image
+                src={activeFrame.src}
+                alt={`Rashi Kapoor ${activeFrame.label} campaign`}
+                fill
+                priority={currentIndex === 0}
+                sizes="100vw"
+                className="object-cover object-center"
+              />
             </motion.div>
           ) : null}
         </AnimatePresence>
 
-        {phase > 0 ? <div className="absolute inset-x-6 bottom-5 z-40 flex items-center justify-between lg:inset-x-12 lg:bottom-8">
-          <button type="button" aria-label="Previous Aakaar image" onClick={() => changeFrame(-1)} className="pointer-events-auto flex h-10 w-10 items-center justify-center border border-[#fff1df]/55 bg-black/10 text-lg text-[#fff1df] backdrop-blur-sm transition hover:border-gold hover:bg-gold hover:text-ink">←</button>
-          <div className="pointer-events-auto flex items-center gap-2" aria-label="Aakaar image navigation">
+        {phase > 0 ? <>
+          <button type="button" aria-label="Previous Aakaar image" onClick={() => changeFrame(-1)} className="pointer-events-auto absolute left-5 top-1/2 z-40 flex h-12 w-12 -translate-y-1/2 items-center justify-center border border-[#fff1df]/55 bg-black/10 text-[#fff1df] backdrop-blur-sm transition hover:border-gold hover:bg-gold hover:text-ink lg:left-8"><ArrowLeft className="h-5 w-5" /></button>
+          <div className="pointer-events-auto absolute bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 lg:bottom-8" aria-label="Aakaar image navigation">
             {bannerFrames.map((frame, index) => <button key={frame.src} type="button" aria-label={`Show Aakaar image ${index + 1}`} aria-current={index === currentIndex} onClick={() => selectFrame(index)} className={`h-3 w-3 rounded-full border-2 border-[#fff1df]/90 transition ${index === currentIndex ? 'scale-125 bg-[#fff1df]' : 'bg-transparent hover:bg-[#fff1df]/70'}`} />)}
           </div>
-          <button type="button" aria-label="Next Aakaar image" onClick={() => changeFrame(1)} className="pointer-events-auto flex h-10 w-10 items-center justify-center border border-[#fff1df]/55 bg-black/10 text-lg text-[#fff1df] backdrop-blur-sm transition hover:border-gold hover:bg-gold hover:text-ink">→</button>
-        </div> : null}
+          <button type="button" aria-label="Next Aakaar image" onClick={() => changeFrame(1)} className="pointer-events-auto absolute right-5 top-1/2 z-40 flex h-12 w-12 -translate-y-1/2 items-center justify-center border border-[#fff1df]/55 bg-black/10 text-[#fff1df] backdrop-blur-sm transition hover:border-gold hover:bg-gold hover:text-ink lg:right-8"><ArrowRight className="h-5 w-5" /></button>
+        </> : null}
 
         <div className="pointer-events-none absolute inset-x-6 top-28 z-20 flex items-start justify-between text-[0.58rem] uppercase tracking-[0.34em] text-[#fff1df]/75 lg:inset-x-12 lg:top-36">
           <span>Rashi Kapoor / 2026</span>
@@ -160,7 +159,7 @@ export function FeaturedCollection() {
                 </p>
                 <div className="mt-7 flex flex-wrap items-center gap-5">
                   <p className="text-[clamp(0.6rem,1.2vw,0.78rem)] uppercase tracking-[0.42em] text-[#fff1df]/85">Coming soon</p>
-                  <a href={activeFrame.href} className="pointer-events-auto inline-flex items-center justify-center border border-gold/70 px-5 py-3 text-[0.62rem] uppercase tracking-[0.28em] text-[#fff1df] transition duration-500 hover:bg-gold hover:text-ink">
+                  <a href="/collections/aakaar-insights" className="pointer-events-auto inline-flex items-center justify-center border border-gold/70 px-5 py-3 text-[0.62rem] uppercase tracking-[0.28em] text-[#fff1df] transition duration-500 hover:bg-gold hover:text-ink">
                     Explore Aakaar <span className="ml-3 text-base">→</span>
                   </a>
                 </div>

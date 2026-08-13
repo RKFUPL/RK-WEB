@@ -36,7 +36,7 @@ export function BrandStory() {
             </p>
           </div>
           <Link
-            href="/about-rk"
+            href="/about"
             className="inline-flex w-fit items-center gap-4 border-b border-gold/70 pb-3 text-[0.62rem] uppercase tracking-[0.28em] text-charcoal transition hover:gap-6 hover:text-gold"
           >
             Read our story <ArrowRight className="h-4 w-4 text-gold" />

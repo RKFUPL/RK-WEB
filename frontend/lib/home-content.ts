@@ -107,7 +107,7 @@ export const searchItems = [
   })),
   { title: 'All Collections', type: 'Collection', href: '/collections', keywords: 'collections archive' },
   { title: 'All Lookbooks', type: 'Lookbook', href: '/rk-lookbooks', keywords: 'lookbook editorial' },
-  { title: 'About Rashi Kapoor', type: 'Page', href: '/about-rk', keywords: 'about house story designer' },
+  { title: 'About Rashi Kapoor', type: 'Page', href: '/about', keywords: 'about house story designer' },
 ] as const;
 
 export const categoryItems: readonly CategoryItem[] = [

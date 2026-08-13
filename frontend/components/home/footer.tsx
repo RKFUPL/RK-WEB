@@ -181,7 +181,7 @@ export function Footer() {
                             {link}
                           </button>
                         ) : link === 'About' ? (
-                          <Link href="/about-rk" className="transition hover:text-gold">
+                          <Link href="/about" aria-current={pathname === '/about' ? 'page' : undefined} className={`transition hover:text-gold ${pathname === '/about' ? 'text-gold' : ''}`}>
                             {link}
                           </Link>
                         ) : (
@@ -191,7 +191,7 @@ export function Footer() {
                                 ? '/collections'
                                 : link === 'Lookbook'
                                   ? '/rk-lookbooks'
-                                  : '/about-rk'
+                                  : '/about'
                             }
                             className="transition hover:text-gold"
                           >
@@ -203,12 +203,11 @@ export function Footer() {
                       ) : column.title === 'Company' && link === 'Contact' ? (
                         <a href="mailto:contact@rashikapoorofficial.com" className="transition hover:text-gold">{link}</a>
                       ) : (
-                        <a
-                          href={`#${link.toLowerCase().replace(/\s+/g, '-')}`}
-                          className="transition hover:text-gold"
-                        >
-                          {link}
-                        </a>
+                        <Link
+                          href={`/${link.toLowerCase().replace(/\s+/g, '-')}`}
+                          aria-current={pathname === `/${link.toLowerCase().replace(/\s+/g, '-')}` ? 'page' : undefined}
+                          className={`transition hover:text-gold ${pathname === `/${link.toLowerCase().replace(/\s+/g, '-')}` ? 'text-gold' : ''}`}
+                        >{link}</Link>
                       )}
                     </li>
                   ))}

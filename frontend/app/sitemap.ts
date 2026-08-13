@@ -4,7 +4,14 @@ import { siteUrl } from '@/lib/site-metadata';
 
 const staticPaths = [
   '/',
+  '/about',
   '/about-rk',
+  '/sustainability',
+  '/privacy',
+  '/terms',
+  '/cookies',
+  '/shipping',
+  '/security',
   '/careers',
   '/collections',
   '/rk-lookbooks',
