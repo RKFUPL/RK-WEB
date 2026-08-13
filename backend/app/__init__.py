@@ -44,7 +44,7 @@ def create_app() -> Flask:
         resources={r"/api/*": {"origins": list(allowed_origins)}},
         supports_credentials=True,
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Content-Type", "Authorization"],
+        allow_headers=["Content-Type", "Authorization", "X-RK-Visitor-ID"],
         automatic_options=True,
     )
     jwt.init_app(app)
@@ -66,6 +66,11 @@ def create_app() -> Flask:
     limiter.init_app(app)
     mail.init_app(app)
     mongo.init_app(app)
+
+    @jwt.token_in_blocklist_loader
+    def token_is_revoked(_jwt_header, jwt_payload):
+        db = mongo.db or mongo.cx[app.config["MONGO_DBNAME"]]
+        return db.revoked_tokens.find_one({"jti": jwt_payload.get("jti")}, {"_id": 1}) is not None
 
     app.register_blueprint(health_bp, url_prefix="/api")
     app.register_blueprint(auth_bp, url_prefix="/api/auth")

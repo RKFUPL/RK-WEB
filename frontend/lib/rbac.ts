@@ -8,9 +8,12 @@ export type AuthUser = {
   firstName?: string;
   lastName?: string;
   role: Role;
+  permissions?: StaffPermission[];
   isActive: boolean;
   emailVerified: boolean;
 };
+
+export type StaffPermission = 'products:manage' | 'inventory:manage' | 'quotes:manage' | 'orders:manage' | 'customers:manage';
 
 export const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -60,9 +63,23 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   return null;
 }
 
-export function logout() {
+function clearAuthState() {
   window.localStorage.removeItem('rk_access_token');
   window.localStorage.removeItem('rk_auth_token');
   window.localStorage.removeItem(cachedUserKey);
-  window.location.assign('/account');
+}
+
+export async function logout() {
+  const token = window.localStorage.getItem('rk_access_token');
+  try {
+    if (token) {
+      await fetch(`${apiBaseUrl}/api/auth/logout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    }
+  } finally {
+    clearAuthState();
+    window.location.assign('/account');
+  }
 }

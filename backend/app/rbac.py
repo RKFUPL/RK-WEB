@@ -14,6 +14,13 @@ from .extensions import mongo
 
 ROLES = ("customer", "staff", "admin")
 ROLE_RANK = {"customer": 1, "staff": 2, "admin": 3}
+STAFF_PERMISSIONS = (
+    "products:manage",
+    "inventory:manage",
+    "quotes:manage",
+    "orders:manage",
+    "customers:manage",
+)
 
 
 def database():
@@ -50,6 +57,24 @@ def current_user():
     return user
 
 
+def effective_permissions(user: dict | None) -> list[str]:
+    """Return canonical capabilities without trusting token claims.
+
+    Legacy staff records predate per-user permissions. They retain the former
+    full staff access until an administrator saves an explicit allowlist.
+    """
+    if not user or user.get("isActive", True) is False:
+        return []
+    if user.get("role") == "admin":
+        return list(STAFF_PERMISSIONS)
+    if user.get("role") != "staff":
+        return []
+    stored = user.get("permissions")
+    if stored is None:
+        return list(STAFF_PERMISSIONS)
+    return [permission for permission in STAFF_PERMISSIONS if permission in stored]
+
+
 def _guard(allowed_roles: set[str]) -> Callable:
     def decorator(view: Callable) -> Callable:
         @wraps(view)
@@ -83,9 +108,29 @@ def requireAdmin(view: Callable) -> Callable:
     return _guard({"admin"})(view)
 
 
+def requirePermission(permission: str) -> Callable:
+    if permission not in STAFF_PERMISSIONS:
+        raise ValueError(f"Unknown staff permission: {permission}")
+
+    def decorator(view: Callable) -> Callable:
+        @wraps(view)
+        @jwt_required()
+        def wrapped(*args, **kwargs):
+            user = current_user()
+            if not user or user.get("isActive", True) is False:
+                return jsonify({"error": "Authentication required."}), 401
+            if permission not in effective_permissions(user):
+                return jsonify({"error": "You do not have permission to perform this action."}), 403
+            return view(*args, **kwargs)
+
+        return wrapped
+    return decorator
+
+
 # snake_case aliases are convenient for Python callers while the camelCase
 # names mirror the API contract.
 require_auth = requireAuth
 require_customer = requireCustomer
 require_staff = requireStaff
 require_admin = requireAdmin
+require_permission = requirePermission

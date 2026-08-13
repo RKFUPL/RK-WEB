@@ -59,12 +59,14 @@ function PasswordField({ label, value, onChange, required = true, minLength, err
   );
 }
 
-type SignupField = 'fullName' | 'username' | 'email' | 'phone' | 'region' | 'password';
+type SignupField = 'firstName' | 'lastName' | 'username' | 'email' | 'phone' | 'dob' | 'gender' | 'region' | 'password' | 'confirmPassword';
 
 function signupFieldError(field: SignupField, value: string) {
-  if (!value.trim()) return field === 'fullName' ? 'Full name is required.' : field === 'username' ? 'Username is required.' : field === 'email' ? 'Email is required.' : field === 'phone' ? 'Phone number is required.' : field === 'region' ? 'Region is required.' : 'Password is required.';
+  if (!value.trim()) return field === 'firstName' ? 'First name is required.' : field === 'lastName' ? 'Last name is required.' : field === 'username' ? 'Username is required.' : field === 'email' ? 'Email is required.' : field === 'phone' ? 'Phone number is required.' : field === 'dob' ? 'Date of birth is required.' : field === 'gender' ? 'Gender is required.' : field === 'region' ? 'Region is required.' : field === 'confirmPassword' ? 'Confirm your password.' : 'Password is required.';
+  if (field === 'username' && !/^[a-zA-Z0-9_.-]{3,30}$/.test(value)) return 'Use 3-30 letters, numbers, dots, dashes, or underscores.';
   if (field === 'email' && !/^\S+@\S+\.\S+$/.test(value.trim())) return 'Enter a valid email address.';
   if (field === 'phone' && !/^\+?[0-9\s().-]{7,20}$/.test(value.trim())) return 'Enter a valid phone number.';
+  if (field === 'dob' && value >= new Date().toISOString().slice(0, 10)) return 'Enter a valid date of birth.';
   if (field === 'password' && value.length < 8) return 'Password must be at least 8 characters.';
   return '';
 }
@@ -81,8 +83,12 @@ export default function AccountPage() {
   const [phone, setPhone] = useState('');
   const [region, setRegion] = useState('');
   const [username, setUsername] = useState('');
-  const [fullName, setFullName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [dob, setDob] = useState('');
+  const [gender, setGender] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [otp, setOtp] = useState('');
   const [user, setUser] = useState<AccountUser | null>(null);
   const [message, setMessage] = useState('');
@@ -130,22 +136,28 @@ export default function AccountPage() {
 
   const validateSignup = () => {
     const nextErrors: Partial<Record<SignupField, string>> = {};
-    (['fullName', 'username', 'email', 'phone', 'region', 'password'] as SignupField[]).forEach((field) => {
-      const value = field === 'fullName' ? fullName : field === 'username' ? username : field === 'email' ? email : field === 'phone' ? phone : field === 'region' ? region : password;
+    (['firstName', 'lastName', 'username', 'email', 'phone', 'dob', 'gender', 'region', 'password', 'confirmPassword'] as SignupField[]).forEach((field) => {
+      const values: Record<SignupField, string> = { firstName, lastName, username, email, phone, dob, gender, region, password, confirmPassword };
+      const value = values[field];
       const error = signupFieldError(field, value);
       if (error) nextErrors[field] = error;
     });
+    if (password && confirmPassword && password !== confirmPassword) nextErrors.confirmPassword = 'Passwords do not match.';
     setFieldErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   };
 
   const updateSignupField = (field: SignupField, value: string) => {
-    if (field === 'fullName') setFullName(value);
+    if (field === 'firstName') setFirstName(value);
+    if (field === 'lastName') setLastName(value);
     if (field === 'username') setUsername(value);
     if (field === 'email') setEmail(value);
     if (field === 'phone') setPhone(value);
+    if (field === 'dob') setDob(value);
+    if (field === 'gender') setGender(value);
     if (field === 'region') setRegion(value);
     if (field === 'password') setPassword(value);
+    if (field === 'confirmPassword') setConfirmPassword(value);
     if (fieldErrors[field]) setFieldErrors((current) => ({ ...current, [field]: signupFieldError(field, value) || undefined }));
   };
 
@@ -185,7 +197,7 @@ export default function AccountPage() {
       const response = await fetch(`${apiBaseUrl}/api/auth/signup/request-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ displayName: fullName, username, email, phone, region, password }),
+        body: JSON.stringify({ firstName, lastName, username, email, phone, dob, gender, region, password }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? 'Unable to send signup code.');
@@ -282,7 +294,7 @@ export default function AccountPage() {
         </div>
 
         <section className="flex items-center justify-center px-6 py-12 lg:px-20">
-          <div className="w-full max-w-md">
+          <div className={`w-full ${isSignup ? 'max-w-2xl' : 'max-w-md'}`}>
             <div className="mb-12 flex justify-end">
               <a href="/" className="inline-flex">
                 <img src={brandLogoUrl} alt="RK Logo" className="rk-logo h-16 w-auto" />
@@ -295,13 +307,17 @@ export default function AccountPage() {
             <form onSubmit={formSubmit} noValidate={isSignup} className="mt-10 space-y-5">
               {isSignup ? (
                 <>
-                  {(['fullName', 'username', 'email', 'phone'] as const).map((field) => {
-                    const labels = { fullName: 'Full name', username: 'Username', email: 'Email', phone: 'Phone number' };
-                    const values = { fullName, username, email, phone };
-                    return <label key={field} className={`group relative block text-xs uppercase tracking-[0.25em] ${fieldErrors[field] ? 'text-red-600' : 'text-charcoal/55'}`}>{labels[field]}<input type={field === 'email' ? 'email' : 'text'} required value={values[field]} onChange={(event) => updateSignupField(field, event.target.value)} onBlur={() => setFieldErrors((current) => ({ ...current, [field]: signupFieldError(field, values[field]) || undefined }))} disabled={otpStep} aria-invalid={Boolean(fieldErrors[field])} className={`mt-3 w-full border-b px-0 py-3 text-base normal-case tracking-normal outline-none focus:border-gold ${fieldErrors[field] ? 'border-red-500' : 'border-black/15'}`} />{fieldErrors[field] ? <span role="tooltip" className="pointer-events-none absolute right-0 top-0 z-10 max-w-[15rem] -translate-y-2 rounded bg-red-600 px-3 py-2 text-[10px] normal-case tracking-normal text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">{fieldErrors[field]}</span> : null}</label>;
-                  })}
-                  <label className={`block text-xs uppercase tracking-[0.25em] ${fieldErrors.region ? 'text-red-600' : 'text-charcoal/55'}`}>Region<select required value={region} onChange={(event) => updateSignupField('region', event.target.value)} disabled={otpStep} className={`mt-3 w-full border-b bg-transparent px-0 py-3 text-base normal-case tracking-normal outline-none focus:border-gold ${fieldErrors.region ? 'border-red-500' : 'border-black/15'}`}><option value="">Select your region</option><option value="asia-india">Asia (India) · INR</option><option value="us">United States · USD</option><option value="europe">Europe · EUR</option><option value="anywhere-else">Anywhere else · USD</option></select>{fieldErrors.region ? <span className="text-[10px] normal-case tracking-normal text-red-600">{fieldErrors.region}</span> : null}</label>
-                  {!otpStep ? <PasswordField label="Password" minLength={8} value={password} error={fieldErrors.password} onChange={(value) => updateSignupField('password', value)} onBlur={() => setFieldErrors((current) => ({ ...current, password: signupFieldError('password', password) || undefined }))} /> : null}
+                  <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
+                    {(['firstName', 'lastName', 'username', 'email', 'phone', 'dob'] as const).map((field) => {
+                      const labels = { firstName: 'First name', lastName: 'Last name', username: 'Username', email: 'Email', phone: 'Phone number', dob: 'Date of birth' };
+                      const values = { firstName, lastName, username, email, phone, dob };
+                      return <label key={field} className={`group relative block text-xs uppercase tracking-[0.25em] ${fieldErrors[field] ? 'text-red-600' : 'text-charcoal/55'}`}>{labels[field]}<input type={field === 'email' ? 'email' : field === 'dob' ? 'date' : 'text'} max={field === 'dob' ? new Date().toISOString().slice(0, 10) : undefined} required value={values[field]} onChange={(event) => updateSignupField(field, event.target.value)} onBlur={() => setFieldErrors((current) => ({ ...current, [field]: signupFieldError(field, values[field]) || undefined }))} disabled={otpStep} aria-invalid={Boolean(fieldErrors[field])} className={`mt-3 w-full border-b bg-transparent px-0 py-3 text-base normal-case tracking-normal outline-none focus:border-gold ${fieldErrors[field] ? 'border-red-500' : 'border-black/15'}`} />{fieldErrors[field] ? <span className="mt-1 block text-[10px] normal-case tracking-normal text-red-600">{fieldErrors[field]}</span> : null}</label>;
+                    })}
+                    <label className={`block text-xs uppercase tracking-[0.25em] ${fieldErrors.gender ? 'text-red-600' : 'text-charcoal/55'}`}>Gender<select required value={gender} onChange={(event) => updateSignupField('gender', event.target.value)} disabled={otpStep} className={`mt-3 w-full border-b bg-transparent px-0 py-3 text-base normal-case tracking-normal outline-none focus:border-gold ${fieldErrors.gender ? 'border-red-500' : 'border-black/15'}`}><option value="">Select</option><option value="female">Female</option><option value="male">Male</option><option value="prefer-not-to-say">Prefer not to say</option></select>{fieldErrors.gender ? <span className="mt-1 block text-[10px] normal-case tracking-normal text-red-600">{fieldErrors.gender}</span> : null}</label>
+                    <label className={`block text-xs uppercase tracking-[0.25em] ${fieldErrors.region ? 'text-red-600' : 'text-charcoal/55'}`}>Region<select required value={region} onChange={(event) => updateSignupField('region', event.target.value)} disabled={otpStep} className={`mt-3 w-full border-b bg-transparent px-0 py-3 text-base normal-case tracking-normal outline-none focus:border-gold ${fieldErrors.region ? 'border-red-500' : 'border-black/15'}`}><option value="">Select your region</option><option value="asia-india">Asia (India) · INR</option><option value="us">United States · USD</option><option value="europe">Europe · EUR</option><option value="anywhere-else">Anywhere else · USD</option></select>{fieldErrors.region ? <span className="mt-1 block text-[10px] normal-case tracking-normal text-red-600">{fieldErrors.region}</span> : null}</label>
+                    {!otpStep ? <PasswordField label="Password" minLength={8} value={password} error={fieldErrors.password} onChange={(value) => updateSignupField('password', value)} onBlur={() => setFieldErrors((current) => ({ ...current, password: signupFieldError('password', password) || undefined }))} /> : null}
+                    {!otpStep ? <PasswordField label="Confirm password" minLength={8} value={confirmPassword} error={fieldErrors.confirmPassword} onChange={(value) => updateSignupField('confirmPassword', value)} onBlur={() => setFieldErrors((current) => ({ ...current, confirmPassword: password === confirmPassword ? undefined : 'Passwords do not match.' }))} /> : null}
+                  </div>
                 </>
               ) : (
                 <>

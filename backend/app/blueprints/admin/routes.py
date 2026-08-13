@@ -6,7 +6,7 @@ from bcrypt import gensalt, hashpw
 from bson import ObjectId
 from flask import Blueprint, jsonify, request
 
-from ...rbac import ROLES, current_user, database, requireAdmin
+from ...rbac import ROLES, STAFF_PERMISSIONS, current_user, database, effective_permissions, requireAdmin
 from ...dashboard_metrics import build_dashboard
 
 
@@ -33,6 +33,7 @@ RESOURCE_COLLECTIONS = {
     "products": "products",
     "inventory": "products",
     "orders": "orders",
+    "quotes": "quotes",
     "collections": "collections",
     "customers": "users",
     "marketing": "marketing_campaigns",
@@ -61,6 +62,9 @@ def _user_view(user: dict) -> dict:
         "username": user.get("username"),
         "displayName": user.get("displayName"),
         "role": user.get("role", "customer"),
+        "permissions": effective_permissions(user),
+        "assignedStaffId": str(user["assignedStaffId"]) if user.get("assignedStaffId") else None,
+        "phone": user.get("phone"),
         "isActive": user.get("isActive", True),
         "emailVerified": user.get("emailVerified", False),
         "createdAt": user.get("createdAt"),
@@ -105,7 +109,7 @@ def _integer(value: object, default: int = 0) -> int:
 @admin_bp.get("/users")
 @requireAdmin
 def list_users():
-    users = database().users.find().sort("createdAt", -1)
+    users = database().users.find({"role": {"$in": ["staff", "admin"]}}).sort("createdAt", -1)
     return jsonify({"users": [_user_view(user) for user in users]}), 200
 
 
@@ -299,6 +303,60 @@ def change_role(user_id: str):
     })
     target = users.find_one({"_id": target_id})
     return jsonify({"user": _user_view(target)}), 200
+
+
+@admin_bp.patch("/users/<user_id>/permissions")
+@requireAdmin
+def change_permissions(user_id: str):
+    if not ObjectId.is_valid(user_id):
+        return jsonify({"error": "Invalid user id."}), 400
+    payload = request.get_json(silent=True) or {}
+    permissions = payload.get("permissions")
+    if not isinstance(permissions, list) or any(permission not in STAFF_PERMISSIONS for permission in permissions):
+        return jsonify({"error": "Permissions must be a valid capability list."}), 400
+    target_id = ObjectId(user_id)
+    users = database().users
+    target = users.find_one({"_id": target_id})
+    if not target or target.get("role") != "staff":
+        return jsonify({"error": "Permissions can only be assigned to staff users."}), 400
+    canonical = [permission for permission in STAFF_PERMISSIONS if permission in permissions]
+    now = datetime.now(timezone.utc)
+    actor = current_user()
+    users.update_one({"_id": target_id}, {"$set": {"permissions": canonical, "updatedAt": now}})
+    database().permission_change_logs.insert_one({"changedBy": actor["_id"], "user": target_id, "permissions": canonical, "timestamp": now})
+    return jsonify({"user": _user_view(users.find_one({"_id": target_id}))}), 200
+
+
+@admin_bp.patch("/customers/<customer_id>/assignment")
+@requireAdmin
+def assign_customer(customer_id: str):
+    if not ObjectId.is_valid(customer_id):
+        return jsonify({"error": "Invalid customer id."}), 400
+    payload = request.get_json(silent=True) or {}
+    staff_id = payload.get("staffId")
+    users = database().users
+    customer_object_id = ObjectId(customer_id)
+    customer = users.find_one({"_id": customer_object_id, "role": "customer"})
+    if not customer:
+        return jsonify({"error": "Customer not found."}), 404
+    assigned_staff_id = None
+    if staff_id:
+        if not ObjectId.is_valid(str(staff_id)):
+            return jsonify({"error": "Invalid staff id."}), 400
+        assigned_staff_id = ObjectId(str(staff_id))
+        staff = users.find_one({"_id": assigned_staff_id, "role": "staff", "isActive": {"$ne": False}})
+        if not staff:
+            return jsonify({"error": "Choose an active staff member."}), 400
+    now = datetime.now(timezone.utc)
+    actor = current_user()
+    update = {"$set": {"updatedAt": now}}
+    if assigned_staff_id:
+        update["$set"]["assignedStaffId"] = assigned_staff_id
+    else:
+        update["$unset"] = {"assignedStaffId": ""}
+    users.update_one({"_id": customer_object_id}, update)
+    database().customer_assignment_logs.insert_one({"changedBy": actor["_id"], "customer": customer_object_id, "assignedStaffId": assigned_staff_id, "timestamp": now})
+    return jsonify({"user": _user_view(users.find_one({"_id": customer_object_id}))}), 200
 
 
 @admin_bp.patch("/users/<user_id>/status")

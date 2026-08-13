@@ -3,22 +3,23 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
-import { BarChart3, Bell, Boxes, CalendarDays, ChevronRight, FolderKanban, LayoutDashboard, Megaphone, Menu, Package, Search, Settings, ShoppingBag, UserCircle, Users, X } from 'lucide-react';
-import { getCurrentUser, type AuthUser, type Role } from '@/lib/rbac';
+import { BarChart3, Bell, Boxes, CalendarDays, ChevronRight, FileText, FolderKanban, LayoutDashboard, Megaphone, Menu, Package, Search, Settings, ShoppingBag, UserCircle, Users, X } from 'lucide-react';
+import { getCurrentUser, type AuthUser, type Role, type StaffPermission } from '@/lib/rbac';
 import { brandLogoUrl } from '@/lib/home-content';
 import { QuickCreate } from '@/components/admin/quick-create';
 
-function dashboardGroups(role: Role) {
+function dashboardGroups(role: Role, permissions: StaffPermission[] = []) {
   const base = role === 'admin' ? '/admin' : '/staff';
+  const allowed = (permission: StaffPermission) => role === 'admin' || permissions.includes(permission);
   const shared = [
     { label: 'Overview', items: [{ href: base, label: 'Dashboard', icon: LayoutDashboard }] },
-    { label: 'Commerce', items: [{ href: `${base}/products`, label: 'Products', icon: Package }, { href: `${base}/orders`, label: 'Orders', icon: ShoppingBag }, { href: `${base}/inventory`, label: 'Inventory', icon: Boxes }] },
-    { label: 'Relationship', items: [{ href: `${base}/customers`, label: 'Customers', icon: Users }] },
+    { label: 'Commerce', items: [allowed('products:manage') ? { href: `${base}/products`, label: 'Products', icon: Package } : null, allowed('orders:manage') ? { href: `${base}/orders`, label: 'Orders', icon: ShoppingBag } : null, allowed('inventory:manage') ? { href: `${base}/inventory`, label: 'Inventory', icon: Boxes } : null, allowed('quotes:manage') ? { href: `${base}/quotes`, label: 'Quotes', icon: FileText } : null].filter(Boolean) as Array<{ href: string; label: string; icon: typeof Package }> },
+    { label: 'Relationship', items: [allowed('customers:manage') ? { href: `${base}/customers`, label: 'Customers', icon: Users } : null].filter(Boolean) as Array<{ href: string; label: string; icon: typeof Users }> },
   ];
-  if (role === 'staff') return shared;
+  if (role === 'staff') return shared.filter((group) => group.items.length);
   shared[1].items.push({ href: '/admin/collections', label: 'Collections', icon: FolderKanban });
   shared[2].items.push({ href: '/admin/marketing', label: 'Marketing', icon: Megaphone });
-  return [...shared, { label: 'Workspace', items: [{ href: '/admin/reports', label: 'Reports & analytics', icon: BarChart3 }, { href: '/admin/settings', label: 'Settings', icon: Settings }] }];
+  return [...shared, { label: 'Workspace', items: [{ href: '/admin/users', label: 'Staff & access', icon: Users }, { href: '/admin/reports', label: 'Reports & analytics', icon: BarChart3 }, { href: '/admin/settings', label: 'Settings', icon: Settings }] }];
 }
 
 function haptic(duration = 7) {
@@ -30,7 +31,7 @@ export function DashboardShell({ role, title, children }: { role: Role; title: s
   const [mobileOpen, setMobileOpen] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   const pathname = usePathname();
-  const groups = dashboardGroups(role);
+  const groups = dashboardGroups(role, user?.permissions);
 
   useEffect(() => {
     getCurrentUser().then(setUser);

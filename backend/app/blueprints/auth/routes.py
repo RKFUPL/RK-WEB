@@ -6,10 +6,10 @@ import resend
 from bcrypt import checkpw, gensalt, hashpw
 from bson import ObjectId
 from flask import Blueprint, current_app, jsonify, request
-from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_required, unset_jwt_cookies
+from flask_jwt_extended import create_access_token, get_jwt, get_jwt_identity, jwt_required, unset_jwt_cookies
 
 from ...extensions import limiter, mongo
-from ...rbac import requireAuth
+from ...rbac import effective_permissions, requireAuth
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -40,7 +40,7 @@ def _valid_password(password: object) -> bool:
     return isinstance(password, str) and len(password) >= 8
 
 
-def _send_otp_email(email: str, otp: str) -> None:
+def _send_otp_email(email: str, otp: str, purpose: str = "verification") -> None:
     api_key = current_app.config["RESEND_API_KEY"]
     if not api_key:
         raise RuntimeError("RESEND_API_KEY is not configured")
@@ -50,8 +50,8 @@ def _send_otp_email(email: str, otp: str) -> None:
         {
             "from": f'{current_app.config["EMAIL_FROM_NAME"]} <{current_app.config["EMAIL_FROM"]}>',
             "to": [email],
-            "subject": "Your Rashi Kapoor login code",
-            "html": f"<p>Your one-time login code is <strong>{otp}</strong>.</p><p>This code expires in 10 minutes.</p>",
+            "subject": f"Your Rashi Kapoor {purpose} code",
+            "html": f"<p>Your one-time verification code is <strong>{otp}</strong>.</p><p>This code expires in 10 minutes.</p>",
         }
     )
 
@@ -68,6 +68,7 @@ def _public_user(user: dict) -> dict:
         "phone": user.get("phone"),
         "gender": user.get("gender"),
         "role": user.get("role", "customer"),
+        "permissions": effective_permissions(user),
         "isActive": user.get("isActive", True),
         "emailVerified": user.get("emailVerified", False),
         "profileImage": user.get("profileImage"),
@@ -103,6 +104,17 @@ def _is_expired(value: object, now: datetime) -> bool:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value < now
+
+
+def _valid_dob(value: object) -> str | None:
+    try:
+        dob = datetime.strptime(str(value or ""), "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    today = datetime.now(timezone.utc).date()
+    if dob >= today or dob.year < today.year - 120:
+        return None
+    return dob.isoformat()
 
 
 @auth_bp.post("/request-otp")
@@ -153,12 +165,20 @@ def signup_request_otp():
     payload = request.get_json(silent=True) or {}
     email = _normalise_email(payload.get("email"))
     username = _normalise_username(payload.get("username"))
-    display_name = str(payload.get("displayName") or "").strip()
+    first_name = str(payload.get("firstName") or "").strip()
+    last_name = str(payload.get("lastName") or "").strip()
+    display_name = " ".join(filter(None, (first_name, last_name))) or str(payload.get("displayName") or "").strip()
+    if not first_name and display_name:
+        first_name, last_name = _split_name(display_name)
     phone = str(payload.get("phone") or "").strip()
     region = str(payload.get("region") or "").strip().lower()
+    dob = _valid_dob(payload.get("dob"))
+    gender = str(payload.get("gender") or "").strip().lower()
     password = payload.get("password")
-    if not email or "@" not in email or not username or not display_name or not phone or not re.fullmatch(r"\+?[0-9\s().-]{7,20}", phone) or region not in {"asia-india", "us", "europe", "anywhere-else"} or not _valid_password(password):
-        return jsonify({"error": "Full name, username, valid email, phone number, region, and an 8-character password are required."}), 400
+    if not email or "@" not in email or not username or not first_name or not last_name or not phone or not re.fullmatch(r"\+?[0-9\s().-]{7,20}", phone) or not dob or gender not in {"male", "female", "prefer-not-to-say"} or region not in {"asia-india", "us", "europe", "anywhere-else"} or not _valid_password(password):
+        return jsonify({"error": "First name, last name, username, valid email, phone number, date of birth, gender, region, and an 8-character password are required."}), 400
+    if not re.fullmatch(r"[a-zA-Z0-9_.-]{3,30}", username):
+        return jsonify({"error": "Username must be 3-30 characters and use letters, numbers, dots, dashes, or underscores."}), 400
 
     users = _database().users
     email_exists = users.find_one({"email": email})
@@ -180,7 +200,11 @@ def signup_request_otp():
             "purpose": "signup",
             "username": username,
             "displayName": display_name,
+            "firstName": first_name,
+            "lastName": last_name,
             "phone": phone,
+            "dob": dob,
+            "gender": gender,
             "region": region,
             "currency": _currency_for_region(region),
             "passwordHash": _password_hash(password),
@@ -215,7 +239,8 @@ def signup_verify_otp():
     if not checkpw(otp.encode(), challenge["otpHash"].encode()):
         return jsonify({"error": "The signup code is invalid or expired."}), 400
 
-    first_name, last_name = _split_name(challenge["displayName"])
+    first_name = challenge.get("firstName") or _split_name(challenge["displayName"])[0]
+    last_name = challenge.get("lastName") or _split_name(challenge["displayName"])[1]
     user_id = _database().users.insert_one({
         "email": challenge["email"],
         "username": challenge["username"],
@@ -223,6 +248,8 @@ def signup_verify_otp():
         "firstName": first_name,
         "lastName": last_name,
         "phone": challenge.get("phone"),
+        "dob": challenge.get("dob"),
+        "gender": challenge.get("gender"),
         "region": challenge.get("region", "asia-india"),
         "currency": challenge.get("currency", _currency_for_region(challenge.get("region", "asia-india"))),
         "passwordHash": challenge["passwordHash"],
@@ -289,8 +316,9 @@ def forgot_password_reset():
     user = _database().users.find_one(_identifier_query(identifier))
     challenge = _database().otp_challenges.find_one({"userId": user["_id"], "purpose": "forgot-password"}) if user else None
     now = datetime.now(timezone.utc)
-    if not user or not challenge or not _valid_password(password) or len(otp) != 6 or _is_expired(challenge.get("otpExpiresAt"), now):
+    if not user or not challenge or not _valid_password(password) or len(otp) != 6 or _is_expired(challenge.get("otpExpiresAt"), now) or challenge.get("otpAttempts", 0) >= 5:
         return jsonify({"error": "The recovery code is invalid or expired."}), 400
+    _database().otp_challenges.update_one({"_id": challenge["_id"]}, {"$inc": {"otpAttempts": 1}})
     if not checkpw(otp.encode(), challenge["otpHash"].encode()):
         return jsonify({"error": "The recovery code is invalid or expired."}), 400
     _database().users.update_one({"_id": user["_id"]}, {"$set": {"passwordHash": _password_hash(password), "updatedAt": now}})
@@ -415,6 +443,73 @@ def update_profile():
     return jsonify({"user": _public_user(user)}), 200
 
 
+@auth_bp.post("/profile/password/request")
+@limiter.limit("5 per 15 minutes")
+@requireAuth
+def request_password_change():
+    payload = request.get_json(silent=True) or {}
+    password = payload.get("password")
+    confirmation = payload.get("confirmPassword")
+    if password != confirmation or not _valid_password(password):
+        return jsonify({"error": "Passwords must match and contain at least 8 characters."}), 400
+
+    user_id = ObjectId(get_jwt_identity())
+    user = _database().users.find_one({"_id": user_id})
+    if not user or not user.get("email"):
+        return jsonify({"error": "We could not start password verification. Please try again."}), 400
+
+    now = datetime.now(timezone.utc)
+    otp = f"{secrets.randbelow(1_000_000):06d}"
+    _database().otp_challenges.replace_one(
+        {"userId": user_id, "purpose": "password-change"},
+        {
+            "userId": user_id,
+            "purpose": "password-change",
+            "otpHash": hashpw(otp.encode(), gensalt()).decode(),
+            "otpExpiresAt": now + timedelta(minutes=10),
+            "otpAttempts": 0,
+            "createdAt": now,
+        },
+        upsert=True,
+    )
+    try:
+        _send_otp_email(user["email"], otp, "password verification")
+    except Exception:
+        current_app.logger.exception("Unable to send password-change OTP")
+        _database().otp_challenges.delete_one({"userId": user_id, "purpose": "password-change"})
+        return jsonify({"error": "We could not send the verification code. Please try again."}), 502
+    return jsonify({"message": "A verification code has been sent to your registered email."}), 202
+
+
+@auth_bp.post("/profile/password/verify")
+@limiter.limit("10 per 15 minutes")
+@requireAuth
+def verify_password_change():
+    user_id = ObjectId(get_jwt_identity())
+    payload = request.get_json(silent=True) or {}
+    otp = str(payload.get("otp") or "").strip()
+    password = payload.get("password")
+    confirmation = payload.get("confirmPassword")
+    challenges = _database().otp_challenges
+    challenge = challenges.find_one({"userId": user_id, "purpose": "password-change"})
+    now = datetime.now(timezone.utc)
+    if password != confirmation or not _valid_password(password):
+        return jsonify({"error": "Passwords must match and contain at least 8 characters."}), 400
+    if not challenge or len(otp) != 6 or _is_expired(challenge.get("otpExpiresAt"), now) or challenge.get("otpAttempts", 0) >= 5:
+        return jsonify({"error": "The verification code is invalid or expired."}), 400
+    challenges.update_one({"_id": challenge["_id"]}, {"$inc": {"otpAttempts": 1}})
+    if not checkpw(otp.encode(), challenge["otpHash"].encode()):
+        return jsonify({"error": "The verification code is invalid or expired."}), 400
+
+    _database().users.update_one(
+        {"_id": user_id},
+        {"$set": {"passwordHash": _password_hash(password), "updatedAt": now}},
+    )
+    challenges.delete_one({"_id": challenge["_id"]})
+    _database().profile_update_logs.insert_one({"user": user_id, "changedFields": ["passwordHash"], "timestamp": now})
+    return jsonify({"message": "Your password has been changed."}), 200
+
+
 def _address_view(address: dict) -> dict:
     fields = ("label", "fullName", "phone", "line1", "line2", "city", "state", "postalCode", "country", "isDefault")
     return {"id": str(address["_id"]), **{key: address.get(key, "") for key in fields}}
@@ -515,7 +610,16 @@ def delete_profile():
 
 
 @auth_bp.post("/logout")
+@jwt_required()
 def logout():
+    token = get_jwt()
+    expires_at = datetime.fromtimestamp(token["exp"], timezone.utc)
+    _database().revoked_tokens.create_index("expiresAt", expireAfterSeconds=0)
+    _database().revoked_tokens.update_one(
+        {"jti": token["jti"]},
+        {"$set": {"jti": token["jti"], "userId": ObjectId(get_jwt_identity()), "expiresAt": expires_at, "revokedAt": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
     response = jsonify({"message": "Logged out."})
     unset_jwt_cookies(response)
     return response, 200

@@ -15,7 +15,7 @@ const actions: Action[] = [
   { kind: 'campaign', label: 'New campaign', description: 'Create a marketing campaign', icon: Megaphone },
 ];
 
-const eligiblePaths = new Set(['/admin/products', '/admin/orders', '/admin/inventory', '/admin/collections', '/admin/customers', '/admin/marketing']);
+const eligiblePaths = new Set(['/admin/collections', '/admin/marketing']);
 const emptyForms: Record<Kind, Record<string, string>> = {
   product: { name: '', sku: '', price: '', stock: '', status: 'draft' },
   order: { orderNumber: '', customerName: '', email: '', total: '', status: 'pending' },
