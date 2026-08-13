@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 
-export const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://rkfupl.onrender.com';
+export const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://physihome.shop';
 
 export function pageMetadata(
   title: string,

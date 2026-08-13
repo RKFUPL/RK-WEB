@@ -6,10 +6,12 @@ services:
     buildCommand: npm ci && npm run build
     startCommand: npm run start -- -p $PORT
     healthCheckPath: /
-    autoDeploy: true
+    autoDeployTrigger: commit
     envVars:
       - key: NEXT_PUBLIC_SITE_URL
-        value: https://rkfupl.onrender.com
+        value: https://physihome.shop
+      - key: NEXT_PUBLIC_API_URL
+        value: https://api.physihome.shop
       - key: BACKEND_INTERNAL_URL
         fromService:
           type: web
@@ -23,4 +25,7 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT
     healthCheckPath: /api/health
-    autoDeploy: true
+    autoDeployTrigger: commit
+    envVars:
+      - key: FRONTEND_URL
+        value: https://physihome.shop

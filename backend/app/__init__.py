@@ -27,13 +27,25 @@ def create_app() -> Flask:
     app.config.from_object(get_config())
 
     frontend_url = app.config.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
-    allowed_origins = {"http://localhost:3000"}
-    if frontend_url and not frontend_url.startswith("http://localhost:"):
+    # Keep the production allowlist explicit because authentication uses
+    # credentials. Local origins remain available for development.
+    allowed_origins = {
+        "https://physihome.shop",
+        "https://www.physihome.shop",
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5000",
+    }
+    if frontend_url:
         allowed_origins.add(frontend_url)
     cors.init_app(
         app,
         resources={r"/api/*": {"origins": list(allowed_origins)}},
         supports_credentials=True,
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization"],
+        automatic_options=True,
     )
     jwt.init_app(app)
     # Treat malformed, expired, or differently-signed browser tokens as an
