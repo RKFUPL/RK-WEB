@@ -1,0 +1,1 @@
+"""Public catalogue blueprint."""

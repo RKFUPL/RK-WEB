@@ -175,7 +175,7 @@ def quick_create(kind: str):
         stock = _integer(payload.get("stock"), -1)
         if price < 0 or stock < 0 or status not in {"draft", "active", "archived"}:
             return jsonify({"error": "Price and stock must be zero or greater."}), 400
-        document = {**common, "name": name, "sku": sku, "price": price, "stock": stock, "lowStockThreshold": _integer(payload.get("lowStockThreshold"), _settings(db)["lowStockThreshold"]), "status": status, "currency": "INR", "isActive": True}
+        document = {**common, "name": name, "sku": sku, "price": price, "stock": stock, "lowStockThreshold": _integer(payload.get("lowStockThreshold"), _settings(db)["lowStockThreshold"]), "status": status, "availability": "sold_out" if stock == 0 else "in_stock", "currency": "INR", "category": "", "description": "", "media": [], "attributes": {}, "isActive": True}
         result = db.products.insert_one(document)
         resource = "products"
     elif kind == "order":

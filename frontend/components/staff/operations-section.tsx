@@ -10,14 +10,14 @@ const permissions: Record<Section, StaffPermission> = {
   products: 'products:manage', inventory: 'inventory:manage', quotes: 'quotes:manage', orders: 'orders:manage', customers: 'customers:manage',
 };
 const columns: Record<Section, Array<[string, string]>> = {
-  products: [['name', 'Product'], ['sku', 'SKU'], ['price', 'Price'], ['stock', 'Stock'], ['status', 'Status']],
-  inventory: [['name', 'Product'], ['sku', 'SKU'], ['stock', 'Available'], ['status', 'Status']],
+  products: [['name', 'Product'], ['sku', 'SKU'], ['price', 'Price'], ['stock', 'Stock'], ['availability', 'Availability']],
+  inventory: [['name', 'Product'], ['sku', 'SKU'], ['stock', 'Available'], ['availability', 'Availability']],
   quotes: [['quoteNumber', 'Quote'], ['customerName', 'Customer'], ['email', 'Email'], ['total', 'Total'], ['status', 'Status']],
   orders: [['orderNumber', 'Order'], ['customerName', 'Customer'], ['email', 'Email'], ['total', 'Total'], ['status', 'Status']],
   customers: [['displayName', 'Customer'], ['email', 'Email'], ['phone', 'Phone'], ['assignedStaffId', 'Assignment']],
 };
 const emptyForms: Record<Exclude<Section, 'inventory'>, Record<string, string>> = {
-  products: { name: '', sku: '', price: '', stock: '0', status: 'draft', description: '' },
+  products: { name: '', sku: '', price: '', stock: '0', status: 'draft', availability: 'in_stock', description: '' },
   quotes: { quoteNumber: '', customerName: '', email: '', total: '', status: 'draft', notes: '' },
   orders: { orderNumber: '', customerName: '', email: '', total: '', status: 'pending' },
   customers: { displayName: '', email: '', phone: '' },
@@ -28,13 +28,14 @@ const inputClass = 'w-full rounded-lg border border-black/10 bg-white px-3 py-2.
 function formatValue(key: string, value: unknown) {
   if (key === 'price' || key === 'total') return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(value ?? 0));
   if (key === 'assignedStaffId') return value ? 'Assigned to you' : 'Unassigned';
+  if (key === 'availability') return ({ in_stock: 'In Stock', custom_order: 'Custom Order', sold_out: 'Sold Out' } as Record<string, string>)[String(value)] ?? '—';
   return value === null || value === undefined || value === '' ? '—' : String(value);
 }
 
 function CreateForm({ section, initial, busy, onCancel, onSave }: { section: Exclude<Section, 'inventory'>; initial: Record<string, string>; busy: boolean; onCancel: () => void; onSave: (form: Record<string, string>) => Promise<void> }) {
   const [form, setForm] = useState(initial);
   const field = (name: string, label: string, type = 'text') => <label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">{label}<input required={name !== 'orderNumber' && name !== 'quoteNumber' && name !== 'description' && name !== 'notes'} type={type} min={type === 'number' ? 0 : undefined} value={form[name] ?? ''} onChange={(event) => setForm((current) => ({ ...current, [name]: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal text-[#20242b] dark:text-white`} /></label>;
-  return <form onSubmit={(event: FormEvent) => { event.preventDefault(); void onSave(form); }} className="mt-6 rounded-xl border border-[#9a7a4d]/20 bg-[#faf8f4] p-5 dark:bg-white/[.03]"><div className="grid gap-4 md:grid-cols-2">{section === 'products' ? <>{field('name', 'Product name')}{field('sku', 'SKU')}{field('price', 'Price', 'number')}{field('stock', 'Opening stock', 'number')}{field('description', 'Description')}<label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Status<select value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`}><option value="draft">Draft</option><option value="active">Active</option><option value="archived">Archived</option></select></label></> : section === 'customers' ? <>{field('displayName', 'Full name')}{field('email', 'Email', 'email')}{field('phone', 'Phone number')}</> : <>{field(section === 'quotes' ? 'quoteNumber' : 'orderNumber', `${section === 'quotes' ? 'Quote' : 'Order'} number · optional`)}{field('customerName', 'Customer name')}{field('email', 'Customer email', 'email')}{field('total', 'Total', 'number')}{section === 'quotes' ? field('notes', 'Notes') : null}</>}</div><div className="mt-5 flex justify-end gap-3"><button type="button" onClick={onCancel} className="rounded-lg border border-black/10 px-4 py-2 text-xs">Cancel</button><button disabled={busy} className="rounded-lg bg-[#24211e] px-4 py-2 text-xs text-white disabled:opacity-40">{busy ? 'Saving…' : `Save ${section.slice(0, -1)}`}</button></div></form>;
+  return <form onSubmit={(event: FormEvent) => { event.preventDefault(); void onSave(form); }} className="mt-6 rounded-xl border border-[#9a7a4d]/20 bg-[#faf8f4] p-5 dark:bg-white/[.03]"><div className="grid gap-4 md:grid-cols-2">{section === 'products' ? <>{field('name', 'Product name')}{field('sku', 'SKU')}{field('price', 'Price', 'number')}{field('stock', 'Opening stock', 'number')}{field('description', 'Description')}<label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Workflow status<select value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`}><option value="draft">Draft</option><option value="active">Active</option><option value="archived">Archived</option></select></label><label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Availability<select value={form.availability} onChange={(event) => setForm((current) => ({ ...current, availability: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`}><option value="in_stock">In Stock</option><option value="custom_order">Custom Order</option><option value="sold_out">Sold Out</option></select></label></> : section === 'customers' ? <>{field('displayName', 'Full name')}{field('email', 'Email', 'email')}{field('phone', 'Phone number')}</> : <>{field(section === 'quotes' ? 'quoteNumber' : 'orderNumber', `${section === 'quotes' ? 'Quote' : 'Order'} number · optional`)}{field('customerName', 'Customer name')}{field('email', 'Customer email', 'email')}{field('total', 'Total', 'number')}{section === 'quotes' ? field('notes', 'Notes') : null}</>}</div><div className="mt-5 flex justify-end gap-3"><button type="button" onClick={onCancel} className="rounded-lg border border-black/10 px-4 py-2 text-xs">Cancel</button><button disabled={busy} className="rounded-lg bg-[#24211e] px-4 py-2 text-xs text-white disabled:opacity-40">{busy ? 'Saving…' : `Save ${section.slice(0, -1)}`}</button></div></form>;
 }
 
 export function OperationsSection({ section: rawSection }: { section: string }) {
@@ -125,7 +126,7 @@ export function OperationsSection({ section: rawSection }: { section: string }) 
   };
 
   const title = section.replaceAll('-', ' ');
-  const editableFields = useMemo(() => section === 'products' ? ['name', 'sku', 'price', 'status', 'description'] : section === 'customers' ? ['displayName', 'email', 'phone'] : section === 'orders' ? ['customerName', 'email', 'total'] : section === 'quotes' ? ['customerName', 'email', 'total', 'notes'] : [], [section]);
+  const editableFields = useMemo(() => section === 'products' ? ['name', 'sku', 'price', 'status', 'availability', 'description'] : section === 'customers' ? ['displayName', 'email', 'phone'] : section === 'orders' ? ['customerName', 'email', 'total'] : section === 'quotes' ? ['customerName', 'email', 'total', 'notes'] : [], [section]);
   const beginEdit = (item: Item) => { setEditing(item.id); setEditForm(Object.fromEntries(editableFields.map((key) => [key, String(item[key] ?? '')]))); };
 
   if (loading) return <p className="mt-10 text-sm text-[#858b94]">Loading secure workspace…</p>;

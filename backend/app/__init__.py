@@ -17,6 +17,7 @@ from .blueprints.auth.routes import auth_bp
 from .blueprints.health.routes import health_bp
 from .blueprints.admin.routes import admin_bp
 from .blueprints.analytics.routes import analytics_bp, storefront_activity_bp
+from .blueprints.catalog.routes import catalog_bp
 from .blueprints.staff.routes import staff_bp
 from .config import get_config
 from .extensions import cors, jwt, limiter, mail, mongo
@@ -78,6 +79,7 @@ def create_app() -> Flask:
     # A neutral first-party URL avoids privacy filters that block paths named
     # `analytics`, which can otherwise make incognito visits vanish silently.
     app.register_blueprint(storefront_activity_bp, url_prefix="/api/storefront")
+    app.register_blueprint(catalog_bp, url_prefix="/api/catalog")
     app.register_blueprint(staff_bp, url_prefix="/api/staff")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
 

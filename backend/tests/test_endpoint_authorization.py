@@ -48,6 +48,12 @@ class EndpointAuthorizationTests(unittest.TestCase):
             response = self.client.get("/api/staff/resources/orders", headers=self.headers)
         self.assertEqual(response.status_code, 403)
 
+    def test_staff_without_product_or_inventory_capability_cannot_list_collections(self):
+        staff = {"_id": ObjectId(), "role": "staff", "isActive": True, "permissions": []}
+        with patch("app.rbac.current_user", return_value=staff), patch("app.blueprints.staff.routes.current_user", return_value=staff):
+            response = self.client.get("/api/staff/collections", headers=self.headers)
+        self.assertEqual(response.status_code, 403)
+
     def test_customer_cannot_call_admin_endpoint(self):
         customer = {"_id": "customer", "role": "customer", "isActive": True}
         with patch("app.rbac.current_user", return_value=customer):

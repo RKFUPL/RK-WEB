@@ -1,7 +1,13 @@
+'use client';
+
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Footer } from '@/components/home/footer';
 import { StickyHeader } from '@/components/home/sticky-header';
+import { StorefrontCollectionProducts } from '@/components/collections/storefront-collection-products';
 import type { CollectionPage } from '@/lib/home-content';
+import { apiBaseUrl } from '@/lib/rbac';
+import type { ManagedCollection } from '@/lib/catalog';
 
 type CollectionDetailPageProps = {
   collection: CollectionPage;
@@ -35,6 +41,17 @@ const collectionEditorial: Record<string, { summary: string; next: string }> = {
 };
 
 export function CollectionDetailPage({ collection }: CollectionDetailPageProps) {
+  const [managedCollection, setManagedCollection] = useState<ManagedCollection | null>(null);
+  const slug = collection.route.replace('/collections/', '');
+  useEffect(() => {
+    if (collection.name === 'Aakaar') return;
+    let active = true;
+    fetch(`${apiBaseUrl}/api/catalog/collections/${encodeURIComponent(slug)}`, { cache: 'no-store' })
+      .then(async (response) => response.ok ? response.json() : null)
+      .then((payload) => { if (active && payload?.collection) setManagedCollection(payload.collection); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [collection.name, slug]);
   const editorial = collectionEditorial[collection.name] ?? {
     summary: collection.summary,
     next: `Explore more of ${collection.name} through future campaign stories and editorial details from the house.`,
@@ -42,6 +59,10 @@ export function CollectionDetailPage({ collection }: CollectionDetailPageProps) 
   const collectionFontFace = collection.fontUrl
     ? `@font-face { font-family: "${collection.fontFamily}"; src: url("${collection.fontUrl}"); font-display: swap; }`
     : '';
+  const displayName = managedCollection?.name || collection.name;
+  const displayStatus = managedCollection?.status === 'collection' ? 'Collection' : managedCollection?.status || collection.status;
+  const displaySummary = managedCollection?.description || collection.summary;
+  const displayImage = managedCollection?.heroImage || collection.image;
 
   return (
     <main className="bg-ivory text-charcoal">
@@ -51,15 +72,15 @@ export function CollectionDetailPage({ collection }: CollectionDetailPageProps) 
       <section className="mx-auto max-w-7xl px-6 pb-16 pt-28 lg:px-10 lg:pb-24 lg:pt-32">
         <div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-start lg:gap-16">
           <div className="space-y-6 lg:sticky lg:top-32 lg:self-start">
-            <p className="text-xs uppercase tracking-[0.38em] text-charcoal/45">{collection.status}</p>
+            <p className="text-xs uppercase tracking-[0.38em] text-charcoal/45">{displayStatus}</p>
             <h1
               className="max-w-xl text-[clamp(3.2rem,8vw,6.6rem)] leading-[0.9] tracking-[0.05em]"
               style={{ fontFamily: `${collection.fontFamily}, var(--font-display), serif` }}
             >
-              {collection.name}
+              {displayName}
             </h1>
             <p className="max-w-xl text-base leading-8 text-charcoal/70 md:text-lg">
-              {collection.summary}
+              {displaySummary}
             </p>
             <div className="flex flex-wrap gap-3 text-[0.68rem] uppercase tracking-[0.28em] text-charcoal/50">
               <span className="rounded-full border border-black/10 px-4 py-2">Editorial Preview</span>
@@ -70,8 +91,8 @@ export function CollectionDetailPage({ collection }: CollectionDetailPageProps) 
           <div className="space-y-6">
             <div className="overflow-hidden border border-black/10 bg-white">
               <img
-                src={collection.image}
-                alt={collection.name}
+                src={displayImage}
+                alt={displayName}
                 className="h-full w-full object-cover"
               />
             </div>
@@ -102,6 +123,8 @@ export function CollectionDetailPage({ collection }: CollectionDetailPageProps) 
           </div>
         </div>
       </section>
+
+      {collection.name !== 'Aakaar' ? <StorefrontCollectionProducts slug={slug} fallbackName={displayName} /> : null}
 
       <Footer />
     </main>

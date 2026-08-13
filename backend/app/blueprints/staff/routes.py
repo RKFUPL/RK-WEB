@@ -5,6 +5,18 @@ import secrets
 from bson import ObjectId
 from flask import Blueprint, jsonify, request
 
+from ...catalog import (
+    PRODUCT_AVAILABILITY,
+    add_product_reference,
+    collection_document,
+    collection_view,
+    ensure_catalog_seed,
+    managed_collections,
+    product_collection_ids,
+    product_view,
+    remove_product_reference,
+    update_product_order,
+)
 from ...rbac import current_user, database, effective_permissions, requireStaff
 
 staff_bp = Blueprint("staff", __name__)
@@ -72,6 +84,13 @@ def _permission_error(resource: str):
     return None
 
 
+def _collection_permission_error(*required: str):
+    permissions = set(effective_permissions(current_user()))
+    if not permissions.intersection(required):
+        return jsonify({"error": "You do not have permission to manage collections."}), 403
+    return None
+
+
 def _valid_id(value: str):
     return ObjectId(value) if ObjectId.is_valid(value) else None
 
@@ -84,6 +103,135 @@ def _customer_scope(user: dict) -> dict:
 
 def _customer_access(customer_id: ObjectId, user: dict) -> dict:
     return {"_id": customer_id, **_customer_scope(user)}
+
+
+def _management_collection_payload(db, collection: dict) -> dict:
+    detail = collection_view(db, collection)
+    assigned_ids = {product["id"] for product in detail["products"]}
+    all_products = list(db.products.find({}).sort("createdAt", -1).limit(200))
+    available_products = [product_view(product) for product in all_products if str(product["_id"]) not in assigned_ids]
+    for product in detail["products"]:
+        product["collectionIds"] = product_collection_ids(db, ObjectId(product["id"]))
+    return {
+        "collection": detail,
+        "availableProducts": available_products,
+        "allCollections": [collection_view(db, item, include_products=False) for item in managed_collections(db)],
+        "permissions": effective_permissions(current_user()),
+    }
+
+
+@staff_bp.get("/collections")
+@requireStaff
+def list_collections():
+    denied = _collection_permission_error("products:manage", "inventory:manage")
+    if denied:
+        return denied
+    db = database()
+    return jsonify({
+        "collections": [collection_view(db, collection, include_products=False) for collection in managed_collections(db)],
+        "permissions": effective_permissions(current_user()),
+    }), 200
+
+
+@staff_bp.get("/collections/<slug>")
+@requireStaff
+def get_collection(slug: str):
+    denied = _collection_permission_error("products:manage", "inventory:manage")
+    if denied:
+        return denied
+    db = database()
+    ensure_catalog_seed(db)
+    collection = collection_document(db, slug)
+    if not collection:
+        return jsonify({"error": "Collection not found."}), 404
+    return jsonify(_management_collection_payload(db, collection)), 200
+
+
+@staff_bp.patch("/collections/<slug>")
+@requireStaff
+def update_collection(slug: str):
+    denied = _collection_permission_error("products:manage")
+    if denied:
+        return denied
+    db = database()
+    ensure_catalog_seed(db)
+    collection = collection_document(db, slug)
+    if not collection:
+        return jsonify({"error": "Collection not found."}), 404
+    payload = request.get_json(silent=True) or {}
+    updates = {"updatedAt": datetime.now(timezone.utc), "updatedBy": current_user()["_id"]}
+    if "name" in payload:
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "Collection name is required."}), 400
+        updates["name"] = name
+    if "status" in payload:
+        status = str(payload.get("status") or "").strip().lower()
+        if status not in {"collection", "draft", "active", "archived"}:
+            return jsonify({"error": "Choose a valid collection status."}), 400
+        updates["status"] = status
+    for key in ("description", "heroImage"):
+        if key in payload:
+            value = str(payload.get(key) or "").strip()
+            if key == "heroImage" and value and not value.startswith(("https://", "/")):
+                return jsonify({"error": "Hero image must be an HTTPS or local URL."}), 400
+            updates[key] = value
+    db.collections.update_one({"_id": collection["_id"]}, {"$set": updates})
+    return jsonify(_management_collection_payload(db, db.collections.find_one({"_id": collection["_id"]}))), 200
+
+
+@staff_bp.post("/collections/<slug>/products")
+@requireStaff
+def assign_collection_product(slug: str):
+    denied = _collection_permission_error("products:manage")
+    if denied:
+        return denied
+    db = database()
+    ensure_catalog_seed(db)
+    collection = collection_document(db, slug)
+    product_id = _valid_id(str((request.get_json(silent=True) or {}).get("productId") or ""))
+    if not collection:
+        return jsonify({"error": "Collection not found."}), 404
+    if not product_id or not db.products.find_one({"_id": product_id}):
+        return jsonify({"error": "Product not found."}), 404
+    add_product_reference(db, collection, product_id)
+    return jsonify(_management_collection_payload(db, db.collections.find_one({"_id": collection["_id"]}))), 200
+
+
+@staff_bp.delete("/collections/<slug>/products/<product_id>")
+@requireStaff
+def unassign_collection_product(slug: str, product_id: str):
+    denied = _collection_permission_error("products:manage")
+    if denied:
+        return denied
+    db = database()
+    collection = collection_document(db, slug)
+    object_id = _valid_id(product_id)
+    if not collection:
+        return jsonify({"error": "Collection not found."}), 404
+    if not object_id:
+        return jsonify({"error": "Invalid product id."}), 400
+    remove_product_reference(db, collection, object_id)
+    return jsonify(_management_collection_payload(db, db.collections.find_one({"_id": collection["_id"]}))), 200
+
+
+@staff_bp.patch("/collections/<slug>/products/<product_id>")
+@requireStaff
+def reorder_collection_product(slug: str, product_id: str):
+    denied = _collection_permission_error("products:manage")
+    if denied:
+        return denied
+    db = database()
+    collection = collection_document(db, slug)
+    object_id = _valid_id(product_id)
+    display_order = _integer((request.get_json(silent=True) or {}).get("displayOrder"), -1)
+    if not collection:
+        return jsonify({"error": "Collection not found."}), 404
+    if not object_id or display_order < 0:
+        return jsonify({"error": "A valid product and non-negative display order are required."}), 400
+    if not update_product_order(db, collection, object_id, display_order):
+        return jsonify({"error": "Product is not assigned to this collection."}), 404
+    return jsonify(_management_collection_payload(db, db.collections.find_one({"_id": collection["_id"]}))), 200
 
 
 @staff_bp.get("/dashboard")
@@ -142,11 +290,16 @@ def create_resource(resource: str):
         price = _number(payload.get("price"))
         stock = _integer(payload.get("stock"), 0)
         status = str(payload.get("status") or "draft").lower()
+        availability = str(payload.get("availability") or ("sold_out" if stock == 0 else "in_stock")).lower()
         if not name or not sku or price < 0 or stock < 0 or status not in PRODUCT_STATUSES:
             return jsonify({"error": "Product name, unique SKU, non-negative price and stock, and a valid status are required."}), 400
+        if availability not in PRODUCT_AVAILABILITY:
+            return jsonify({"error": "Choose In Stock, Custom Order, or Sold Out availability."}), 400
         if db.products.find_one({"sku": sku}):
             return jsonify({"error": "That SKU already exists."}), 409
-        document = {**common, "name": name, "sku": sku, "price": price, "stock": stock, "status": status, "currency": "INR", "description": str(payload.get("description") or "").strip(), "media": [], "attributes": {}, "isActive": status != "archived"}
+        media = payload.get("media") if isinstance(payload.get("media"), list) else []
+        attributes = payload.get("attributes") if isinstance(payload.get("attributes"), dict) else {}
+        document = {**common, "name": name, "sku": sku, "price": price, "stock": stock, "status": status, "availability": availability, "currency": "INR", "category": str(payload.get("category") or "").strip(), "description": str(payload.get("description") or "").strip(), "media": media[:12], "attributes": attributes, "isActive": status != "archived"}
         collection = db.products
     elif resource == "orders":
         customer_name = str(payload.get("customerName") or "").strip()
@@ -231,6 +384,13 @@ def update_resource(resource: str, resource_id: str):
             if status not in PRODUCT_STATUSES:
                 return jsonify({"error": "Invalid product status."}), 400
             updates.update({"status": status, "isActive": status != "archived"})
+        if "availability" in payload:
+            availability = str(payload.get("availability") or "").lower()
+            if availability not in PRODUCT_AVAILABILITY:
+                return jsonify({"error": "Choose In Stock, Custom Order, or Sold Out availability."}), 400
+            updates["availability"] = availability
+        if "category" in payload:
+            updates["category"] = str(payload.get("category") or "").strip()
         if "media" in payload:
             media = payload.get("media")
             if not isinstance(media, list) or len(media) > 12 or any(not isinstance(item, str) or len(item) > 2048 for item in media):
