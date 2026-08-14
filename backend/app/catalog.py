@@ -12,6 +12,8 @@ from pymongo.errors import OperationFailure
 
 EXCLUDED_COLLECTION_SLUGS = {"aakaar", "aakaar-insights", "collections-of-aakaar"}
 PRODUCT_AVAILABILITY = {"in_stock", "custom_order", "sold_out"}
+COLLECTION_HERO_TYPES = {"image", "video"}
+COLLECTION_HERO_LAYOUTS = {"full_bleed", "editorial_split", "media_dominant"}
 FX_BUFFER_PERCENT = 5
 
 NORMAL_COLLECTIONS = (
@@ -20,6 +22,7 @@ NORMAL_COLLECTIONS = (
         "slug": "collections-of-anamika",
         "description": "A refined story shaped by movement, texture, and modern occasion dressing.",
         "heroImage": "https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305156/Rashi_Kapoor3092_stukqt.jpg",
+        "heroLayout": "full_bleed",
         "dummyPrice": 120000,
         "dummyStock": 5,
         "dummyAvailability": "in_stock",
@@ -29,6 +32,7 @@ NORMAL_COLLECTIONS = (
         "slug": "collections-of-hasthkala",
         "description": "Craft-led silhouettes with a more artisanal, hand-finished mood.",
         "heroImage": "https://res.cloudinary.com/fm1bwbrd/image/upload/v1785304857/Hasthkalare_hhljut.jpg",
+        "heroLayout": "editorial_split",
         "dummyPrice": 95000,
         "dummyStock": 0,
         "dummyAvailability": "sold_out",
@@ -38,6 +42,7 @@ NORMAL_COLLECTIONS = (
         "slug": "collections-of-inaara",
         "description": "A luminous edit with fluid lines and softer, celebratory energy.",
         "heroImage": "https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305219/RASHI_KAPOOR_-_27-3-240879_xr10ue.jpg",
+        "heroLayout": "media_dominant",
         "dummyPrice": 150000,
         "dummyStock": 0,
         "dummyAvailability": "custom_order",
@@ -47,6 +52,7 @@ NORMAL_COLLECTIONS = (
         "slug": "collections-of-naqab",
         "description": "A dramatic chapter built around veiled layers and evening presence.",
         "heroImage": "https://res.cloudinary.com/fm1bwbrd/image/upload/v1785304902/Naqab_2_re_qdu1xs.jpg",
+        "heroLayout": "full_bleed",
         "dummyPrice": 110000,
         "dummyStock": 3,
         "dummyAvailability": "in_stock",
@@ -56,6 +62,7 @@ NORMAL_COLLECTIONS = (
         "slug": "collections-of-sandook",
         "description": "A heritage-leaning story with a treasured, heirloom-like mood.",
         "heroImage": "https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305276/Rashi_Kapoor_22-03-20220063_nwo7of.jpg",
+        "heroLayout": "editorial_split",
         "dummyPrice": 125000,
         "dummyStock": 1,
         "dummyAvailability": "in_stock",
@@ -82,6 +89,25 @@ def is_excluded_collection(collection: dict | None = None, slug: str = "") -> bo
     return candidate_slug in EXCLUDED_COLLECTION_SLUGS or candidate_name == "aakaar"
 
 
+def collection_hero(collection: dict) -> dict:
+    """Return a normalized, backwards-compatible hero configuration."""
+    configured = collection.get("hero") if isinstance(collection.get("hero"), dict) else {}
+    fallback_image = str(configured.get("image") or collection.get("heroImage") or "").strip()
+    hero_type = str(configured.get("type") or "image").lower()
+    layout = str(configured.get("layout") or "media_dominant").lower()
+    return {
+        "type": hero_type if hero_type in COLLECTION_HERO_TYPES else "image",
+        "image": fallback_image,
+        "video": str(configured.get("video") or "").strip(),
+        "poster": str(configured.get("poster") or fallback_image).strip(),
+        "mobileImage": str(configured.get("mobileImage") or "").strip(),
+        "mobileVideo": str(configured.get("mobileVideo") or "").strip(),
+        "layout": layout if layout in COLLECTION_HERO_LAYOUTS else "media_dominant",
+        "label": str(configured.get("label") or "The Collection").strip(),
+        "ctaLabel": str(configured.get("ctaLabel") or "Explore Collection").strip(),
+    }
+
+
 def ensure_catalog_seed(db) -> None:
     """Idempotently create the five normal collections and one dummy each."""
     now = datetime.now(timezone.utc)
@@ -99,12 +125,24 @@ def ensure_catalog_seed(db) -> None:
     for position, seed in enumerate(NORMAL_COLLECTIONS, start=1):
         collection = db.collections.find_one({"slug": seed["slug"]})
         if not collection:
+            hero = {
+                "type": "image",
+                "image": seed["heroImage"],
+                "video": "",
+                "poster": seed["heroImage"],
+                "mobileImage": "",
+                "mobileVideo": "",
+                "layout": seed["heroLayout"],
+                "label": "The Collection",
+                "ctaLabel": "Explore Collection",
+            }
             result = db.collections.insert_one({
                 "name": seed["name"],
                 "slug": seed["slug"],
                 "status": "collection",
                 "description": seed["description"],
                 "heroImage": seed["heroImage"],
+                "hero": hero,
                 "displayOrder": position,
                 "productRefs": [],
                 "createdAt": now,
@@ -113,9 +151,25 @@ def ensure_catalog_seed(db) -> None:
                 "seeded": True,
             })
             collection = db.collections.find_one({"_id": result.inserted_id})
-        elif collection.get("displayOrder") is None:
-            db.collections.update_one({"_id": collection["_id"]}, {"$set": {"displayOrder": position}})
-            collection["displayOrder"] = position
+        else:
+            collection_updates = {}
+            if collection.get("displayOrder") is None:
+                collection_updates["displayOrder"] = position
+            if not isinstance(collection.get("hero"), dict):
+                collection_updates["hero"] = {
+                    "type": "image",
+                    "image": collection.get("heroImage") or seed["heroImage"],
+                    "video": "",
+                    "poster": collection.get("heroImage") or seed["heroImage"],
+                    "mobileImage": "",
+                    "mobileVideo": "",
+                    "layout": seed["heroLayout"],
+                    "label": "The Collection",
+                    "ctaLabel": "Explore Collection",
+                }
+            if collection_updates:
+                db.collections.update_one({"_id": collection["_id"]}, {"$set": collection_updates})
+                collection.update(collection_updates)
         needs_initial_relationship = not collection.get("catalogSeedVersion")
 
         seed_key = f"dummy:{seed['slug']}"
@@ -176,6 +230,7 @@ def product_view(product: dict, *, display_order: int | None = None) -> dict:
         "id": str(product["_id"]),
         "name": product.get("name"),
         "sku": product.get("sku"),
+        "slug": product.get("slug") or str(product["_id"]),
         "status": product.get("status", "draft"),
         "availability": product.get("availability") or ("sold_out" if int(product.get("stock") or 0) <= 0 else "in_stock"),
         "price": product.get("price"),
@@ -208,6 +263,13 @@ def collection_view(db, collection: dict, *, include_products: bool = True) -> d
         "status": collection.get("status", "collection"),
         "description": collection.get("description"),
         "heroImage": collection.get("heroImage"),
+        "hero": collection_hero(collection),
+        "season": collection.get("season"),
+        "year": collection.get("year"),
+        "designerNote": collection.get("designerNote"),
+        "collectionNumber": collection.get("collectionNumber"),
+        "location": collection.get("location"),
+        "campaignInformation": collection.get("campaignInformation"),
         "createdAt": _json_value(collection.get("createdAt")),
         "updatedAt": _json_value(collection.get("updatedAt")),
         "productCount": len(product_pairs),

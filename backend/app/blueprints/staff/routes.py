@@ -6,9 +6,12 @@ from bson import ObjectId
 from flask import Blueprint, jsonify, request
 
 from ...catalog import (
+    COLLECTION_HERO_LAYOUTS,
+    COLLECTION_HERO_TYPES,
     PRODUCT_AVAILABILITY,
     add_product_reference,
     collection_document,
+    collection_hero,
     collection_view,
     ensure_catalog_seed,
     managed_collections,
@@ -176,6 +179,37 @@ def update_collection(slug: str):
             if key == "heroImage" and value and not value.startswith(("https://", "/")):
                 return jsonify({"error": "Hero image must be an HTTPS or local URL."}), 400
             updates[key] = value
+    if "hero" in payload:
+        hero_payload = payload.get("hero")
+        if not isinstance(hero_payload, dict):
+            return jsonify({"error": "Hero configuration must be an object."}), 400
+        hero = collection_hero(collection)
+        for key in ("type", "image", "video", "poster", "mobileImage", "mobileVideo", "layout", "label", "ctaLabel"):
+            if key in hero_payload:
+                hero[key] = str(hero_payload.get(key) or "").strip()
+        hero["type"] = hero["type"].lower()
+        hero["layout"] = hero["layout"].lower()
+        if hero["type"] not in COLLECTION_HERO_TYPES:
+            return jsonify({"error": "Hero type must be image or video."}), 400
+        if hero["layout"] not in COLLECTION_HERO_LAYOUTS:
+            return jsonify({"error": "Choose a valid hero layout."}), 400
+        for key in ("image", "video", "poster", "mobileImage", "mobileVideo"):
+            if hero[key] and not hero[key].startswith(("https://", "/")):
+                return jsonify({"error": f"Hero {key} must be an HTTPS or local URL."}), 400
+        if hero["type"] == "image" and not hero["image"]:
+            return jsonify({"error": "An image hero requires a desktop image."}), 400
+        if hero["type"] == "video" and not hero["video"]:
+            return jsonify({"error": "A video hero requires a desktop video."}), 400
+        updates["hero"] = hero
+        updates["heroImage"] = hero["image"] or hero["poster"]
+    for key in ("season", "designerNote", "collectionNumber", "location", "campaignInformation"):
+        if key in payload:
+            updates[key] = str(payload.get(key) or "").strip()
+    if "year" in payload:
+        year = _integer(payload.get("year"), 0) if payload.get("year") not in (None, "") else None
+        if year is not None and (year < 1900 or year > 2200):
+            return jsonify({"error": "Enter a valid four-digit collection year."}), 400
+        updates["year"] = year
     db.collections.update_one({"_id": collection["_id"]}, {"$set": updates})
     return jsonify(_management_collection_payload(db, db.collections.find_one({"_id": collection["_id"]}))), 200
 

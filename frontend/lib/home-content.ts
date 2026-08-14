@@ -1,8 +1,12 @@
+import type { CollectionHeroConfig } from '@/lib/catalog';
+
 type CategoryItem = {
   title: string;
   image?: string;
   href?: string;
 };
+
+export type CollectionPageHero = Partial<CollectionHeroConfig> & Pick<CollectionHeroConfig, 'image'>;
 
 export type CollectionPage = {
   name: string;
@@ -10,6 +14,7 @@ export type CollectionPage = {
   status: string;
   summary: string;
   image: string;
+  hero?: CollectionPageHero;
   /** Add the Cloudinary or local font URL here when each collection font is ready. */
   fontFamily: string;
   fontUrl?: string;
@@ -50,7 +55,17 @@ export const collectionPages: readonly CollectionPage[] = [
     status: 'Coming Soon',
     summary: 'The debut collection, defined by sculpted drapes and quiet couture detailing.',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785304593/Rashi_Kapoor1351_xzrpyx.jpg',
-    fontFamily: 'HV Muse',
+    hero: {
+      type: 'image',
+      image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487994/Rashi_Kapoor2418_compressed_8000kb_qkke56.jpg',
+      desktopObjectPosition: '52% 40%',
+      mobileObjectPosition: '58% 36%',
+      textPosition: 'left',
+      textTheme: 'light',
+      titleScale: 'standard',
+    },
+    fontFamily: 'RK Campaign',
+    fontUrl: 'https://res.cloudinary.com/fm1bwbrd/raw/upload/v1786736151/TAN-MON_CHERI-Regular_w92ze1.otf',
   },
   {
     name: 'Anamika',
@@ -58,8 +73,17 @@ export const collectionPages: readonly CollectionPage[] = [
     status: 'Collection',
     summary: 'A refined story shaped by movement, texture, and modern occasion dressing.',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305156/Rashi_Kapoor3092_stukqt.jpg',
+    hero: {
+      type: 'image',
+      image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1786735678/Rashi_Kapoor2571_otpcmv.jpg',
+      desktopObjectPosition: 'center 52%',
+      mobileObjectPosition: '58% center',
+      textPosition: 'left',
+      textTheme: 'light',
+      titleScale: 'feature',
+    },
     fontFamily: 'RK Anamika',
-    fontUrl: 'https://res.cloudinary.com/fm1bwbrd/raw/upload/v1785840322/agilera_ucynmn.otf',
+    fontUrl: 'https://res.cloudinary.com/fm1bwbrd/raw/upload/v1786736339/monbaiti_e9gt43.ttf',
   },
   {
     name: 'Hastakala',
@@ -67,8 +91,17 @@ export const collectionPages: readonly CollectionPage[] = [
     status: 'Collection',
     summary: 'Craft-led silhouettes with a more artisanal, hand-finished mood.',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785304857/Hasthkalare_hhljut.jpg',
-    fontFamily: 'RK Hastakala',
-    fontUrl: 'https://res.cloudinary.com/fm1bwbrd/raw/upload/v1785840581/aesterapersonaluse-0vg2v_jcafbr.ttf',
+    hero: {
+      type: 'image',
+      image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1786735890/img-2026-03-04-18-30-01_rfu8cp.png',
+      desktopObjectPosition: '58% 38%',
+      mobileObjectPosition: '64% 32%',
+      textPosition: 'left',
+      textTheme: 'light',
+      titleScale: 'standard',
+    },
+    fontFamily: 'RK Campaign',
+    fontUrl: 'https://res.cloudinary.com/fm1bwbrd/raw/upload/v1786736151/TAN-MON_CHERI-Regular_w92ze1.otf',
   },
   {
     name: 'Inaara',
@@ -76,8 +109,17 @@ export const collectionPages: readonly CollectionPage[] = [
     status: 'Collection',
     summary: 'A luminous edit with fluid lines and softer, celebratory energy.',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305219/RASHI_KAPOOR_-_27-3-240879_xr10ue.jpg',
-    fontFamily: 'RK Inaara',
-    fontUrl: 'https://res.cloudinary.com/fm1bwbrd/raw/upload/v1785863506/CormorantInfant-Regular_rsu66v.ttf',
+    hero: {
+      type: 'image',
+      image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1786735531/e9a9f2bc-2acc-4b60-b3e4-b68c9a08eae1.png',
+      desktopObjectPosition: 'center 28%',
+      mobileObjectPosition: '58% 30%',
+      textPosition: 'left',
+      textTheme: 'light',
+      titleScale: 'standard',
+    },
+    fontFamily: 'RK Campaign',
+    fontUrl: 'https://res.cloudinary.com/fm1bwbrd/raw/upload/v1786736151/TAN-MON_CHERI-Regular_w92ze1.otf',
   },
   {
     name: 'Naqab',
@@ -85,7 +127,17 @@ export const collectionPages: readonly CollectionPage[] = [
     status: 'Collection',
     summary: 'A more dramatic chapter built around veiled layers and evening presence.',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785304902/Naqab_2_re_qdu1xs.jpg',
-    fontFamily: 'HV Muse',
+    hero: {
+      type: 'image',
+      image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1786735768/RASHI_KAPOOR_04-07-20224740_dl6wvx.webp',
+      desktopObjectPosition: '56% 38%',
+      mobileObjectPosition: '62% 32%',
+      textPosition: 'left',
+      textTheme: 'light',
+      titleScale: 'standard',
+    },
+    fontFamily: 'RK Campaign',
+    fontUrl: 'https://res.cloudinary.com/fm1bwbrd/raw/upload/v1786736151/TAN-MON_CHERI-Regular_w92ze1.otf',
   },
   {
     name: 'Sandook',
@@ -93,8 +145,17 @@ export const collectionPages: readonly CollectionPage[] = [
     status: 'Collection',
     summary: 'A heritage-leaning story with a more treasured, heirloom-like mood.',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305276/Rashi_Kapoor_22-03-20220063_nwo7of.jpg',
-    fontFamily: 'RK Sandook',
-    fontUrl: 'https://res.cloudinary.com/fm1bwbrd/raw/upload/v1785863861/AvrileSans-Condensed_n8kslo.ttf',
+    hero: {
+      type: 'image',
+      image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1786735823/5d8246f4-360b-45d5-8d43-25eb717fbdfd.png',
+      desktopObjectPosition: '58% 44%',
+      mobileObjectPosition: '62% 42%',
+      textPosition: 'left',
+      textTheme: 'dark',
+      titleScale: 'standard',
+    },
+    fontFamily: 'RK Campaign',
+    fontUrl: 'https://res.cloudinary.com/fm1bwbrd/raw/upload/v1786736151/TAN-MON_CHERI-Regular_w92ze1.otf',
   },
 ] as const;
 

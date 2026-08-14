@@ -16,7 +16,11 @@ import {
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { brandLogoUrl, collectionPages, searchItems } from '@/lib/home-content';
 import { logout } from '@/lib/rbac';
+import { cartChangedEvent, readStoredCart, removeStoredCartItem } from '@/lib/storefront-cart';
+import { readWishlist, removeFromWishlist, wishlistChangedEvent, type StorefrontWishlistItem } from '@/lib/storefront-wishlist';
+import type { Cart } from '@/lib/store-types';
 import { cn } from '@/lib/utils';
+import { inr } from '@/lib/catalog';
 
 type HeaderUser = { displayName?: string; firstName?: string; lastName?: string; username?: string; email?: string; role?: 'customer' | 'staff' | 'admin' };
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || '';
@@ -38,6 +42,7 @@ const navItemClass =
 
 type StickyHeaderProps = {
   transparentAtTop?: boolean;
+  transparentTheme?: 'light' | 'dark';
 };
 
 function AccountPreview({ user, onNavigate }: { user: HeaderUser; onNavigate: () => void }) {
@@ -45,7 +50,7 @@ function AccountPreview({ user, onNavigate }: { user: HeaderUser; onNavigate: ()
   return <><p className="text-[10px] uppercase tracking-[0.28em] text-charcoal/45">Signed in as</p><p className="mt-2 font-display text-2xl">{fullName}</p><span className="mt-2 inline-flex rounded-full border border-gold/50 px-2.5 py-1 text-[9px] uppercase tracking-[0.22em] text-gold">{user.role || 'customer'}</span><p className="mt-2 break-all text-xs text-charcoal/50">{user.email || 'No email available'}</p><Link href="/profile" onClick={onNavigate} className="mt-5 block rounded-full bg-ink px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-ivory transition hover:bg-gold">Manage profile</Link>{user.role === 'admin' ? <Link href="/admin" onClick={onNavigate} className="mt-3 block rounded-full border border-gold/60 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">Admin dashboard</Link> : user.role === 'staff' ? <Link href="/staff" onClick={onNavigate} className="mt-3 block rounded-full border border-gold/60 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">Staff dashboard</Link> : null}<button type="button" onClick={() => { onNavigate(); void logout(); }} className="mt-3 block w-full rounded-full border border-black/15 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-charcoal/65 transition hover:border-gold hover:text-gold">Sign out</button></>;
 }
 
-export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
+export function StickyHeader({ transparentAtTop = false, transparentTheme = 'light' }: StickyHeaderProps) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [collectionsOpen, setCollectionsOpen] = useState(false);
@@ -58,16 +63,34 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
   const [accountUser, setAccountUser] = useState<HeaderUser | null>(null);
   const [videoSectionVisible, setVideoSectionVisible] = useState(false);
   const [mounted, setMounted] = useState(false);
-  // Product cards can populate this list later through a wishlist action.
-  const [wishlistItems, setWishlistItems] = useState<typeof collectionPages[number][]>([]);
+  const [wishlistItems, setWishlistItems] = useState<StorefrontWishlistItem[]>([]);
+  const [shoppingBag, setShoppingBag] = useState<Cart>({ items: [], currency: 'INR' });
   const [searchQuery, setSearchQuery] = useState('');
   const headerRef = useRef<HTMLElement | null>(null);
   const pathname = usePathname();
   const router = useRouter();
   const isTransparent = ((transparentAtTop && !scrolled) || videoSectionVisible) && !searchOpen;
+  const activeTransparentTheme = videoSectionVisible ? 'light' : transparentTheme;
+  const transparentLogoIsLight = isTransparent && activeTransparentTheme === 'light';
 
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    const syncBag = () => setShoppingBag(readStoredCart());
+    syncBag();
+    window.addEventListener(cartChangedEvent, syncBag);
+    window.addEventListener('storage', syncBag);
+    return () => { window.removeEventListener(cartChangedEvent, syncBag); window.removeEventListener('storage', syncBag); };
+  }, []);
+
+  useEffect(() => {
+    const syncWishlist = () => setWishlistItems(readWishlist());
+    syncWishlist();
+    window.addEventListener(wishlistChangedEvent, syncWishlist);
+    window.addEventListener('storage', syncWishlist);
+    return () => { window.removeEventListener(wishlistChangedEvent, syncWishlist); window.removeEventListener('storage', syncWishlist); };
   }, []);
 
   useEffect(() => {
@@ -249,7 +272,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
       className={cn(
         'fixed inset-x-0 top-0 z-[200] border-b backdrop-blur-[2px] transition-[background-color,border-color,box-shadow,backdrop-filter] duration-500',
         isTransparent
-          ? 'border-transparent bg-transparent text-white shadow-none'
+          ? cn('border-transparent bg-transparent shadow-none', activeTransparentTheme === 'dark' ? 'text-[#1e1b18]' : 'text-white')
           : 'border-black/6 bg-white text-charcoal shadow-[0_1px_0_rgba(0,0,0,0.04)]',
         scrolled && !isTransparent ? 'shadow-[0_4px_18px_rgba(0,0,0,0.06)]' : ''
       )}
@@ -262,8 +285,8 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
               alt="RK Logo"
               width="80"
               height="40"
-              className={cn('rk-logo h-10 w-auto', isTransparent && 'rk-logo-on-hero')}
-              style={{ width: 'auto', height: '2.5rem', filter: isTransparent ? 'brightness(0) invert(1)' : undefined }}
+              className={cn('rk-logo h-10 w-auto', transparentLogoIsLight && 'rk-logo-on-hero', isTransparent && activeTransparentTheme === 'dark' && 'rk-logo-on-light-hero')}
+              style={{ width: 'auto', height: '2.5rem', filter: transparentLogoIsLight ? 'brightness(0) invert(1)' : undefined }}
             />
             <span className="hidden border-l border-current/30 pl-3 text-[0.58rem] uppercase leading-[1.15] tracking-[0.32em] sm:block">Rashi<br />Kapoor</span>
           </Link>
@@ -464,7 +487,7 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
                   alt="RK Logo"
                   width="80"
                   height="40"
-                  className={cn('rk-logo h-10 w-auto', isTransparent && 'rk-logo-on-hero')}
+                  className="rk-logo h-10 w-auto"
                   style={{ width: 'auto', height: '2.5rem' }}
                 />
                 <button onClick={() => setMenuOpen(false)} aria-label="Close menu">
@@ -621,9 +644,9 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
               </div>
               <div className="overflow-y-auto px-5">
                 {wishlistItems.length ? wishlistItems.map((item) => (
-                  <div key={item.name} className="flex gap-3 border-b border-black/10 py-4">
+                  <div key={item.productId} className="flex gap-3 border-b border-black/10 py-4">
                     <Link href={item.route} onClick={() => setWishlistOpen(false)} className="h-16 w-16 shrink-0 overflow-hidden bg-ivory">
-                      <img src={item.image} alt={item.name} className="h-full w-full object-cover" />
+                      {item.image ? <img src={item.image} alt={item.name} className="h-full w-full object-cover" /> : null}
                     </Link>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
@@ -632,20 +655,20 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
                         </Link>
                         <button
                           type="button"
-                          onClick={() => setWishlistItems((current) => current.filter((entry) => entry.name !== item.name))}
+                          onClick={() => removeFromWishlist(item.productId)}
                           className="shrink-0 text-sm text-charcoal/65 transition hover:text-gold"
                           aria-label={`Remove ${item.name} from wishlist`}
                         >
                           ×
                         </button>
                       </div>
-                      <p className="mt-1 text-[0.68rem] text-charcoal/55">{item.status}</p>
+                      <p className="mt-1 text-[0.68rem] text-charcoal/55">{item.availability || item.category}</p>
                       <Link
                         href={item.route}
                         onClick={() => setWishlistOpen(false)}
                         className="mt-2 inline-flex rounded-full bg-ink px-3 py-1.5 text-[0.62rem] text-white transition hover:bg-gold"
                       >
-                        View collection
+                        View piece
                       </Link>
                     </div>
                   </div>
@@ -692,8 +715,8 @@ export function StickyHeader({ transparentAtTop = false }: StickyHeaderProps) {
                   <X className="h-5 w-5 text-charcoal/60 transition hover:text-gold dark:text-white/60" />
                 </button>
               </div>
-              <div className="flex min-h-0 flex-1 items-center justify-center bg-[#fffdf9] px-8 text-center text-sm text-charcoal/55 dark:bg-[#121212] dark:text-white/60">
-                Your bag is empty.
+              <div className={`min-h-0 flex-1 overflow-y-auto bg-[#fffdf9] dark:bg-[#121212] ${shoppingBag.items.length ? 'px-6' : 'flex items-center justify-center px-8 text-center text-sm text-charcoal/55 dark:text-white/60'}`}>
+                {shoppingBag.items.length ? shoppingBag.items.map((item) => <div key={`${item.productId}:${item.variant?.id || ''}`} className="flex gap-4 border-b border-black/10 py-5 dark:border-white/10"><div className="h-24 w-20 shrink-0 overflow-hidden bg-sand">{item.image ? <img src={item.image} alt={item.name} className="h-full w-full object-cover" /> : null}</div><div className="min-w-0 flex-1"><p className="font-display text-lg">{item.name}</p>{item.variant ? <p className="mt-1 text-[0.6rem] uppercase tracking-[0.18em] text-charcoal/50 dark:text-white/50">{item.variant.name}: {item.variant.value}</p> : null}<p className="mt-2 text-xs text-charcoal/70 dark:text-white/70">{item.quantity} × {inr.format(item.price)}</p><button type="button" onClick={() => removeStoredCartItem(item.productId, item.variant?.id)} className="mt-3 text-[0.55rem] uppercase tracking-[0.2em] text-gold">Remove</button></div></div>) : 'Your bag is empty.'}
               </div>
               <div className="border-t border-black/10 bg-[#fffdf9] px-6 py-5 dark:border-white/10 dark:bg-[#121212]">
                 <Link

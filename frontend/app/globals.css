@@ -52,6 +52,10 @@ html.dark {
   filter: brightness(0) invert(1) !important;
 }
 
+.dark .rk-logo.rk-logo-on-light-hero {
+  filter: none !important;
+}
+
 .dark .bg-ivory { background-color: var(--color-ivory); }
 .dark .bg-white { background-color: #121212; }
 .dark .bg-ivory\/45 { background-color: rgb(43 39 35 / 0.45); }
@@ -467,27 +471,22 @@ html.dark {
 }
 
 .testimonials-newsletter-scene {
-  background: transparent;
-}
-
-.testimonials-newsletter-scene .testimonial-editorial-section {
-  background-image: linear-gradient(rgba(248, 246, 242, 0.2), rgba(248, 246, 242, 0.28)), url('https://res.cloudinary.com/fm1bwbrd/image/upload/v1785930123/d8de58e0-7866-4bbd-8867-492437e4a0a2_wlonjn.png');
+  background-color: #f8f6f2;
+  background-image: linear-gradient(rgba(248, 246, 242, 0.2), rgba(248, 246, 242, 0.28)), url('https://res.cloudinary.com/fm1bwbrd/image/upload/v1786690262/a7bfda64-348e-4c6c-9f04-2cc818bf0051_tge22c.png');
   background-position: center;
   background-size: cover;
+  background-repeat: no-repeat;
 }
 
-.dark .testimonials-newsletter-scene .testimonial-editorial-section {
-  background-image: linear-gradient(rgba(9, 8, 7, 0.22), rgba(9, 8, 7, 0.3)), url('https://res.cloudinary.com/fm1bwbrd/image/upload/v1785930253/ba920197-4968-4936-909f-447d9f64fdb3_seally.png');
-}
-
+.testimonials-newsletter-scene .testimonial-editorial-section,
 .testimonials-newsletter-scene .newsletter-editorial-section {
-  background-image: linear-gradient(rgba(248, 246, 242, 0.2), rgba(248, 246, 242, 0.28)), url('https://res.cloudinary.com/fm1bwbrd/image/upload/v1785930450/d2d37418-abe0-4087-bddf-985c445253db_sdnds0.png');
-  background-position: center;
-  background-size: cover;
+  background-color: transparent;
+  background-image: none;
 }
 
-.dark .testimonials-newsletter-scene .newsletter-editorial-section {
-  background-image: linear-gradient(rgba(9, 8, 7, 0.22), rgba(9, 8, 7, 0.3)), url('https://res.cloudinary.com/fm1bwbrd/image/upload/v1785930439/2c1c3294-0b23-4c66-b9f8-f34635a4aefa_d0nkgm.png');
+.dark .testimonials-newsletter-scene {
+  background-color: #090807;
+  background-image: linear-gradient(rgba(9, 8, 7, 0.22), rgba(9, 8, 7, 0.3)), url('https://res.cloudinary.com/fm1bwbrd/image/upload/v1786693821/6bba4247-a2f3-484c-8939-faadb37b50ce_zu0rvi.png');
 }
 
 .brand-story-section {
@@ -684,14 +683,18 @@ html.dark {
 }
 
 @font-face {
-  font-family: 'RK Anamika';
-  src: url('https://res.cloudinary.com/fm1bwbrd/raw/upload/v1785840322/agilera_ucynmn.otf') format('opentype');
+  font-family: 'RK Campaign';
+  src: url('https://res.cloudinary.com/fm1bwbrd/raw/upload/v1786736151/TAN-MON_CHERI-Regular_w92ze1.otf') format('opentype');
+  font-style: normal;
+  font-weight: 400;
   font-display: swap;
 }
 
 @font-face {
-  font-family: 'RK Hastakala';
-  src: url('https://res.cloudinary.com/fm1bwbrd/raw/upload/v1785840581/aesterapersonaluse-0vg2v_jcafbr.ttf') format('truetype');
+  font-family: 'RK Anamika';
+  src: url('https://res.cloudinary.com/fm1bwbrd/raw/upload/v1786736339/monbaiti_e9gt43.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 400;
   font-display: swap;
 }
 
@@ -701,17 +704,6 @@ html.dark {
   font-display: swap;
 }
 
-@font-face {
-  font-family: 'RK Sandook';
-  src: url('https://res.cloudinary.com/fm1bwbrd/raw/upload/v1785864328/NoeDisplay-Medium_swsk7v.ttf') format('truetype');
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'RK Inaara';
-  src: url('https://res.cloudinary.com/fm1bwbrd/raw/upload/v1785863506/CormorantInfant-Regular_rsu66v.ttf') format('truetype');
-  font-display: swap;
-}
 
 html {
   scroll-behavior: smooth;
@@ -725,6 +717,172 @@ body {
   text-rendering: optimizeLegibility;
   overflow-x: hidden;
   min-height: 100vh;
+}
+
+.collection-campaign-hero {
+  position: relative;
+  isolation: isolate;
+  height: clamp(34rem, min(72svh, 50vw), 52rem);
+  min-height: 34rem;
+  overflow: hidden;
+  background: #121212;
+}
+
+.collection-campaign-media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: var(--collection-hero-desktop-position, center center);
+}
+
+.collection-campaign-hero__scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.collection-campaign-hero--left.collection-campaign-hero--light .collection-campaign-hero__scrim {
+  background:
+    linear-gradient(90deg, rgba(8, 7, 6, 0.68) 0%, rgba(8, 7, 6, 0.38) 30%, rgba(8, 7, 6, 0.08) 57%, transparent 74%),
+    linear-gradient(180deg, rgba(8, 7, 6, 0.28) 0%, transparent 35%);
+}
+
+.collection-campaign-hero--right.collection-campaign-hero--light .collection-campaign-hero__scrim {
+  background:
+    linear-gradient(270deg, rgba(8, 7, 6, 0.68) 0%, rgba(8, 7, 6, 0.38) 30%, rgba(8, 7, 6, 0.08) 57%, transparent 74%),
+    linear-gradient(180deg, rgba(8, 7, 6, 0.28) 0%, transparent 35%);
+}
+
+.collection-campaign-hero--left.collection-campaign-hero--dark .collection-campaign-hero__scrim {
+  background:
+    linear-gradient(90deg, rgba(248, 246, 242, 0.86) 0%, rgba(248, 246, 242, 0.58) 30%, rgba(248, 246, 242, 0.1) 58%, transparent 74%),
+    linear-gradient(180deg, rgba(248, 246, 242, 0.24) 0%, transparent 34%);
+}
+
+.collection-campaign-hero--right.collection-campaign-hero--dark .collection-campaign-hero__scrim {
+  background:
+    linear-gradient(270deg, rgba(248, 246, 242, 0.86) 0%, rgba(248, 246, 242, 0.58) 30%, rgba(248, 246, 242, 0.1) 58%, transparent 74%),
+    linear-gradient(180deg, rgba(248, 246, 242, 0.24) 0%, transparent 34%);
+}
+
+.collection-campaign-hero__content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: flex-end;
+  width: min(100%, 100rem);
+  height: 100%;
+  margin-inline: auto;
+  padding: calc(var(--rk-header-height, 5rem) + 2rem) clamp(1.5rem, 4.2vw, 5rem) clamp(2.5rem, 5vh, 4.5rem);
+}
+
+.collection-campaign-copy {
+  width: min(42rem, 54vw);
+}
+
+.collection-campaign-title {
+  display: block;
+  max-width: 100%;
+  margin-top: 1.75rem;
+  font-size: clamp(3.5rem, 7.2vw, 7.75rem);
+  line-height: 0.94;
+  letter-spacing: 0.025em;
+  font-weight: 400;
+  font-synthesis: none;
+  white-space: nowrap;
+}
+
+.collection-campaign-title--feature {
+  font-size: clamp(4.1rem, 9vw, 9rem);
+}
+
+.collection-campaign-description {
+  display: -webkit-box;
+  max-width: 36rem;
+  margin-top: 1.4rem;
+  overflow: hidden;
+  font-size: clamp(0.8rem, 1.05vw, 0.98rem);
+  line-height: 1.75;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.collection-campaign-metadata {
+  display: grid;
+  max-width: 34rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem 1.5rem;
+  margin-top: 1rem;
+  padding-top: 0.8rem;
+  border-top-width: 1px;
+}
+
+.collection-campaign-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.4rem;
+  padding-bottom: 0.5rem;
+  border-bottom-width: 1px;
+  font-size: 0.58rem;
+  line-height: 1;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  transition: border-color 300ms ease, color 300ms ease;
+}
+
+@media (max-width: 767px) {
+  .collection-campaign-hero {
+    height: min(78svh, 44rem);
+    min-height: 36rem;
+  }
+
+  .collection-campaign-media {
+    object-position: var(--collection-hero-mobile-position, var(--collection-hero-desktop-position, center center));
+  }
+
+  .collection-campaign-hero__content {
+    padding: calc(var(--rk-header-height, 4.5rem) + 2rem) 1.5rem 2.25rem;
+  }
+
+  .collection-campaign-copy {
+    width: min(100%, 32rem);
+  }
+
+  .collection-campaign-title,
+  .collection-campaign-title--feature {
+    margin-top: 1.45rem;
+    font-size: clamp(3.25rem, 18vw, 5.6rem);
+    line-height: 0.94;
+    white-space: normal;
+  }
+
+  .collection-campaign-description {
+    max-width: 27rem;
+    margin-top: 1rem;
+    font-size: 0.8rem;
+    line-height: 1.6;
+  }
+
+  .collection-campaign-metadata {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .collection-campaign-cta {
+    margin-top: 1.1rem;
+  }
+
+  .collection-campaign-hero--left.collection-campaign-hero--light .collection-campaign-hero__scrim,
+  .collection-campaign-hero--right.collection-campaign-hero--light .collection-campaign-hero__scrim {
+    background: linear-gradient(180deg, rgba(8, 7, 6, 0.3) 0%, rgba(8, 7, 6, 0.02) 34%, rgba(8, 7, 6, 0.72) 100%);
+  }
+
+  .collection-campaign-hero--left.collection-campaign-hero--dark .collection-campaign-hero__scrim,
+  .collection-campaign-hero--right.collection-campaign-hero--dark .collection-campaign-hero__scrim {
+    background: linear-gradient(180deg, rgba(248, 246, 242, 0.2) 0%, rgba(248, 246, 242, 0.02) 34%, rgba(248, 246, 242, 0.82) 100%);
+  }
 }
 
 * {
@@ -1299,6 +1457,111 @@ body {
   z-index: 1;
 }
 
+.fashion-image-marquee {
+  --fashion-marquee-gap: clamp(0.5rem, 0.7vw, 0.875rem);
+  position: absolute;
+  right: 0;
+  bottom: clamp(2rem, 4vh, 3.75rem);
+  left: 0;
+  z-index: 10;
+}
+
+.fashion-image-marquee-viewport {
+  position: relative;
+  overflow: hidden;
+  padding-block: 0.8rem;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 2.5%, #000 97.5%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 2.5%, #000 97.5%, transparent 100%);
+}
+
+.fashion-image-marquee-viewport::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent 0, rgba(0, 0, 0, 0.38) 30%, rgba(0, 0, 0, 0.42) 70%, transparent 100%);
+}
+
+.fashion-image-marquee-track {
+  position: relative;
+  display: flex;
+  width: max-content;
+  will-change: transform;
+  animation: fashion-image-marquee-scroll var(--fashion-marquee-duration, 35s) linear infinite;
+}
+
+.fashion-image-marquee-sequence {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--fashion-marquee-gap);
+  padding-right: var(--fashion-marquee-gap);
+}
+
+.fashion-image-marquee-card {
+  display: block;
+  width: clamp(9.25rem, 11vw, 10.75rem);
+  flex: 0 0 auto;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.52);
+  border-radius: 0.15rem;
+  appearance: none;
+  cursor: zoom-in;
+  background: #0a0a0a;
+  box-shadow: 0 0.35rem 1.15rem rgba(0, 0, 0, 0.28);
+  transform-origin: center bottom;
+  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1), border-color 300ms ease, filter 300ms ease;
+}
+
+.fashion-image-marquee-card img {
+  transform: translateZ(0) scale(1.01);
+}
+
+.fashion-image-marquee-card:hover,
+.fashion-image-marquee-card:focus-visible {
+  z-index: 2;
+  border-color: rgba(255, 255, 255, 0.9);
+  filter: brightness(1.04);
+  transform: translateZ(0) scale(1.025);
+}
+
+.fashion-image-marquee-card:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.92);
+  outline-offset: 3px;
+}
+
+.fashion-image-preview {
+  position: fixed;
+  z-index: 60;
+  width: clamp(13.75rem, 18vw, 17.5rem);
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 0.2rem;
+  background: #090807;
+  box-shadow: 0 1.25rem 4rem rgba(0, 0, 0, 0.48);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(0, 0.75rem, 0) scale(0.96);
+  transition: opacity 320ms ease, transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.fashion-image-preview.is-visible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0) scale(1);
+}
+
+@keyframes fashion-image-marquee-scroll {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
 @media (max-width: 767px) {
   .shop-section-backdrop {
     width: 100%;
@@ -1320,12 +1583,38 @@ body {
   }
 }
 
+@media (max-width: 639px) {
+  .fashion-image-marquee {
+    --fashion-marquee-gap: clamp(0.45rem, 1.8vw, 0.7rem);
+    bottom: 3rem;
+  }
+
+  .fashion-image-marquee-viewport {
+    padding-block: 0.6rem;
+  }
+
+  .fashion-image-marquee-card {
+    width: clamp(5.625rem, 28vw, 7.5rem);
+  }
+
+  .fashion-image-preview {
+    width: min(max(13.75rem, 72vw), 17.5rem);
+    pointer-events: auto;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .collection-editorial-card,
   .collection-editorial-card img,
   .lookbook-collage-card,
-  .lookbook-collage-card img {
+  .lookbook-collage-card img,
+  .fashion-image-marquee-track,
+  .fashion-image-marquee-card img {
     transition: none !important;
     animation: none !important;
+  }
+
+  .fashion-image-marquee-sequence--duplicate {
+    display: none;
   }
 }

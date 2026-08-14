@@ -2,7 +2,7 @@ import unittest
 
 from bson import ObjectId
 
-from app.catalog import is_excluded_collection, product_view
+from app.catalog import collection_hero, is_excluded_collection, product_view
 
 
 class CatalogTests(unittest.TestCase):
@@ -17,6 +17,19 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(view["availability"], "in_stock")
         self.assertEqual(view["pricing"]["baseCurrency"], "INR")
         self.assertEqual(view["pricing"]["fxBufferPercent"], 5)
+
+    def test_legacy_collection_image_is_normalized_to_reusable_hero(self):
+        hero = collection_hero({"heroImage": "https://example.com/hero.jpg"})
+        self.assertEqual(hero["type"], "image")
+        self.assertEqual(hero["image"], "https://example.com/hero.jpg")
+        self.assertEqual(hero["poster"], "https://example.com/hero.jpg")
+        self.assertEqual(hero["layout"], "media_dominant")
+
+    def test_video_hero_configuration_is_preserved(self):
+        hero = collection_hero({"hero": {"type": "video", "video": "https://example.com/film.mp4", "poster": "https://example.com/poster.jpg", "layout": "full_bleed"}})
+        self.assertEqual(hero["type"], "video")
+        self.assertEqual(hero["video"], "https://example.com/film.mp4")
+        self.assertEqual(hero["layout"], "full_bleed")
 
 
 if __name__ == "__main__":

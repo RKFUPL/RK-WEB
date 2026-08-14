@@ -1,9 +1,32 @@
 export type ProductAvailability = 'in_stock' | 'custom_order' | 'sold_out';
+export type CollectionHeroType = 'image' | 'video';
+export type CollectionHeroLayout = 'full_bleed' | 'editorial_split' | 'media_dominant';
+export type CollectionHeroTextPosition = 'left' | 'right';
+export type CollectionHeroTextTheme = 'light' | 'dark';
+export type CollectionHeroTitleScale = 'standard' | 'feature';
+
+export type CollectionHeroConfig = {
+  type: CollectionHeroType;
+  image: string;
+  video: string;
+  poster: string;
+  mobileImage: string;
+  mobileVideo: string;
+  layout: CollectionHeroLayout;
+  label: string;
+  ctaLabel: string;
+  desktopObjectPosition?: string;
+  mobileObjectPosition?: string;
+  textPosition?: CollectionHeroTextPosition;
+  textTheme?: CollectionHeroTextTheme;
+  titleScale?: CollectionHeroTitleScale;
+};
 
 export type CatalogProduct = {
   id: string;
   name?: string;
   sku?: string;
+  slug?: string;
   status?: string;
   availability: ProductAvailability;
   price?: number;
@@ -26,6 +49,7 @@ export type CatalogProduct = {
   displayOrder?: number;
   collectionIds?: string[];
   isDummy?: boolean;
+  createdAt?: string;
   updatedAt?: string;
   pricing?: {
     baseCurrency: 'INR';
@@ -41,6 +65,13 @@ export type ManagedCollection = {
   status: string;
   description?: string;
   heroImage?: string;
+  hero?: CollectionHeroConfig;
+  season?: string;
+  year?: number;
+  designerNote?: string;
+  collectionNumber?: string;
+  location?: string;
+  campaignInformation?: string;
   createdAt?: string;
   updatedAt?: string;
   productCount: number;

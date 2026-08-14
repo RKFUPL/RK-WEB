@@ -3,6 +3,8 @@
 import { Volume2, VolumeX } from 'lucide-react';
 import { useRef, useState } from 'react';
 
+import { FashionImageMarquee } from './fashion-image-marquee';
+
 const VIDEO_SRC = 'https://video.wixstatic.com/video/afed36_2e5b8660523d4d1eaaac8173ecd89d8f/720p/mp4/file.mp4';
 
 export function FeaturedLooks() {
@@ -33,6 +35,7 @@ export function FeaturedLooks() {
         className="absolute inset-0 h-full w-full object-cover object-center"
         aria-label="Rashi Kapoor fashion film"
       />
+      <FashionImageMarquee />
       <button
         type="button"
         onClick={toggleMute}
