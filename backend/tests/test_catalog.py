@@ -2,7 +2,7 @@ import unittest
 
 from bson import ObjectId
 
-from app.catalog import collection_hero, is_excluded_collection, product_view
+from app.catalog import PRODUCT_SEEDS, collection_hero, is_excluded_collection, product_view
 
 
 class CatalogTests(unittest.TestCase):
@@ -30,6 +30,18 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(hero["type"], "video")
         self.assertEqual(hero["video"], "https://example.com/film.mp4")
         self.assertEqual(hero["layout"], "full_bleed")
+
+    def test_real_product_seeds_keep_the_requested_collection_and_media(self):
+        seeds = {seed["name"]: seed for seed in PRODUCT_SEEDS}
+        self.assertEqual(seeds["173 - Hot Pink"]["collectionSlug"], "collections-of-hasthkala")
+        self.assertEqual(seeds["186 - Ivory"]["collectionSlug"], "collections-of-inaara")
+        self.assertEqual(seeds["173 - Hot Pink"]["sku"], "HK-173-HP")
+        self.assertEqual(seeds["186 - Ivory"]["sku"], "IA-186-IV")
+        for seed_name in ("173 - Hot Pink", "186 - Ivory"):
+            self.assertGreaterEqual(seeds[seed_name]["price"], 100000)
+            self.assertLessEqual(seeds[seed_name]["price"], 150000)
+        self.assertEqual(len(seeds["173 - Hot Pink"]["media"]), 5)
+        self.assertEqual(len(seeds["186 - Ivory"]["media"]), 2)
 
 
 if __name__ == "__main__":

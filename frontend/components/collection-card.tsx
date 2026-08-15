@@ -8,9 +8,11 @@ type CollectionCardProps = {
 
 const collectionFont: Record<string, string> = {
   Anamika: 'RK Anamika',
-  Hastakala: 'RK Hastakala',
-  Inaara: 'RK Inaara',
-  Sandook: 'RK Sandook',
+  Aakaar: 'RK Campaign',
+  Hastakala: 'RK Campaign',
+  Inaara: 'RK Campaign',
+  Naqab: 'RK Campaign',
+  Sandook: 'RK Campaign',
 };
 const collectionFontSize: Record<string, string> = { Hastakala: '1.45rem' };
 
@@ -22,7 +24,7 @@ export function CollectionCard({ title, category, image }: CollectionCardProps) 
           src={image}
           alt={title}
           fill
-          className="object-cover transition duration-700 group-hover:scale-[1.04]"
+          className="collection-card-image object-cover"
           sizes="(max-width: 768px) 100vw, 33vw"
         />
       </div>

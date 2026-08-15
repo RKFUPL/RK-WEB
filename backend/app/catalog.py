@@ -69,6 +69,40 @@ NORMAL_COLLECTIONS = (
     },
 )
 
+# These are real storefront records, not frontend-only fixtures.  The
+# deliberately blank commercial fields are editable later from Admin/Staff;
+# custom_order keeps an unknown inventory quantity from being presented as
+# available stock while still allowing a request to be added to the bag.
+PRODUCT_SEEDS = (
+    {
+        "seedKey": "rk:product:173-hot-pink",
+        "collectionSlug": "collections-of-hasthkala",
+        "name": "173 - Hot Pink",
+        "color": "Hot Pink",
+        "sku": "HK-173-HP",
+        "price": 125000,
+        "media": [
+            "https://res.cloudinary.com/fm1bwbrd/image/upload/v1786797342/H17_2259_l1kc3d.jpg",
+            "https://res.cloudinary.com/fm1bwbrd/image/upload/v1786797342/H17_2247_yxjefq.jpg",
+            "https://res.cloudinary.com/fm1bwbrd/image/upload/v1786797338/H17_2262_olhyyp.jpg",
+            "https://res.cloudinary.com/fm1bwbrd/image/upload/v1786797337/H17_2252_wion4m.jpg",
+            "https://res.cloudinary.com/fm1bwbrd/image/upload/v1786797336/H17_2255_ajqtxo.jpg",
+        ],
+    },
+    {
+        "seedKey": "rk:product:186-ivory",
+        "collectionSlug": "collections-of-inaara",
+        "name": "186 - Ivory",
+        "color": "Ivory",
+        "sku": "IA-186-IV",
+        "price": 140000,
+        "media": [
+            "https://res.cloudinary.com/fm1bwbrd/image/upload/v1786797999/RASHI_KAPOOR_-_27-3-249931_compressed_hzbntg.jpg",
+            "https://res.cloudinary.com/fm1bwbrd/image/upload/v1786797975/RASHI_KAPOOR_-_27-3-249893_compressed_rfwr3p.jpg",
+        ],
+    },
+)
+
 
 def _json_value(value):
     if isinstance(value, datetime):
@@ -109,7 +143,7 @@ def collection_hero(collection: dict) -> dict:
 
 
 def ensure_catalog_seed(db) -> None:
-    """Idempotently create the five normal collections and one dummy each."""
+    """Idempotently create normal collections, fixtures, and real seed products."""
     now = datetime.now(timezone.utc)
     db.collections.create_index("slug")
     db.products.create_index("sku")
@@ -211,6 +245,60 @@ def ensure_catalog_seed(db) -> None:
                 update["$push"] = {"productRefs": {"productId": product["_id"], "displayOrder": 1}}
             db.collections.update_one({"_id": collection["_id"]}, update)
 
+    for seed in PRODUCT_SEEDS:
+        product = db.products.find_one({"seedKey": seed["seedKey"]})
+        if not product:
+            result = db.products.insert_one({
+                "name": seed["name"],
+                "sku": seed["sku"],
+                "price": seed["price"],
+                "currency": "INR",
+                "stock": None,
+                "availability": "custom_order",
+                "status": "active",
+                "description": "",
+                "category": "",
+                "media": seed["media"],
+                "attributes": {
+                    "sizes": [],
+                    "colors": [seed["color"]],
+                    "fabric": "",
+                    "occasion": "",
+                    "gender": "",
+                    "material": "",
+                    "customizationInformation": "",
+                },
+                "seedKey": seed["seedKey"],
+                "isDummy": False,
+                "isActive": True,
+                "createdAt": now,
+                "updatedAt": now,
+            })
+            product = db.products.find_one({"_id": result.inserted_id})
+
+        # Older local databases were seeded before SKU/pricing was requested.
+        # Backfill only blank values so later staff/admin edits remain intact.
+        seed_updates = {}
+        if not str(product.get("sku") or "").strip():
+            seed_updates["sku"] = seed["sku"]
+        if product.get("price") in (None, 0):
+            seed_updates["price"] = seed["price"]
+        if seed_updates:
+            seed_updates["updatedAt"] = now
+            db.products.update_one({"_id": product["_id"]}, {"$set": seed_updates})
+            product.update(seed_updates)
+
+        collection = db.collections.find_one({"slug": seed["collectionSlug"]})
+        if not collection or not product:
+            continue
+        refs = collection.get("productRefs") or []
+        if not any(ref.get("productId") == product["_id"] for ref in refs if isinstance(ref, dict)):
+            next_order = max([int(ref.get("displayOrder", 0)) for ref in refs if isinstance(ref, dict)] or [0]) + 1
+            db.collections.update_one(
+                {"_id": collection["_id"]},
+                {"$push": {"productRefs": {"productId": product["_id"], "displayOrder": next_order}}, "$set": {"updatedAt": now}},
+            )
+
 
 def collection_document(db, slug: str) -> dict | None:
     collection = db.collections.find_one({"slug": slug})
@@ -249,6 +337,9 @@ def product_view(product: dict, *, display_order: int | None = None) -> dict:
             "fxBufferPercent": FX_BUFFER_PERCENT,
         },
     }
+    if result["price"] is None:
+        result.pop("price")
+        result["pricing"].pop("basePrice")
     if display_order is not None:
         result["displayOrder"] = display_order
     return result

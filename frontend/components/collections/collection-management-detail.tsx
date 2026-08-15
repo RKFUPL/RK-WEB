@@ -41,22 +41,27 @@ function ProductDrawer({ product, collection, collections, canManageProducts, ca
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [adjustment, setAdjustment] = useState('');
+  const [adjustmentReason, setAdjustmentReason] = useState('');
   const [targetCollection, setTargetCollection] = useState('');
   const [form, setForm] = useState({
     name: product.name ?? '', sku: product.sku ?? '', price: String(product.price ?? ''), availability: product.availability,
     category: product.category ?? '', description: product.description ?? '', sizes: (attributes.sizes ?? []).join(', '),
     colors: (attributes.colors ?? []).join(', '), fabric: String(attributes.fabric ?? ''), occasion: String(attributes.occasion ?? ''),
     gender: String(attributes.gender ?? ''), material: String(attributes.material ?? ''), customizationInformation: String(attributes.customizationInformation ?? ''),
-    imageUrl: product.media?.[0] ?? '',
+    imageUrl: product.media?.[0] ?? '', stock: String(product.stock ?? ''), changeReason: '',
   });
   const token = () => window.localStorage.getItem('rk_access_token') ?? '';
 
   const save = async (event: FormEvent) => {
     event.preventDefault(); setError(''); setMessage('');
+    const stockChanged = Number(form.stock) !== Number(product.stock ?? 0);
+    const availabilityChanged = form.availability !== product.availability;
+    const requestedReason = form.changeReason.trim() || (stockChanged || availabilityChanged ? window.prompt('Enter a reason for changing availability or quantity:')?.trim() ?? '' : '');
+    if ((stockChanged || availabilityChanged) && !requestedReason) { setError('A reason is required when availability or quantity changes.'); return; }
     const response = await fetch(`${apiBaseUrl}/api/staff/resources/products/${product.id}`, {
       method: 'PATCH', headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: form.name, sku: form.sku, price: Number(form.price), availability: form.availability, category: form.category,
+        name: form.name, sku: form.sku, price: Number(form.price), stock: Number(form.stock), availability: form.availability, reason: requestedReason, category: form.category,
         description: form.description, media: form.imageUrl ? [form.imageUrl, ...product.media.slice(1)] : [],
         attributes: { ...attributes, sizes: form.sizes.split(',').map((value) => value.trim()).filter(Boolean), colors: form.colors.split(',').map((value) => value.trim()).filter(Boolean), fabric: form.fabric, occasion: form.occasion, gender: form.gender, material: form.material, customizationInformation: form.customizationInformation },
       }),
@@ -69,11 +74,12 @@ function ProductDrawer({ product, collection, collections, canManageProducts, ca
   const adjustStock = async () => {
     const amount = Number(adjustment);
     if (!Number.isInteger(amount) || amount === 0) { setError('Enter a non-zero whole-number adjustment.'); return; }
+    if (!adjustmentReason.trim()) { setError('Enter a reason for the inventory change.'); return; }
     setError(''); setMessage('');
-    const response = await fetch(`${apiBaseUrl}/api/staff/resources/inventory/${product.id}`, { method: 'PATCH', headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ adjustment: amount, reason: `Collection management: ${collection.name}` }) });
+    const response = await fetch(`${apiBaseUrl}/api/staff/resources/inventory/${product.id}`, { method: 'PATCH', headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ adjustment: amount, reason: adjustmentReason.trim() }) });
     const payload = await response.json();
     if (!response.ok) { setError(payload.error ?? 'Unable to adjust inventory.'); return; }
-    setAdjustment(''); setMessage('Inventory adjusted.'); await onReload();
+    setAdjustment(''); setAdjustmentReason(''); setMessage('Inventory adjusted.'); await onReload();
   };
 
   const assignElsewhere = async () => {

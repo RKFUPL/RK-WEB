@@ -767,6 +767,34 @@ body {
     linear-gradient(180deg, rgba(248, 246, 242, 0.24) 0%, transparent 34%);
 }
 
+.collection-product-image-wrapper {
+  overflow: hidden;
+}
+
+.collection-product-image {
+  transform: scale(1);
+  transform-origin: center bottom;
+  transition: transform 600ms ease-out, opacity 700ms ease-out;
+  will-change: transform;
+}
+
+.collection-product-card:hover .collection-product-image,
+.collection-product-card:focus-within .collection-product-image {
+  transform: scale(1.06);
+}
+
+.collection-card-image {
+  transform: scale(1);
+  transform-origin: center bottom;
+  transition: transform 600ms ease-out;
+  will-change: transform;
+}
+
+.group:hover .collection-card-image,
+.group:focus-within .collection-card-image {
+  transform: scale(1.06);
+}
+
 .collection-campaign-hero__content {
   position: relative;
   z-index: 2;

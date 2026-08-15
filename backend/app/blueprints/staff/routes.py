@@ -295,6 +295,8 @@ def list_resources(resource: str):
     if denied:
         return denied
     db = database()
+    if resource in {"products", "inventory"}:
+        ensure_catalog_seed(db)
     query = _customer_scope(current_user()) if resource == "customers" else {}
     search = str(request.args.get("q") or "").strip()
     if search:
@@ -302,7 +304,7 @@ def list_resources(resource: str):
         fields = ["displayName", "email", "username"] if resource == "customers" else ["name", "sku", "orderNumber", "quoteNumber", "customerName", "email"]
         query = {**query, "$or": [{field: {"$regex": escaped, "$options": "i"}} for field in fields]}
     projection = {"passwordHash": 0, "otpHash": 0, "otpExpiresAt": 0, "otpAttempts": 0}
-    documents = database()[RESOURCE_COLLECTIONS[resource]].find(query, projection).sort("createdAt", -1).limit(200)
+    documents = db[RESOURCE_COLLECTIONS[resource]].find(query, projection).sort("createdAt", -1).limit(200)
     return jsonify({"items": [_document_view(document) for document in documents]}), 200
 
 
@@ -405,12 +407,13 @@ def update_resource(resource: str, resource_id: str):
                 updates[key] = str(payload.get(key) or "").strip()
         if "sku" in payload:
             sku = str(payload.get("sku") or "").strip().upper()
-            if not sku or db.products.find_one({"sku": sku, "_id": {"$ne": object_id}}):
-                return jsonify({"error": "A unique SKU is required."}), 409
+            if sku and db.products.find_one({"sku": sku, "_id": {"$ne": object_id}}):
+                return jsonify({"error": "That SKU already exists."}), 409
             updates["sku"] = sku
         if "price" in payload:
-            price = _number(payload.get("price"))
-            if price < 0:
+            raw_price = payload.get("price")
+            price = None if raw_price is None or str(raw_price).strip() == "" else _number(raw_price)
+            if price is not None and price < 0:
                 return jsonify({"error": "Price cannot be negative."}), 400
             updates["price"] = price
         if "status" in payload:
@@ -423,6 +426,33 @@ def update_resource(resource: str, resource_id: str):
             if availability not in PRODUCT_AVAILABILITY:
                 return jsonify({"error": "Choose In Stock, Custom Order, or Sold Out availability."}), 400
             updates["availability"] = availability
+        stock_changed = False
+        before_stock = _integer(current.get("stock"), 0)
+        after_stock = before_stock
+        if "stock" in payload:
+            raw_stock = payload.get("stock")
+            after_stock = before_stock if raw_stock is None or str(raw_stock).strip() == "" else _integer(raw_stock)
+            if after_stock < 0:
+                return jsonify({"error": "Stock cannot be negative."}), 400
+            updates["stock"] = after_stock
+            stock_changed = after_stock != before_stock
+        availability_changed = "availability" in updates and updates["availability"] != current.get("availability")
+        reason = str(payload.get("reason") or payload.get("changeReason") or "").strip()[:240]
+        if (stock_changed or availability_changed) and not reason:
+            return jsonify({"error": "Enter a reason for changing availability or quantity."}), 400
+        if stock_changed or availability_changed:
+            db.inventory_adjustments.insert_one({
+                "productId": object_id,
+                "before": before_stock,
+                "after": after_stock,
+                "adjustment": after_stock - before_stock,
+                "beforeAvailability": current.get("availability"),
+                "afterAvailability": updates.get("availability", current.get("availability")),
+                "reason": reason,
+                "changeType": "availability_and_stock" if stock_changed and availability_changed else "availability" if availability_changed else "stock",
+                "createdAt": now,
+                "createdBy": actor["_id"],
+            })
         if "category" in payload:
             updates["category"] = str(payload.get("category") or "").strip()
         if "media" in payload:
@@ -439,8 +469,11 @@ def update_resource(resource: str, resource_id: str):
         after = _integer(payload.get("stock")) if "stock" in payload else before + _integer(payload.get("adjustment"), 0)
         if after < 0:
             return jsonify({"error": "Stock cannot be negative."}), 400
+        reason = str(payload.get("reason") or "").strip()[:240]
+        if not reason:
+            return jsonify({"error": "Enter a reason for the inventory change."}), 400
         updates["stock"] = after
-        db.inventory_adjustments.insert_one({"productId": object_id, "before": before, "after": after, "adjustment": after - before, "reason": str(payload.get("reason") or "Manual adjustment").strip()[:240], "createdAt": now, "createdBy": actor["_id"]})
+        db.inventory_adjustments.insert_one({"productId": object_id, "before": before, "after": after, "adjustment": after - before, "reason": reason, "createdAt": now, "createdBy": actor["_id"]})
     elif resource == "orders":
         if "status" in payload:
             status = str(payload.get("status") or "").lower()

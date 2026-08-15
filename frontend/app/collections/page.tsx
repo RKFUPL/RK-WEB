@@ -29,7 +29,7 @@ function CampaignImage({ collection, index }: { collection: (typeof collectionPa
             src={collection.image}
             alt={`${collection.name} collection campaign`}
             draggable={false}
-            className="block h-auto w-full object-cover transition duration-300 ease-out will-change-transform group-hover:scale-[1.03]"
+            className="collection-card-image block h-auto w-full object-cover"
           />
           <div className="collections-campaign-shade absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-90 transition-opacity duration-300 group-hover:opacity-100" />
           <div className="absolute inset-x-0 bottom-0 p-5 text-white md:p-7">
