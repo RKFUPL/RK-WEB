@@ -13,6 +13,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError, OperationFailure
 
 from ...catalog import ensure_catalog_seed
+from ...inventory import has_size_system, stock_for_size, validate_custom_size
 from ...order_fulfillment import (
     actor_view,
     ensure_order_tracking,
@@ -136,10 +137,6 @@ def _checkout_items(db, cart: object) -> tuple[list[dict], int]:
 
         variant = raw_item.get("variant") if isinstance(raw_item.get("variant"), dict) else None
         variant_id = _safe_text((variant or {}).get("id"), 80)
-        key = (str(product_id), variant_id)
-        if key in seen:
-            raise ValueError("A piece appears more than once in your bag.")
-        seen.add(key)
 
         product = db.products.find_one({"_id": product_id, "status": {"$ne": "archived"}, "isActive": {"$ne": False}})
         if not product:
@@ -147,6 +144,17 @@ def _checkout_items(db, cart: object) -> tuple[list[dict], int]:
         availability = str(product.get("availability") or ("sold_out" if int(product.get("stock") or 0) <= 0 else "in_stock")).lower()
         if availability == "sold_out":
             raise ValueError(f'{product.get("name") or "A selected piece"} is sold out.')
+        raw_size = raw_item.get("size")
+        if not raw_size and variant and str(variant.get("name") or "").strip().lower() == "size":
+            raw_size = variant.get("value")
+        size = _safe_text(raw_size, 20).upper()
+        custom_size = validate_custom_size(product, raw_item.get("customSize"))
+        if has_size_system(product) and not size and not custom_size:
+            raise ValueError(f'Select a size for {product.get("name") or "this piece"}.')
+        key = (str(product_id), variant_id, size, json.dumps(custom_size, sort_keys=True) if custom_size else "")
+        if key in seen:
+            raise ValueError("A piece appears more than once in your bag.")
+        seen.add(key)
         price = product.get("price")
         try:
             price = round(float(price), 2)
@@ -154,8 +162,12 @@ def _checkout_items(db, cart: object) -> tuple[list[dict], int]:
             raise ValueError("A selected piece does not have a valid price.")
         if price < 0:
             raise ValueError("A selected piece does not have a valid price.")
-        if availability == "in_stock" and quantity > int(product.get("stock") or 0):
-            raise ValueError(f'There are only {int(product.get("stock") or 0)} of {product.get("name") or "this piece"} available.')
+        if availability == "in_stock":
+            available = stock_for_size(product, size) if has_size_system(product) and size else int(product.get("stock") or 0)
+            if available is None:
+                raise ValueError(f'{size or "That size"} is not available for {product.get("name") or "this piece"}.')
+            if quantity > available:
+                raise ValueError(f'There are only {available} of {product.get("name") or "this piece"} available in {size or "the selected option"}.')
 
         line_total = round(price * quantity, 2)
         subtotal += line_total
@@ -170,6 +182,8 @@ def _checkout_items(db, cart: object) -> tuple[list[dict], int]:
             "image": media[0] if media and isinstance(media[0], str) else "",
             "availability": availability,
             "variant": {"id": variant_id, "name": _safe_text((variant or {}).get("name"), 60), "value": _safe_text((variant or {}).get("value"), 120)} if variant_id else None,
+            "size": size or None,
+            "customSize": custom_size,
         })
     return items, int(round(subtotal))
 
@@ -238,20 +252,28 @@ def _fulfil_paid_order(db, order: dict, payment_id: str, source: str, payment_si
             return current, False
         raise ValueError("This payment is already being processed. Please refresh in a moment.")
 
-    decremented: list[tuple[ObjectId, int]] = []
+    decremented: list[tuple[ObjectId, int, str]] = []
     try:
         for item in locked.get("items", []):
             product_id = ObjectId(str(item["productId"]))
             quantity = int(item.get("quantity") or 0)
             if str(item.get("availability") or "").lower() != "in_stock":
                 continue
-            result = db.products.update_one(
-                {"_id": product_id, "status": {"$ne": "archived"}, "isActive": {"$ne": False}, "availability": "in_stock", "stock": {"$gte": quantity}},
-                {"$inc": {"stock": -quantity}, "$set": {"updatedAt": now}},
-            )
+            size = str(item.get("size") or "").strip().upper()
+            product = db.products.find_one({"_id": product_id}, {"sizeSystemEnabled": 1, "sizeInventory": 1}) or {}
+            if size and has_size_system(product):
+                result = db.products.update_one(
+                    {"_id": product_id, "status": {"$ne": "archived"}, "isActive": {"$ne": False}, "availability": "in_stock", "sizeInventory": {"$elemMatch": {"size": size, "enabled": True, "stock": {"$gte": quantity}}}},
+                    {"$inc": {"sizeInventory.$.stock": -quantity, "stock": -quantity}, "$set": {"updatedAt": now}},
+                )
+            else:
+                result = db.products.update_one(
+                    {"_id": product_id, "status": {"$ne": "archived"}, "isActive": {"$ne": False}, "availability": "in_stock", "stock": {"$gte": quantity}},
+                    {"$inc": {"stock": -quantity}, "$set": {"updatedAt": now}},
+                )
             if result.modified_count != 1:
                 raise StockUnavailable("A selected piece is no longer available in the requested quantity.")
-            decremented.append((product_id, quantity))
+            decremented.append((product_id, quantity, size))
 
         fields, events = payment_confirmation_changes(locked, payment_id, source, payment_signature, now)
         updated = db.orders.find_one_and_update(
@@ -262,8 +284,11 @@ def _fulfil_paid_order(db, order: dict, payment_id: str, source: str, payment_si
         if not updated:
             raise ValueError("The order could not be confirmed safely.")
     except Exception as error:
-        for product_id, quantity in decremented:
-            db.products.update_one({"_id": product_id}, {"$inc": {"stock": quantity}, "$set": {"updatedAt": now}})
+        for product_id, quantity, size in decremented:
+            if size:
+                db.products.update_one({"_id": product_id, "sizeInventory.size": size}, {"$inc": {"sizeInventory.$.stock": quantity, "stock": quantity}, "$set": {"updatedAt": now}})
+            else:
+                db.products.update_one({"_id": product_id}, {"$inc": {"stock": quantity}, "$set": {"updatedAt": now}})
         db.orders.update_one(
             {"_id": locked["_id"], "paymentStatus": "processing"},
             {"$set": {"status": "payment_failed", "paymentStatus": "stock_unavailable", "paymentFailureReason": str(error)[:240], "updatedAt": now}},

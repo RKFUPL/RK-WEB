@@ -57,9 +57,9 @@ class OrderFulfillmentTests(unittest.TestCase):
             validate_transition(order, "confirmed")
         self.assertEqual(valid_next_statuses(order), ["cancelled"])
 
-    def test_shipment_requires_courier_and_tracking_number(self):
-        with self.assertRaises(OrderTransitionError):
-            shipment_fields({"courier": "Courier One"})
+    def test_shipment_tracking_is_optional_until_available(self):
+        shipment_without_tracking = shipment_fields({"courier": "Courier One"})
+        self.assertEqual(shipment_without_tracking["trackingNumber"], "")
         shipment = shipment_fields({"courier": "Courier One", "trackingNumber": "TRACK-123", "trackingUrl": "https://courier.example/track/TRACK-123"})
         self.assertEqual(shipment["trackingNumber"], "TRACK-123")
         with self.assertRaises(OrderTransitionError):

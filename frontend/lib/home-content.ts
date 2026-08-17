@@ -151,7 +151,7 @@ export const collectionGalleryPages: readonly (CollectionPage & { comingSoon?: b
     route: '#aakaar-coming-soon',
     status: 'Coming Soon',
     summary: featuredCollection.description,
-    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487994/Rashi_Kapoor2418_compressed_8000kb_qkke56.jpg',
+    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg',
     fontFamily: 'RK Campaign',
     fontUrl: 'https://res.cloudinary.com/fm1bwbrd/raw/upload/v1786736151/TAN-MON_CHERI-Regular_w92ze1.otf',
     comingSoon: true,

@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Footer } from '@/components/home/footer';
 import { StickyHeader } from '@/components/home/sticky-header';
 import { SectionShell } from '@/components/home/section-shell';
-import { collectionPages } from '@/lib/home-content';
+import { aakarBannerBackgroundUrl, collectionPages } from '@/lib/home-content';
 
 type Lookbook = {
   title: string;
@@ -18,6 +18,7 @@ type Lookbook = {
 };
 
 const lookbooks: Lookbook[] = [
+  { title: 'Aakaar', subtitle: 'The debut chapter is arriving soon.', description: 'A forthcoming Aakaar lookbook shaped by sculpted drape, quiet couture, and the first story of the house.', comingSoon: true },
   { title: 'Anamika', subtitle: 'A softer, more movement-led chapter.', description: 'An evolving lookbook space for future drops, references, and campaign imagery.', href: '/rk-lookbooks/anamika' },
   { title: 'Hastakala', subtitle: 'A craft-first presentation.', description: 'Reserved for hand-finished stories, artisan detail, and heirloom-inspired styling.', href: '/rk-lookbooks/hasthkala' },
   { title: 'Sandook', subtitle: 'A treasured archive of the house.', description: 'A visual story of heirloom moods, considered detail, and timeless occasion dressing.', href: '/rk-lookbooks/sandook' },
@@ -32,6 +33,7 @@ const coverByTitle = new Map([
   ['INAARA', 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861901/Inaara_hn30rg.png'],
   ['ESPIRITU LIBRE', 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861902/Espi_bbvgfh.png'],
   ['SANDOOK', 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861901/Sandook_h0rfqg.png'],
+  ['AAKAAR', aakarBannerBackgroundUrl],
 ]);
 
 const lookbookExploreLightBackground = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785934366/174c6b2b-830d-47ab-b2f7-27ff728c5384_ybxqdk.png';
@@ -111,16 +113,18 @@ export default function RkLookbooksPage() {
           <div ref={shelfRef} className="rk-archive-shelf mt-12 flex gap-8 overflow-x-auto overscroll-x-contain pb-8 touch-pan-x select-none md:gap-10">
             {lookbooks.map((lookbook, index) => {
               const cover = coverByTitle.get(lookbook.title.toUpperCase());
-              return <Link key={lookbook.title} href={lookbook.href ?? '/rk-lookbooks'} target={lookbook.href ? '_blank' : undefined} rel={lookbook.href ? 'noopener noreferrer' : undefined} className={`group relative w-[16rem] shrink-0 pt-4 text-left before:absolute before:left-0 before:right-0 before:top-0 before:h-px before:origin-left before:scale-x-0 before:bg-gold before:transition-transform before:duration-150 before:ease-out group-hover:before:scale-x-100 md:w-[17rem] ${activeSpotlight?.title === lookbook.title ? 'before:scale-x-100' : ''}`}>
-                <div className={`relative aspect-[3/4] w-full overflow-hidden rounded-[3px] ${lookbook.comingSoon ? 'border border-black/10 dark:border-white/25' : 'bg-sand'}`}>
-                  {lookbook.comingSoon ? <div className="flex h-full items-center justify-center bg-black/[0.02] text-center text-[0.62rem] uppercase tracking-[0.35em] text-white transition-colors duration-150 group-hover:text-gold dark:bg-white/[0.02] dark:text-white">Coming<br />Soon</div> : cover ? <img src={cover} alt={`${lookbook.title} cover`} draggable={false} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03] group-hover:brightness-90" /> : null}
+              const card = <div className={`group relative w-[16rem] shrink-0 pt-4 text-left before:absolute before:left-0 before:right-0 before:top-0 before:h-px before:origin-left before:scale-x-0 before:bg-gold before:transition-transform before:duration-150 before:ease-out group-hover:before:scale-x-100 md:w-[17rem] ${activeSpotlight?.title === lookbook.title ? 'before:scale-x-100' : ''}`}>
+                <div className="relative aspect-[3/4] w-full overflow-hidden rounded-[3px] bg-sand">
+                  {cover ? <img src={cover} alt={`${lookbook.title} cover`} draggable={false} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03] group-hover:brightness-90" /> : null}
+                  {lookbook.comingSoon ? <div className="absolute inset-0 grid place-items-center bg-black/15"><span className="px-4 py-3 text-center text-[0.62rem] uppercase tracking-[0.35em] text-white drop-shadow-[0_1px_10px_rgba(0,0,0,.65)]">Coming<br />Soon</span></div> : null}
                   <span className="absolute left-4 top-4 font-display text-3xl text-white/80 drop-shadow">{String(index + 1).padStart(2, '0')}</span>
                 </div>
                 <h3 style={titleStyle()} className="mt-6 min-h-[3.5rem] whitespace-normal break-words text-3xl leading-[0.88] text-charcoal transition-colors duration-150 group-hover:text-gold">{lookbook.title}</h3>
                 <p className="mt-3 text-[0.6rem] uppercase tracking-[0.32em] text-charcoal/45 transition-colors duration-150 group-hover:text-gold">{lookbook.comingSoon ? 'Coming soon' : 'SS26'}</p>
                 <p className="mt-4 max-w-[16rem] text-sm leading-6 text-charcoal/60 transition-colors duration-150 group-hover:text-gold">{lookbook.description}</p>
-                <span className="mt-6 inline-flex items-center gap-3 text-[0.6rem] uppercase tracking-[0.3em] text-charcoal/65 transition-colors duration-150 group-hover:text-gold md:opacity-0 md:group-hover:opacity-100">Read lookbook <ArrowRight className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-1.5" /></span>
-              </Link>;
+                <span className="mt-6 inline-flex items-center gap-3 text-[0.6rem] uppercase tracking-[0.3em] text-charcoal/65 transition-colors duration-150 group-hover:text-gold md:opacity-0 md:group-hover:opacity-100">{lookbook.comingSoon ? 'Coming soon' : <>Read lookbook <ArrowRight className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-1.5" /></>}</span>
+              </div>;
+              return lookbook.comingSoon ? <div key={lookbook.title} aria-label="Aakaar lookbook coming soon">{card}</div> : <Link key={lookbook.title} href={lookbook.href!} target="_blank" rel="noopener noreferrer">{card}</Link>;
             })}
           </div>
           </div>

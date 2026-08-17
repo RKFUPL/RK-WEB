@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from bson import ObjectId
 from pymongo.errors import OperationFailure
 
+from .inventory import has_size_system, product_size_inventory, total_size_stock
+
 
 EXCLUDED_COLLECTION_SLUGS = {"aakaar", "aakaar-insights", "collections-of-aakaar"}
 PRODUCT_AVAILABILITY = {"in_stock", "custom_order", "sold_out"}
@@ -155,6 +157,21 @@ def ensure_catalog_seed(db) -> None:
         # that existing index in place.
         if error.code not in {85, 86}:
             raise
+
+    # Preserve the legacy numeric stock as explicitly unallocated stock. Do
+    # not invent per-size quantities during migration; staff can allocate the
+    # quantity to XS/S/M/L/XL when the product is ready for size inventory.
+    for product in db.products.find({"unallocatedStock": {"$exists": False}}, {"stock": 1, "sizeInventory": 1}):
+        try:
+            legacy_stock = max(0, int(product.get("stock") or 0))
+        except (TypeError, ValueError):
+            legacy_stock = 0
+        size_inventory = product.get("sizeInventory") if isinstance(product.get("sizeInventory"), list) else []
+        allocated = sum(max(0, int(item.get("stock") or 0)) for item in size_inventory if isinstance(item, dict))
+        db.products.update_one(
+            {"_id": product["_id"], "unallocatedStock": {"$exists": False}},
+            {"$set": {"unallocatedStock": max(0, legacy_stock - allocated), "sizeSystemEnabled": bool(size_inventory)}},
+        )
 
     for position, seed in enumerate(NORMAL_COLLECTIONS, start=1):
         collection = db.collections.find_one({"slug": seed["slug"]})
@@ -316,6 +333,11 @@ def collection_product_documents(db, collection: dict) -> list[tuple[dict, int]]
 
 
 def product_view(product: dict, *, display_order: int | None = None) -> dict:
+    size_inventory = product_size_inventory(product) if has_size_system(product) else []
+    public_attributes = _json_value(product.get("attributes") or {})
+    if size_inventory and isinstance(public_attributes, dict) and not public_attributes.get("sizes"):
+        public_attributes["sizes"] = [item["size"] for item in size_inventory if item.get("enabled", True)]
+    public_stock = total_size_stock(product) if size_inventory else product.get("stock")
     result = {
         "id": str(product["_id"]),
         "name": product.get("name"),
@@ -325,11 +347,15 @@ def product_view(product: dict, *, display_order: int | None = None) -> dict:
         "availability": product.get("availability") or ("sold_out" if int(product.get("stock") or 0) <= 0 else "in_stock"),
         "price": product.get("price"),
         "currency": "INR",
-        "stock": product.get("stock"),
+        "stock": public_stock,
+        "sizeSystemEnabled": bool(size_inventory),
+        "sizeInventory": _json_value(size_inventory),
+        "unallocatedStock": int(product.get("unallocatedStock") or 0),
+        "customSizeConfig": _json_value(product.get("customSizeConfig") or {}),
         "category": product.get("category"),
         "description": product.get("description"),
         "media": _json_value(product.get("media") or []),
-        "attributes": _json_value(product.get("attributes") or {}),
+        "attributes": public_attributes,
         "isDummy": bool(product.get("isDummy")),
         "createdAt": _json_value(product.get("createdAt")),
         "updatedAt": _json_value(product.get("updatedAt")),

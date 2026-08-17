@@ -326,11 +326,11 @@ def validate_tracking_url(value: object) -> str:
     return url
 
 
-def shipment_fields(payload: dict, require_complete: bool = True) -> dict:
+def shipment_fields(payload: dict, require_complete: bool = False) -> dict:
     courier = safe_text(payload.get("courier"), 100)
     tracking_number = safe_text(payload.get("trackingNumber"), 160)
     if require_complete and (not courier or not tracking_number):
-        raise OrderTransitionError("Courier and tracking number are required before an order can be shipped.")
+        raise OrderTransitionError("Courier and tracking number are required for this shipment update.")
     if tracking_number and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9\s._/-]{2,159}", tracking_number):
         raise OrderTransitionError("Enter a valid tracking number.")
     return {
@@ -359,6 +359,7 @@ def validate_transition(order: dict, target_status: str, actor_type: str = "staf
 
 def _notification_copy(status: str) -> tuple[str, str] | None:
     copies = {
+        "processing": ("Your RK order has been processed", "Your order has been processed and will be sent for shipping shortly."),
         "packed": ("Your RK order has been packed", "Your order has been packed and is ready for dispatch."),
         "shipped": ("Your RK order has shipped", "Your order has shipped."),
         "out_for_delivery": ("Your RK order is out for delivery", "Your order is out for delivery."),
@@ -370,7 +371,7 @@ def _notification_copy(status: str) -> tuple[str, str] | None:
     return copies.get(status)
 
 
-def send_status_notification(database, order: dict, status: str) -> None:
+def _legacy_send_status_notification(database, order: dict, status: str) -> None:
     copy = _notification_copy(status)
     api_key = current_app.config.get("RESEND_API_KEY")
     email = safe_text(order.get("email"), 160).lower()
@@ -408,22 +409,104 @@ def send_status_notification(database, order: dict, status: str) -> None:
         current_app.logger.exception("Unable to send order status notification")
 
 
+def _proof_data(value: object, maximum: int = 2_500_000) -> str:
+    candidate = safe_text(value, maximum)
+    if not candidate:
+        return ""
+    if not re.fullmatch(r"data:image/(?:png|jpe?g|webp);base64,[A-Za-z0-9+/=]+", candidate):
+        raise OrderTransitionError("Delivery proof must be a PNG, JPEG, or WebP image.")
+    return candidate
+
+
+def send_status_notification(database, order: dict, status: str, customer_note: str = "", notification_key: str | None = None) -> None:
+    copy = _notification_copy(status)
+    email = safe_text(order.get("email"), 160).lower()
+    if not copy or not email:
+        return
+    key = notification_key or f"fulfillment:{status}"
+    claimed = database.orders.update_one(
+        {"_id": order["_id"], "notificationKeys": {"$ne": key}},
+        {"$addToSet": {"notificationKeys": key}},
+    )
+    if claimed.modified_count != 1:
+        return
+    api_key = current_app.config.get("RESEND_API_KEY")
+    subject, message = copy
+    number = html.escape(safe_text(order.get("orderNumber"), 80))
+    customer_name = html.escape(safe_text(order.get("customerName"), 120) or "Customer")
+    fulfillment = order.get("fulfillment") if isinstance(order.get("fulfillment"), dict) else {}
+    tracking = ""
+    if status == "shipped" or key.startswith("shipment:"):
+        courier = html.escape(safe_text(fulfillment.get("courier"), 100))
+        tracking_number = html.escape(safe_text(fulfillment.get("trackingNumber"), 160))
+        tracking = f"<p>Courier: <strong>{courier or 'To be assigned'}</strong><br>Tracking number: <strong>{tracking_number or 'Not yet available'}</strong></p>"
+        tracking_url = safe_text(fulfillment.get("trackingUrl"), 2048)
+        if tracking_url:
+            tracking += f'<p><a href="{html.escape(tracking_url, quote=True)}">Track shipment</a></p>'
+    feedback_link = ""
+    if status == "delivered":
+        delivery = fulfillment.get("delivery") if isinstance(fulfillment.get("delivery"), dict) else {}
+        received_by = html.escape(safe_text(delivery.get("receivedBy"), 160))
+        if received_by:
+            tracking += f"<p>Received by: <strong>{received_by}</strong></p>"
+        if delivery.get("proofPhoto") or delivery.get("signature"):
+            tracking += "<p>Delivery proof has been recorded securely with your order.</p>"
+        try:
+            from .feedback import create_feedback_token, feedback_url
+            token = create_feedback_token(database, order, delivery.get("deliveredAt") or datetime.now(timezone.utc))
+            feedback_link = feedback_url(token)
+        except Exception:
+            current_app.logger.exception("Unable to create delivery feedback link")
+    if not api_key:
+        return
+    if feedback_link:
+        tracking += f'<p><a href="{html.escape(feedback_link, quote=True)}">Share your experience</a></p>'
+    note = html.escape(safe_text(customer_note, 500))
+    note_html = f"<div style='border-left:2px solid #c09355;padding:12px 16px;margin:24px 0'>{note}</div>" if note else ""
+    try:
+        resend.api_key = api_key
+        response = resend.Emails.send({
+            "from": f'{current_app.config["EMAIL_FROM_NAME"]} <{current_app.config["EMAIL_FROM"]}>',
+            "to": [email],
+            "subject": f"{subject} — {number}",
+            "html": f"<div style='background:#f8f5ef;padding:32px;color:#27221d;font-family:Arial,sans-serif'><p style='letter-spacing:.28em;text-transform:uppercase;font-size:11px'>RASHI KAPOOR</p><h1 style='font-family:Georgia,serif;font-weight:400'>{html.escape(subject)}</h1><p>Dear {customer_name},</p><p>{html.escape(message)}</p>{note_html}{tracking}<p>We will keep you updated as your order progresses.</p><p>Yours sincerely,<br>The Rashi Kapoor Team</p></div>",
+        })
+        database.orders.update_one({"_id": order["_id"]}, {"$push": {"notificationLog": {"key": key, "status": "sent", "timestamp": datetime.now(timezone.utc), "providerId": safe_text((response or {}).get("id") if isinstance(response, dict) else "", 160)}}})
+    except Exception as error:
+        database.orders.update_one({"_id": order["_id"]}, {"$push": {"notificationLog": {"key": key, "status": "failed", "timestamp": datetime.now(timezone.utc), "error": safe_text(error, 240)}}})
+        current_app.logger.exception("Unable to send order status notification")
+
+
 def apply_transition(database, order: dict, target_status: str, actor_type: str, actor_user: dict | None, payload: dict) -> dict:
     order = ensure_order_tracking(database, order)
     current, target = validate_transition(order, target_status, actor_type)
-    note = safe_text(payload.get("note") or payload.get("shippingNote") or DEFAULT_NOTES.get(target), 500)
+    send_customer_notification = payload.get("sendCustomerNotification", True) is not False
+    requested_customer_note = safe_text(payload.get("customerNote"), 500)
+    customer_note = requested_customer_note if send_customer_notification or actor_type == "customer" else ""
+    internal_note = safe_text(payload.get("internalNote") or payload.get("note") or payload.get("shippingNote"), 500)
+    if actor_type != "customer" and not send_customer_notification and requested_customer_note:
+        internal_note = internal_note or requested_customer_note
+    note = customer_note or (internal_note if actor_type == "customer" else DEFAULT_NOTES.get(target, ""))
     if target == "return_requested" and not note:
         raise OrderTransitionError("Enter a reason for the return request.")
     fulfillment = dict(order.get("fulfillment") or {})
     metadata = None
     now = datetime.now(timezone.utc)
     if target == "shipped":
-        shipment = shipment_fields(payload, require_complete=True)
+        shipment = shipment_fields(payload, require_complete=False)
         fulfillment.update(shipment)
         fulfillment["shippedAt"] = now
         metadata = {"courier": shipment["courier"], "trackingNumber": shipment["trackingNumber"]}
     if target == "delivered":
         fulfillment["deliveredAt"] = now
+        delivery = dict(fulfillment.get("delivery") or {})
+        delivery.update({
+            "receivedBy": safe_text(payload.get("receivedBy"), 160),
+            "proofPhoto": _proof_data(payload.get("proofPhoto")),
+            "signature": _proof_data(payload.get("signature")),
+            "deliveredAt": now,
+        })
+        fulfillment["delivery"] = delivery
     fulfillment["status"] = target
     fields: dict[str, Any] = {
         "fulfillment": fulfillment,
@@ -436,6 +519,11 @@ def apply_transition(database, order: dict, target_status: str, actor_type: str,
         payment["status"] = "refunded"
         fields.update({"payment": payment, "paymentStatus": "refunded", "refundedAt": now})
     event = timeline_event(target, now, actor_view(actor_type, actor_user), note, metadata)
+    if internal_note and actor_type != "customer":
+        event["internalNote"] = internal_note
+    if customer_note:
+        event["customerNote"] = customer_note
+    event["notifyCustomer"] = send_customer_notification
     updated = database.orders.find_one_and_update(
         {"_id": order["_id"], "fulfillment.status": current},
         {"$set": fields, "$push": {"timeline": event}},
@@ -443,7 +531,8 @@ def apply_transition(database, order: dict, target_status: str, actor_type: str,
     )
     if not updated:
         raise OrderTransitionConflict("The order changed in another session. Refresh and try again.")
-    send_status_notification(database, updated, target)
+    if send_customer_notification:
+        send_status_notification(database, updated, target, customer_note)
     return updated
 
 
@@ -452,16 +541,27 @@ def update_shipment(database, order: dict, actor_user: dict, payload: dict) -> d
     current = canonical_fulfillment_status(order)
     if current not in {"shipped", "out_for_delivery", "delivered"}:
         raise OrderTransitionError("Shipment information can only be edited after an order has shipped.")
-    shipment = shipment_fields(payload, require_complete=True)
+    shipment = shipment_fields(payload, require_complete=False)
     now = datetime.now(timezone.utc)
     fulfillment = {**dict(order.get("fulfillment") or {}), **shipment}
+    send_customer_notification = payload.get("sendCustomerNotification", True) is not False
+    requested_customer_note = safe_text(payload.get("customerNote"), 500)
+    customer_note = requested_customer_note if send_customer_notification else ""
+    internal_note = safe_text(payload.get("internalNote") or payload.get("note") or payload.get("shippingNote"), 500)
+    if not send_customer_notification and requested_customer_note:
+        internal_note = internal_note or requested_customer_note
     event = timeline_event(
         "shipment_updated",
         now,
         actor_view("staff", actor_user),
-        shipment.get("shippingNote") or "Shipment information updated.",
+        customer_note or "Shipment information updated.",
         {"courier": shipment["courier"], "trackingNumber": shipment["trackingNumber"]},
     )
+    event["notifyCustomer"] = send_customer_notification
+    if customer_note:
+        event["customerNote"] = customer_note
+    if internal_note:
+        event["internalNote"] = internal_note
     updated = database.orders.find_one_and_update(
         {"_id": order["_id"], "fulfillment.status": current},
         {"$set": {"fulfillment": fulfillment, "updatedAt": now}, "$push": {"timeline": event}},
@@ -469,6 +569,8 @@ def update_shipment(database, order: dict, actor_user: dict, payload: dict) -> d
     )
     if not updated:
         raise OrderTransitionConflict("The order changed in another session. Refresh and try again.")
+    if payload.get("sendCustomerNotification", True) is not False:
+        send_status_notification(database, updated, "shipped", customer_note, f"shipment:{now.isoformat()}")
     return updated
 
 
@@ -485,6 +587,8 @@ def order_view(order: dict, include_private_payment: bool = False) -> dict:
     fulfillment = dict(order.get("fulfillment") or {})
     fulfillment["status"] = canonical_fulfillment_status(order)
     timeline = order.get("timeline") if isinstance(order.get("timeline"), list) else []
+    if not include_private_payment:
+        timeline = [{key: value for key, value in event.items() if key not in {"internalNote", "notifyCustomer"}} for event in timeline]
     fields = (
         "orderNumber", "customerName", "email", "phone", "shipping", "items", "subtotal", "shippingCharge",
         "tax", "discount", "total", "amountPaise", "currency", "createdAt", "updatedAt",
@@ -498,6 +602,9 @@ def order_view(order: dict, include_private_payment: bool = False) -> dict:
         "fulfillmentStatus": fulfillment["status"],
         "timeline": json_value(timeline),
         "latestStatus": json_value(timeline[-1]) if timeline else None,
-        "availableActions": valid_next_statuses(order, "staff"),
+        "availableActions": valid_next_statuses(order, "staff") + (["shipment_update"] if fulfillment["status"] in {"shipped", "out_for_delivery", "delivered"} else []) + (["return_accept"] if fulfillment["status"] == "return_requested" and isinstance(order.get("returnRequest"), dict) and order["returnRequest"].get("status") != "accepted" else []),
     })
+    if isinstance(order.get("returnRequest"), dict):
+        return_request = {key: value for key, value in order["returnRequest"].items() if key not in {"token", "tokenHash"}}
+        view["returnRequest"] = json_value(return_request)
     return view

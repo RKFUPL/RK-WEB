@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 import re
 
 from bson import ObjectId
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity
 
 from ...order_fulfillment import (
@@ -20,6 +20,7 @@ from ...order_fulfillment import (
     order_view,
     update_shipment,
 )
+from ...returns import create_return_request, return_url, send_return_accepted
 from ...rbac import current_user, database, requireCustomer, requirePermission
 
 
@@ -166,12 +167,13 @@ def request_order_return(order_id: str):
     if not reason:
         return jsonify({"error": "Enter a reason for the return request."}), 400
     try:
-        updated = apply_transition(db, order, "return_requested", "customer", user, {"note": reason})
+        updated = apply_transition(db, order, "return_requested", "customer", user, {"internalNote": reason, "customerNote": reason, "sendCustomerNotification": False})
     except OrderTransitionError as error:
         return jsonify({"error": str(error)}), 400
     except OrderTransitionConflict as error:
         return jsonify({"error": str(error)}), 409
-    return jsonify({"order": order_view(updated)}), 200
+    db.orders.update_one({"_id": updated["_id"]}, {"$set": {"returnRequest": {"status": "requested", "reason": reason, "requestedAt": datetime.now(timezone.utc)}}})
+    return jsonify({"order": order_view(db.orders.find_one({"_id": updated["_id"]}))}), 200
 
 
 @staff_orders_bp.get("")
@@ -255,3 +257,30 @@ def edit_shipment(order_id: str):
     except OrderTransitionConflict as error:
         return jsonify({"error": str(error)}), 409
     return jsonify({"order": order_view(updated, include_private_payment=True)}), 200
+
+
+@staff_orders_bp.patch("/<order_id>/return")
+@requirePermission("orders:manage")
+def accept_return(order_id: str):
+    object_id = _object_id(order_id)
+    if not object_id:
+        return jsonify({"error": "Order not found."}), 404
+    db = database()
+    _prepare(db)
+    order = db.orders.find_one({"_id": object_id})
+    if not order:
+        return jsonify({"error": "Order not found."}), 404
+    if canonical_fulfillment_status(order) != "return_requested":
+        return jsonify({"error": "Only requested returns can be accepted."}), 400
+    payload = request.get_json(silent=True) or {}
+    customer_note = str(payload.get("customerNote") or "").strip()[:500]
+    record, token = create_return_request(db, order, str((order.get("returnRequest") or {}).get("reason") or ""), current_user())
+    now = datetime.now(timezone.utc)
+    db.orders.update_one({"_id": object_id}, {"$set": {"returnRequest": {"status": "accepted", "reason": (order.get("returnRequest") or {}).get("reason", ""), "requestedAt": (order.get("returnRequest") or {}).get("requestedAt"), "acceptedAt": now, "tokenHash": record.get("tokenHash"), "formUrl": return_url(token)}}})
+    updated = db.orders.find_one({"_id": object_id})
+    try:
+        if payload.get("sendCustomerNotification", True) is not False:
+            send_return_accepted(db, updated, token, customer_note)
+    except Exception:
+        current_app.logger.exception("Unable to send return acceptance notification")
+    return jsonify({"order": order_view(updated, include_private_payment=True), "returnFormUrl": return_url(token)}), 200

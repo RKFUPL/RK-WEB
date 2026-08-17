@@ -23,15 +23,15 @@ function CampaignImage({ collection, index }: { collection: (typeof collectionGa
         viewport={{ once: true, amount: 0.12 }}
         transition={{ duration: 0.75, ease: [0.22, 1, 0.36, 1] }}
       >
-        <div className="collections-campaign-image relative overflow-hidden bg-sand">
+        <div className={`collections-campaign-image relative overflow-hidden bg-sand ${collection.comingSoon ? 'aspect-[3/4]' : ''}`}>
           <img
             src={collection.image}
             alt={`${collection.name} collection campaign`}
             draggable={false}
-            className="collection-card-image block h-auto w-full object-cover"
+            className={`collection-card-image block h-full w-full object-cover ${collection.comingSoon ? 'object-[center_32%]' : ''}`}
           />
           <div className="collections-campaign-shade absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-90 transition-opacity duration-300 group-hover:opacity-100" />
-          {collection.comingSoon ? <div className="absolute inset-0 grid place-items-center bg-black/20"><span className="border border-white/70 bg-black/35 px-5 py-3 text-[0.58rem] uppercase tracking-[0.34em] text-white backdrop-blur-sm">Coming soon</span></div> : null}
+          {collection.comingSoon ? <div className="absolute inset-0 grid place-items-center bg-black/10"><span className="px-5 py-3 text-[0.58rem] uppercase tracking-[0.42em] text-white/90 drop-shadow-[0_1px_12px_rgba(0,0,0,.65)] backdrop-blur-[1px]">Coming soon</span></div> : null}
           <div className="absolute inset-x-0 bottom-0 p-5 text-white md:p-7">
             <p className="text-[0.58rem] uppercase tracking-[0.32em] text-white/75">Collection</p>
             <div className="mt-2 flex items-end justify-between gap-5">

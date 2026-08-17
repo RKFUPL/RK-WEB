@@ -21,6 +21,7 @@ from ...catalog import (
     update_product_order,
 )
 from ...order_fulfillment import actor_view, migrate_legacy_orders, timeline_event
+from ...inventory import default_size_inventory, has_size_system, normalise_size_inventory, total_size_stock
 from ...rbac import current_user, database, effective_permissions, requireStaff
 
 staff_bp = Blueprint("staff", __name__)
@@ -338,15 +339,27 @@ def create_resource(resource: str):
             return jsonify({"error": "Product name, unique SKU, non-negative price and stock, and a valid status are required."}), 400
         if availability not in PRODUCT_AVAILABILITY:
             return jsonify({"error": "Choose In Stock, Custom Order, or Sold Out availability."}), 400
-        if availability == "in_stock" and stock <= 0:
+        raw_size_inventory = payload.get("sizeInventory")
+        try:
+            size_inventory = normalise_size_inventory(raw_size_inventory) if raw_size_inventory is not None else []
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+        size_enabled = bool(size_inventory)
+        unallocated_stock = _integer(payload.get("unallocatedStock"), stock) if size_enabled else stock
+        if unallocated_stock < 0:
+            return jsonify({"error": "Unallocated stock cannot be negative."}), 400
+        total_stock = total_size_stock({"sizeInventory": size_inventory}) + unallocated_stock if size_enabled else stock
+        if availability == "in_stock" and total_stock <= 0:
             return jsonify({"error": "In Stock products must have a quantity greater than zero."}), 400
-        if availability in {"custom_order", "sold_out"} and stock != 0:
+        if availability in {"custom_order", "sold_out"} and total_stock != 0:
             return jsonify({"error": "Custom Order and Sold Out products must have quantity zero."}), 400
         if db.products.find_one({"sku": sku}):
             return jsonify({"error": "That SKU already exists."}), 409
         media = payload.get("media") if isinstance(payload.get("media"), list) else []
         attributes = payload.get("attributes") if isinstance(payload.get("attributes"), dict) else {}
-        document = {**common, "name": name, "sku": sku, "price": price, "stock": stock, "status": status, "availability": availability, "currency": "INR", "category": str(payload.get("category") or "").strip(), "description": str(payload.get("description") or "").strip(), "media": media[:12], "attributes": attributes, "isActive": status != "archived"}
+        document = {**common, "name": name, "sku": sku, "price": price, "stock": total_stock, "unallocatedStock": unallocated_stock if size_enabled else stock, "sizeSystemEnabled": size_enabled, "sizeInventory": size_inventory, "status": status, "availability": availability, "currency": "INR", "category": str(payload.get("category") or "").strip(), "description": str(payload.get("description") or "").strip(), "media": media[:12], "attributes": attributes, "isActive": status != "archived"}
+        if isinstance(payload.get("customSizeConfig"), dict):
+            document["customSizeConfig"] = payload["customSizeConfig"]
         collection = db.products
     elif resource == "orders":
         customer_name = str(payload.get("customerName") or "").strip()
@@ -452,25 +465,66 @@ def update_resource(resource: str, resource_id: str):
                 return jsonify({"error": "Choose In Stock, Custom Order, or Sold Out availability."}), 400
             updates["availability"] = availability
         stock_changed = False
+        size_inventory_changed = False
         before_stock = _integer(current.get("stock"), 0)
         after_stock = before_stock
+        current_size_inventory = normalise_size_inventory(current.get("sizeInventory"))
+        size_inventory = current_size_inventory
+        unallocated_stock = _integer(current.get("unallocatedStock"), before_stock)
+        if "sizeInventory" in payload:
+            try:
+                size_inventory = normalise_size_inventory(payload.get("sizeInventory"))
+            except ValueError as error:
+                return jsonify({"error": str(error)}), 400
+            size_inventory_changed = size_inventory != current_size_inventory
+            updates["sizeInventory"] = size_inventory
+            updates["sizeSystemEnabled"] = bool(size_inventory)
+            if "unallocatedStock" in payload:
+                unallocated_stock = _integer(payload.get("unallocatedStock"), -1)
+                if unallocated_stock < 0:
+                    return jsonify({"error": "Unallocated stock cannot be negative."}), 400
+            elif not size_inventory:
+                unallocated_stock = before_stock
+            updates["unallocatedStock"] = unallocated_stock
+            after_stock = total_size_stock({"sizeInventory": size_inventory}) + unallocated_stock
+            updates["stock"] = after_stock
         if "stock" in payload:
             raw_stock = payload.get("stock")
-            after_stock = before_stock if raw_stock is None or str(raw_stock).strip() == "" else _integer(raw_stock)
+            requested_stock = before_stock if raw_stock is None or str(raw_stock).strip() == "" else _integer(raw_stock)
+            after_stock = requested_stock
             if after_stock < 0:
                 return jsonify({"error": "Stock cannot be negative."}), 400
+            if size_inventory:
+                allocated = total_size_stock({"sizeInventory": size_inventory})
+                if after_stock < allocated:
+                    return jsonify({"error": "Total stock cannot be less than the allocated size quantities."}), 400
+                unallocated_stock = after_stock - allocated
+                updates["unallocatedStock"] = unallocated_stock
             updates["stock"] = after_stock
             stock_changed = after_stock != before_stock
         availability_changed = "availability" in updates and updates["availability"] != current.get("availability")
         effective_availability = updates.get("availability", current.get("availability"))
+        if availability_changed and effective_availability in {"custom_order", "sold_out"}:
+            # These states cannot retain sellable inventory. Keep the size
+            # definitions, but clear every quantity when the operator changes
+            # the availability dropdown to either non-stock state.
+            after_stock = 0
+            unallocated_stock = 0
+            updates["stock"] = 0
+            updates["unallocatedStock"] = 0
+            if size_inventory:
+                size_inventory = [{**entry, "stock": 0} for entry in size_inventory]
+                updates["sizeInventory"] = size_inventory
+                updates["sizeSystemEnabled"] = True
+                size_inventory_changed = size_inventory != current_size_inventory
         if effective_availability == "in_stock" and after_stock <= 0:
             return jsonify({"error": "In Stock products must have a quantity greater than zero."}), 400
         if effective_availability in {"custom_order", "sold_out"} and after_stock != 0:
             return jsonify({"error": "Custom Order and Sold Out products must have quantity zero."}), 400
         reason = str(payload.get("reason") or payload.get("changeReason") or "").strip()[:240]
-        if (stock_changed or availability_changed) and not reason:
+        if (stock_changed or availability_changed or size_inventory_changed) and not reason:
             return jsonify({"error": "Enter a reason for changing availability or quantity."}), 400
-        if stock_changed or availability_changed:
+        if stock_changed or availability_changed or size_inventory_changed:
             db.inventory_adjustments.insert_one({
                 "productId": object_id,
                 "before": before_stock,
@@ -478,8 +532,10 @@ def update_resource(resource: str, resource_id: str):
                 "adjustment": after_stock - before_stock,
                 "beforeAvailability": current.get("availability"),
                 "afterAvailability": updates.get("availability", current.get("availability")),
+                "beforeSizeInventory": current_size_inventory,
+                "afterSizeInventory": size_inventory,
                 "reason": reason,
-                "changeType": "availability_and_stock" if stock_changed and availability_changed else "availability" if availability_changed else "stock",
+                "changeType": "size_inventory" if size_inventory_changed else "availability_and_stock" if stock_changed and availability_changed else "availability" if availability_changed else "stock",
                 "createdAt": now,
                 "createdBy": actor["_id"],
             })
@@ -494,6 +550,10 @@ def update_resource(resource: str, resource_id: str):
             if not isinstance(payload.get("attributes"), dict):
                 return jsonify({"error": "Product attributes must be an object."}), 400
             updates["attributes"] = payload["attributes"]
+        if "customSizeConfig" in payload:
+            if payload["customSizeConfig"] is not None and not isinstance(payload["customSizeConfig"], dict):
+                return jsonify({"error": "Custom size configuration must be an object."}), 400
+            updates["customSizeConfig"] = payload["customSizeConfig"] or {}
     elif resource == "inventory":
         before = _integer(current.get("stock"), 0)
         after = _integer(payload.get("stock")) if "stock" in payload else before + _integer(payload.get("adjustment"), 0)

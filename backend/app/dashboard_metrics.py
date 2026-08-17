@@ -1,18 +1,28 @@
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 PERIOD_DAYS = {"7d": 7, "30d": 30, "90d": 90}
+
+
+def _store_timezone() -> ZoneInfo:
+    try:
+        return ZoneInfo("Asia/Kolkata")
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("UTC")
 
 
 def period_window(period: str, now: datetime | None = None) -> tuple[str, datetime, datetime]:
     current = now or datetime.now(timezone.utc)
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
+    current = current.astimezone(timezone.utc)
     selected = period if period in PERIOD_DAYS else "7d"
-    start = current - timedelta(days=PERIOD_DAYS[selected] - 1)
-    start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    local_now = current.astimezone(_store_timezone())
+    local_start = (local_now - timedelta(days=PERIOD_DAYS[selected] - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    start = local_start.astimezone(timezone.utc)
     return selected, start, current
 
 
@@ -46,6 +56,9 @@ def order_total(order: dict) -> float:
     for value in (order.get("total"), order.get("totalAmount"), order.get("grandTotal"), totals.get("total")):
         if value is not None:
             return max(0.0, number(value))
+    amount_paise = order.get("amountPaise")
+    if amount_paise is not None:
+        return max(0.0, number(amount_paise) / 100)
     return 0.0
 
 
@@ -78,11 +91,14 @@ def build_dashboard(database, period: str, now: datetime | None = None, current_
     page_view_count = database.analytics_events.count_documents(page_view_query)
     wishlist_adds = database.analytics_events.count_documents({**public_event_query, "event": "wishlist_add"})
     fulfillment_counts = {
-        status: database.orders.count_documents({"fulfillment.status": status})
+        status: database.orders.count_documents({"$or": [{"fulfillment.status": status}, {"fulfillmentStatus": status}]})
         for status in ("order_placed", "confirmed", "processing", "packed", "shipped", "out_for_delivery", "delivered", "return_requested", "returned", "cancelled", "refunded")
     }
 
-    order_query = {**date_query, "status": {"$nin": ["cancelled", "canceled", "refunded"]}}
+    order_query = {
+        **date_query,
+        "$or": [{"payment.status": "paid"}, {"payment.status": {"$exists": False}, "paymentStatus": "paid"}],
+    }
     order_count = 0
     revenue = 0.0
     settings = database.admin_settings.find_one({"_id": "store"}) or {}
@@ -124,7 +140,7 @@ def build_dashboard(database, period: str, now: datetime | None = None, current_
         revenue += total
         created_at = as_datetime(order.get("createdAt"))
         if created_at:
-            key = created_at.date().isoformat()
+            key = created_at.astimezone(_store_timezone()).date().isoformat()
             sales_by_day[key]["orders"] += 1
             sales_by_day[key]["revenue"] += total
         items = order.get("items") if isinstance(order.get("items"), list) else []
@@ -138,19 +154,24 @@ def build_dashboard(database, period: str, now: datetime | None = None, current_
                 "units": 0,
                 "revenue": 0.0,
             })
-            quantity = max(1, int(number(item.get("quantity") or 1)))
+            quantity = max(0, int(number(item.get("quantity") or 0)))
+            if quantity == 0:
+                continue
             entry["units"] += quantity
-            entry["revenue"] += number(item.get("price")) * quantity
+            line_total = number(item.get("lineTotal"))
+            unit_price = number(item.get("unitPrice")) or number(item.get("price"))
+            entry["revenue"] += line_total if line_total > 0 else unit_price * quantity
 
     conversion = (order_count / len(visitor_ids) * 100) if visitor_ids else 0.0
 
     sales = []
-    cursor = start
-    while cursor.date() <= current.date():
-        key = cursor.date().isoformat()
+    local_cursor = start.astimezone(_store_timezone()).date()
+    local_end = current.astimezone(_store_timezone()).date()
+    while local_cursor <= local_end:
+        key = local_cursor.isoformat()
         values = sales_by_day[key]
         sales.append({"date": key, "orders": int(values["orders"]), "revenue": round(values["revenue"], 2)})
-        cursor += timedelta(days=1)
+        local_cursor += timedelta(days=1)
 
     traffic_rows = database.analytics_events.aggregate([
         {"$match": page_view_query},
@@ -238,12 +259,20 @@ def build_dashboard(database, period: str, now: datetime | None = None, current_
         "add_to_bag": "Added to bag",
         "checkout_started": "Checkout started",
     }
-    for event in events[:12]:
+    activity_keys: set[tuple[str, str, str]] = set()
+    for event in events:
+        event_name = str(event.get("event") or "event")
+        event_path = str(event.get("path") or "/")
+        visitor = str(event.get("visitorId") or "")
+        activity_key = (event_name, event_path, visitor)
+        if event_name == "page_view" and activity_key in activity_keys:
+            continue
+        activity_keys.add(activity_key)
         activity.append({
             "id": str(event.get("_id")),
-            "type": str(event.get("event") or "event"),
-            "label": event_labels.get(str(event.get("event")), "Store activity"),
-            "detail": str((event.get("properties") or {}).get("productName") or event.get("path") or "Storefront"),
+            "type": event_name,
+            "label": event_labels.get(event_name, "Store activity"),
+            "detail": str((event.get("properties") or {}).get("productName") or event_path or "Storefront"),
             "createdAt": serialise_datetime(event.get("createdAt")),
         })
     activity.sort(key=lambda entry: entry.get("createdAt") or "", reverse=True)

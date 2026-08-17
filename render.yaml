@@ -11,7 +11,7 @@ services:
       - key: NEXT_PUBLIC_SITE_URL
         value: https://physihome.shop
       - key: NEXT_PUBLIC_API_URL
-        value: https://api.physihome.shop
+        value: https://rk-web-4i13.onrender.com
       - key: BACKEND_INTERNAL_URL
         fromService:
           type: web

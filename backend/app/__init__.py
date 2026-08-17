@@ -1,7 +1,7 @@
 from pathlib import Path
 import os
 
-from flask import Flask
+from flask import Flask, request
 from flask import send_file
 from dotenv import load_dotenv
 
@@ -23,6 +23,8 @@ from .blueprints.analytics.routes import analytics_bp, storefront_activity_bp
 from .blueprints.catalog.routes import catalog_bp
 from .blueprints.payments.routes import payments_bp, razorpay_webhook_bp
 from .blueprints.orders.routes import customer_orders_bp, staff_orders_bp
+from .feedback import feedback_bp, ensure_feedback_indexes
+from .returns import returns_bp
 from .blueprints.staff.routes import staff_bp
 from .config import get_config
 from .extensions import cors, jwt, limiter, mail, mongo
@@ -45,12 +47,14 @@ def create_app() -> Flask:
     }
     if frontend_url:
         allowed_origins.add(frontend_url)
+    configured_frontends = app.config.get("FRONTEND_URLS", "")
+    allowed_origins.update(origin.strip().rstrip("/") for origin in str(configured_frontends).split(",") if origin.strip())
     cors.init_app(
         app,
         resources={r"/api/*": {"origins": list(allowed_origins)}},
         supports_credentials=True,
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Content-Type", "Authorization", "X-RK-Visitor-ID"],
+        allow_headers=["Accept", "Content-Type", "Authorization", "X-RK-Visitor-ID"],
         automatic_options=True,
     )
     jwt.init_app(app)
@@ -73,6 +77,20 @@ def create_app() -> Flask:
     mail.init_app(app)
     mongo.init_app(app)
 
+    @app.before_request
+    def maintain_feedback_data():
+        # The deployed app does not run a separate cron process. TTL indexes
+        # provide the database-side cleanup, while feedback requests perform
+        # an immediate cleanup for installations whose Mongo TTL monitor is
+        # delayed.
+        if request.path.startswith("/api/feedback/"):
+            try:
+                ensure_feedback_indexes(mongo.db)
+                from .feedback import cleanup_feedback
+                cleanup_feedback(mongo.db)
+            except Exception:
+                app.logger.exception("Unable to maintain feedback expiry data")
+
     @jwt.token_in_blocklist_loader
     def token_is_revoked(_jwt_header, jwt_payload):
         db = mongo.db or mongo.cx[app.config["MONGO_DBNAME"]]
@@ -89,6 +107,8 @@ def create_app() -> Flask:
     app.register_blueprint(razorpay_webhook_bp, url_prefix="/api/webhooks")
     app.register_blueprint(customer_orders_bp, url_prefix="/api/orders")
     app.register_blueprint(staff_orders_bp, url_prefix="/api/staff/orders")
+    app.register_blueprint(feedback_bp, url_prefix="/api/feedback")
+    app.register_blueprint(returns_bp, url_prefix="/api/returns")
     app.register_blueprint(staff_bp, url_prefix="/api/staff")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
 
