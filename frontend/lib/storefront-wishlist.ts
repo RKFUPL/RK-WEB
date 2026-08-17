@@ -5,6 +5,7 @@ export type StorefrontWishlistItem = {
   image?: string;
   category?: string;
   availability?: string;
+  stock?: number;
   route: string;
   addedAt: string;
 };

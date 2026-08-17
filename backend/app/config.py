@@ -15,6 +15,10 @@ class BaseConfig:
     EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "Rashi Kapoor")
     RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
     FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "")
+    RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
+    RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "")
+    RAZORPAY_MODE = os.getenv("RAZORPAY_MODE", "test").strip().lower() or "test"
     RATELIMIT_DEFAULT = "200 per hour"
     RATELIMIT_STORAGE_URI = os.getenv("RATELIMIT_STORAGE_URI", "memory://")
 

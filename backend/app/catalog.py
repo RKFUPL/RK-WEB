@@ -253,7 +253,7 @@ def ensure_catalog_seed(db) -> None:
                 "sku": seed["sku"],
                 "price": seed["price"],
                 "currency": "INR",
-                "stock": None,
+                "stock": 0,
                 "availability": "custom_order",
                 "status": "active",
                 "description": "",
@@ -283,6 +283,8 @@ def ensure_catalog_seed(db) -> None:
             seed_updates["sku"] = seed["sku"]
         if product.get("price") in (None, 0):
             seed_updates["price"] = seed["price"]
+        if product.get("stock") is None and product.get("availability") in {"custom_order", "sold_out"}:
+            seed_updates["stock"] = 0
         if seed_updates:
             seed_updates["updatedAt"] = now
             db.products.update_one({"_id": product["_id"]}, {"$set": seed_updates})

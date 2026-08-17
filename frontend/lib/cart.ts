@@ -14,6 +14,8 @@ export function getCartSubtotal(cart: Cart) {
 }
 
 export function addToCart(cart: Cart, item: CartItem): Cart {
+  const limited = item.availability?.toLowerCase().replaceAll(' ', '_') === 'in_stock' && item.stock !== undefined;
+  if (limited && (item.stock ?? 0) <= 0) return cart;
   const existingItem = cart.items.find(
     (currentItem) =>
       currentItem.productId === item.productId && currentItem.variant?.id === item.variant?.id
@@ -27,7 +29,7 @@ export function addToCart(cart: Cart, item: CartItem): Cart {
     ...cart,
     items: cart.items.map((currentItem) =>
       currentItem === existingItem
-        ? { ...currentItem, quantity: currentItem.quantity + item.quantity }
+        ? { ...currentItem, quantity: limited ? Math.min(currentItem.quantity + item.quantity, item.stock ?? currentItem.quantity + item.quantity) : currentItem.quantity + item.quantity }
         : currentItem
     ),
   };

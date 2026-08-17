@@ -102,7 +102,7 @@ export default function AccountPage() {
       window.location.replace(user.role === 'admin' ? '/admin' : '/staff');
       return;
     }
-    window.location.replace('/');
+    window.location.replace('/account/orders');
   }, [user]);
 
   useEffect(() => {

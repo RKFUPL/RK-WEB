@@ -8,6 +8,8 @@ import {
   ChevronDown,
   Heart,
   Menu,
+  Minus,
+  Plus,
   Search,
   ShoppingBag,
   UserRound,
@@ -16,7 +18,7 @@ import {
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { brandLogoUrl, collectionPages, searchItems } from '@/lib/home-content';
 import { logout } from '@/lib/rbac';
-import { cartChangedEvent, readStoredCart, removeStoredCartItem } from '@/lib/storefront-cart';
+import { addStoredCartItem, cartChangedEvent, readStoredCart, removeStoredCartItem, updateStoredCartQuantity } from '@/lib/storefront-cart';
 import { readWishlist, removeFromWishlist, wishlistChangedEvent, type StorefrontWishlistItem } from '@/lib/storefront-wishlist';
 import type { Cart } from '@/lib/store-types';
 import { cn } from '@/lib/utils';
@@ -47,7 +49,7 @@ type StickyHeaderProps = {
 
 function AccountPreview({ user, onNavigate }: { user: HeaderUser; onNavigate: () => void }) {
   const fullName = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.displayName || user.username || 'RK member';
-  return <><p className="text-[10px] uppercase tracking-[0.28em] text-charcoal/45">Signed in as</p><p className="mt-2 font-display text-2xl">{fullName}</p><span className="mt-2 inline-flex rounded-full border border-gold/50 px-2.5 py-1 text-[9px] uppercase tracking-[0.22em] text-gold">{user.role || 'customer'}</span><p className="mt-2 break-all text-xs text-charcoal/50">{user.email || 'No email available'}</p><Link href="/profile" onClick={onNavigate} className="mt-5 block rounded-full bg-ink px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-ivory transition hover:bg-gold">Manage profile</Link>{user.role === 'admin' ? <Link href="/admin" onClick={onNavigate} className="mt-3 block rounded-full border border-gold/60 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">Admin dashboard</Link> : user.role === 'staff' ? <Link href="/staff" onClick={onNavigate} className="mt-3 block rounded-full border border-gold/60 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">Staff dashboard</Link> : null}<button type="button" onClick={() => { onNavigate(); void logout(); }} className="mt-3 block w-full rounded-full border border-black/15 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-charcoal/65 transition hover:border-gold hover:text-gold">Sign out</button></>;
+  return <><p className="text-[10px] uppercase tracking-[0.28em] text-charcoal/45">Signed in as</p><p className="mt-2 font-display text-2xl">{fullName}</p><span className="mt-2 inline-flex rounded-full border border-gold/50 px-2.5 py-1 text-[9px] uppercase tracking-[0.22em] text-gold">{user.role || 'customer'}</span><p className="mt-2 break-all text-xs text-charcoal/50">{user.email || 'No email available'}</p><Link href="/profile" onClick={onNavigate} className="mt-5 block rounded-full bg-ink px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-ivory transition hover:bg-gold">Manage profile</Link>{user.role === 'customer' ? <Link href="/account/orders" onClick={onNavigate} className="mt-3 block rounded-full border border-gold/60 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">My orders</Link> : user.role === 'admin' ? <Link href="/admin" onClick={onNavigate} className="mt-3 block rounded-full border border-gold/60 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">Admin dashboard</Link> : user.role === 'staff' ? <Link href="/staff" onClick={onNavigate} className="mt-3 block rounded-full border border-gold/60 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">Staff dashboard</Link> : null}<button type="button" onClick={() => { onNavigate(); void logout(); }} className="mt-3 block w-full rounded-full border border-black/15 px-4 py-3 text-center text-[10px] uppercase tracking-[0.2em] text-charcoal/65 transition hover:border-gold hover:text-gold">Sign out</button></>;
 }
 
 export function StickyHeader({ transparentAtTop = false, transparentTheme = 'light' }: StickyHeaderProps) {
@@ -65,6 +67,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
   const [mounted, setMounted] = useState(false);
   const [wishlistItems, setWishlistItems] = useState<StorefrontWishlistItem[]>([]);
   const [shoppingBag, setShoppingBag] = useState<Cart>({ items: [], currency: 'INR' });
+  const [wishlistNotice, setWishlistNotice] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const headerRef = useRef<HTMLElement | null>(null);
   const pathname = usePathname();
@@ -139,6 +142,17 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
       document.body.style.overflow = '';
     };
   }, [bagOpen, menuOpen, wishlistOpen]);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setWishlistOpen(false);
+        setBagOpen(false);
+      }
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, []);
 
   useLayoutEffect(() => {
     const header = headerRef.current;
@@ -217,6 +231,21 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
 
   const openBag = () => {
     if (requireSignIn('shopping bag')) setBagOpen(true);
+  };
+
+  const addWishlistItemToBag = (item: StorefrontWishlistItem) => {
+    const availability = String(item.availability || '').toLowerCase().replaceAll(' ', '_');
+    if (availability === 'sold_out' || item.price === undefined) {
+      setWishlistNotice(`${item.name} is not currently available to add.`);
+      return;
+    }
+    const existing = readStoredCart().items.find((cartItem) => cartItem.productId === item.productId);
+    if (availability === 'in_stock' && item.stock !== undefined && (existing?.quantity ?? 0) >= item.stock) {
+      setWishlistNotice(`Only ${item.stock} available for ${item.name}.`);
+      return;
+    }
+    addStoredCartItem({ productId: item.productId, name: item.name, price: item.price, quantity: 1, image: item.image, stock: item.stock, availability: item.availability });
+    setWishlistNotice(`${item.name} added to your bag.`);
   };
 
   const searchResults = useMemo(() => {
@@ -618,7 +647,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
       <AnimatePresence>
         {wishlistOpen ? (
           <motion.div
-            className="fixed inset-0 z-[180] flex items-center justify-center bg-ink/45 px-5 py-8"
+            className="fixed inset-0 z-[300] bg-black/60"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -628,24 +657,25 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
               role="dialog"
               aria-modal="true"
               aria-labelledby="wishlist-dialog-title"
-              className="flex max-h-[86vh] w-full max-w-[27rem] flex-col bg-white text-charcoal shadow-2xl"
-              initial={{ opacity: 0, y: 12, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 12, scale: 0.98 }}
+              className="fixed inset-y-0 right-0 isolate flex h-[100dvh] min-h-[100dvh] w-full max-w-md flex-col overflow-hidden bg-[#fffdf9] text-charcoal shadow-2xl dark:bg-[#121212] dark:text-white"
+              initial={{ opacity: 0, x: '100%', scale: 1 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: '100%', scale: 1 }}
+              transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
               onClick={(event) => event.stopPropagation()}
             >
-              <div className="flex items-center justify-between border-b border-black/10 px-5 py-4">
-                <h2 id="wishlist-dialog-title" className="text-sm font-medium tracking-[0.02em]">
-                  Wishlist ({wishlistItems.length} {wishlistItems.length === 1 ? 'item' : 'items'})
+              <div className="flex items-center justify-between border-b border-black/10 bg-[#fffdf9] px-6 py-5 dark:border-white/10 dark:bg-[#121212]">
+                <h2 id="wishlist-dialog-title" className="font-display text-2xl">
+                  Wishlist{wishlistItems.length ? ` (${wishlistItems.length})` : ''}
                 </h2>
                 <button type="button" onClick={() => setWishlistOpen(false)} aria-label="Close wishlist">
                   <X className="h-5 w-5 rounded-full border border-black/15 p-1 text-charcoal/60 transition hover:border-gold hover:text-gold" />
                 </button>
               </div>
-              <div className="overflow-y-auto px-5">
+              <div className={`min-h-0 flex-1 overflow-y-auto bg-[#fffdf9] dark:bg-[#121212] ${wishlistItems.length ? 'px-6' : 'flex items-center justify-center px-8 text-center text-sm text-charcoal/55 dark:text-white/60'}`}>
                 {wishlistItems.length ? wishlistItems.map((item) => (
-                  <div key={item.productId} className="flex gap-3 border-b border-black/10 py-4">
-                    <Link href={item.route} onClick={() => setWishlistOpen(false)} className="h-16 w-16 shrink-0 overflow-hidden bg-ivory">
+                  <div key={item.productId} className="flex gap-4 border-b border-black/10 py-5 dark:border-white/10">
+                    <Link href={item.route} onClick={() => setWishlistOpen(false)} className="h-24 w-20 shrink-0 overflow-hidden bg-sand">
                       {item.image ? <img src={item.image} alt={item.name} className="h-full w-full object-cover" /> : null}
                     </Link>
                     <div className="min-w-0 flex-1">
@@ -662,27 +692,29 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
                           ×
                         </button>
                       </div>
-                      <p className="mt-1 text-[0.68rem] text-charcoal/55">{item.availability || item.category}</p>
-                      <Link
-                        href={item.route}
-                        onClick={() => setWishlistOpen(false)}
-                        className="mt-2 inline-flex rounded-full bg-ink px-3 py-1.5 text-[0.62rem] text-white transition hover:bg-gold"
-                      >
-                        View piece
-                      </Link>
+                      <p className="mt-1 text-[0.68rem] text-charcoal/55 dark:text-white/55">{item.category || 'Couture'}</p>
+                      <p className="mt-1 text-xs text-charcoal/70 dark:text-white/70">{item.price === undefined ? 'Price on request' : inr.format(item.price)}</p>
+                      <p className="mt-1 text-[0.62rem] text-charcoal/55 dark:text-white/55">{item.availability || 'Available on request'}</p>
+                      <div className="mt-3 flex flex-wrap gap-3">
+                        <button type="button" disabled={String(item.availability || '').toLowerCase().replaceAll(' ', '_') === 'sold_out'} onClick={() => addWishlistItemToBag(item)} className="rounded-full bg-ink px-3 py-1.5 text-[0.62rem] text-white transition hover:bg-gold disabled:cursor-not-allowed disabled:opacity-45">Add to Bag</button>
+                        <Link href={item.route} onClick={() => setWishlistOpen(false)} className="inline-flex items-center text-[0.62rem] uppercase tracking-[0.16em] text-gold">View Piece</Link>
+                      </div>
                     </div>
                   </div>
                 )) : (
-                  <div className="flex min-h-[14rem] items-center justify-center text-center text-sm text-charcoal/55">
-                    There are no items in this wishlist.
+                  <div className="flex min-h-[14rem] flex-col items-center justify-center text-center text-charcoal/55 dark:text-white/60">
+                    <Heart className="h-7 w-7 text-gold" strokeWidth={1.25} />
+                    <p className="mt-5 font-display text-2xl text-charcoal dark:text-white">Your wishlist is waiting for something special.</p>
+                    <Link href="/collections" onClick={() => setWishlistOpen(false)} className="mt-6 border-b border-charcoal/40 pb-2 text-[0.6rem] uppercase tracking-[0.25em] text-charcoal dark:border-white/40 dark:text-white">Explore Collections</Link>
                   </div>
                 )}
               </div>
-              <div className="border-t border-black/10 px-5 py-4">
+              {wishlistNotice ? <p className="border-t border-black/10 bg-[#fffdf9] px-6 py-3 text-xs text-gold dark:border-white/10 dark:bg-[#121212]">{wishlistNotice}</p> : null}
+              <div className="border-t border-black/10 bg-[#fffdf9] px-6 py-5 dark:border-white/10 dark:bg-[#121212]">
                 <Link
                   href="/wishlist"
                   onClick={() => setWishlistOpen(false)}
-                  className="flex w-full items-center justify-center rounded-full border border-black/20 px-4 py-2.5 text-xs transition hover:border-gold hover:text-gold"
+                  className="flex w-full items-center justify-center border border-charcoal px-5 py-4 text-xs uppercase tracking-[0.24em] transition hover:border-gold hover:text-gold dark:border-white/60"
                 >
                   View Wishlist
                 </Link>
@@ -716,7 +748,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
                 </button>
               </div>
               <div className={`min-h-0 flex-1 overflow-y-auto bg-[#fffdf9] dark:bg-[#121212] ${shoppingBag.items.length ? 'px-6' : 'flex items-center justify-center px-8 text-center text-sm text-charcoal/55 dark:text-white/60'}`}>
-                {shoppingBag.items.length ? shoppingBag.items.map((item) => <div key={`${item.productId}:${item.variant?.id || ''}`} className="flex gap-4 border-b border-black/10 py-5 dark:border-white/10"><div className="h-24 w-20 shrink-0 overflow-hidden bg-sand">{item.image ? <img src={item.image} alt={item.name} className="h-full w-full object-cover" /> : null}</div><div className="min-w-0 flex-1"><p className="font-display text-lg">{item.name}</p>{item.variant ? <p className="mt-1 text-[0.6rem] uppercase tracking-[0.18em] text-charcoal/50 dark:text-white/50">{item.variant.name}: {item.variant.value}</p> : null}<p className="mt-2 text-xs text-charcoal/70 dark:text-white/70">{item.quantity} × {inr.format(item.price)}</p><button type="button" onClick={() => removeStoredCartItem(item.productId, item.variant?.id)} className="mt-3 text-[0.55rem] uppercase tracking-[0.2em] text-gold">Remove</button></div></div>) : 'Your bag is empty.'}
+                {shoppingBag.items.length ? shoppingBag.items.map((item) => <div key={`${item.productId}:${item.variant?.id || ''}`} className="flex gap-4 border-b border-black/10 py-5 dark:border-white/10"><div className="h-24 w-20 shrink-0 overflow-hidden bg-sand">{item.image ? <img src={item.image} alt={item.name} className="h-full w-full object-cover" /> : null}</div><div className="min-w-0 flex-1"><p className="font-display text-lg">{item.name}</p>{item.variant ? <p className="mt-1 text-[0.6rem] uppercase tracking-[0.18em] text-charcoal/50 dark:text-white/50">{item.variant.name}: {item.variant.value}</p> : null}<p className="mt-2 text-xs text-charcoal/70 dark:text-white/70">Unit price: {inr.format(item.price)}</p><p className="mt-1 text-xs text-charcoal/70 dark:text-white/70">Subtotal: {inr.format(item.price * item.quantity)}</p><div className="mt-3 flex items-center gap-2"><button type="button" onClick={() => updateStoredCartQuantity(item.productId, item.quantity - 1, item.variant?.id)} aria-label={`Decrease quantity of ${item.name}`} className="grid h-8 w-8 place-items-center border border-black/15 transition hover:text-gold dark:border-white/20"><Minus size={13} /></button><span className="min-w-6 text-center text-xs">{item.quantity}</span><button type="button" disabled={item.availability?.toLowerCase().replaceAll(' ', '_') === 'in_stock' && item.stock !== undefined && item.quantity >= item.stock} onClick={() => updateStoredCartQuantity(item.productId, item.quantity + 1, item.variant?.id)} aria-label={`Increase quantity of ${item.name}`} className="grid h-8 w-8 place-items-center border border-black/15 transition hover:text-gold disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/20"><Plus size={13} /></button></div><button type="button" onClick={() => removeStoredCartItem(item.productId, item.variant?.id)} className="mt-3 text-[0.55rem] uppercase tracking-[0.2em] text-gold">Remove</button></div></div>) : <div className="flex min-h-full flex-col items-center justify-center gap-4 text-center"><ShoppingBag className="h-7 w-7 text-gold" strokeWidth={1.25} /><p>Your bag is empty.</p><Link href="/collections" onClick={() => setBagOpen(false)} className="border-b border-charcoal/40 pb-2 text-[0.6rem] uppercase tracking-[0.25em] dark:border-white/40">Explore Collections</Link></div>}
               </div>
               <div className="border-t border-black/10 bg-[#fffdf9] px-6 py-5 dark:border-white/10 dark:bg-[#121212]">
                 <Link

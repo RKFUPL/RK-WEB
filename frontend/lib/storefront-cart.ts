@@ -30,3 +30,18 @@ export function removeStoredCartItem(productId: string, variantId?: string) {
   writeStoredCart(next);
   return next;
 }
+
+export function updateStoredCartQuantity(productId: string, quantity: number, variantId?: string) {
+  const cart = readStoredCart();
+  const current = cart.items.find((item) => item.productId === productId && item.variant?.id === variantId);
+  const limited = current?.availability?.toLowerCase().replaceAll(' ', '_') === 'in_stock' && current.stock !== undefined;
+  const nextQuantity = limited ? Math.min(quantity, current?.stock ?? quantity) : quantity;
+  const next = quantity <= 0
+    ? removeFromCart(cart, productId, variantId)
+    : {
+        ...cart,
+        items: cart.items.map((item) => item.productId === productId && item.variant?.id === variantId ? { ...item, quantity: nextQuantity } : item),
+      };
+  writeStoredCart(next);
+  return next;
+}

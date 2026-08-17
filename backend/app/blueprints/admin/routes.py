@@ -8,6 +8,7 @@ from flask import Blueprint, jsonify, request
 
 from ...rbac import ROLES, STAFF_PERMISSIONS, current_user, database, effective_permissions, requireAdmin
 from ...dashboard_metrics import build_dashboard
+from ...order_fulfillment import migrate_legacy_orders
 
 
 def _password_hash(password: str) -> str:
@@ -27,6 +28,7 @@ SETTINGS_DEFAULTS = {
     "emailNotifications": True,
     "orderNotifications": True,
     "lowStockNotifications": True,
+    "courierOptions": [],
 }
 
 RESOURCE_COLLECTIONS = {
@@ -117,6 +119,7 @@ def list_users():
 @requireAdmin
 def dashboard_metrics():
     db = database()
+    migrate_legacy_orders(db)
     _ensure_dashboard_indexes(db)
     current_visitor_id = str(request.headers.get("X-RK-Visitor-ID", "")).strip()[:128]
     viewer = current_user() or {}
@@ -248,10 +251,18 @@ def update_settings():
     prefix = re.sub(r"[^A-Za-z0-9]", "", str(payload.get("orderPrefix") or "RK"))[:8].upper()
     low_stock = _integer(payload.get("lowStockThreshold"), -1)
     retention = _integer(payload.get("analyticsRetentionDays"), -1)
+    courier_options = payload.get("courierOptions", [])
     if not store_name or (support_email and "@" not in support_email):
         return jsonify({"error": "Store name is required, and support email must be valid when provided."}), 400
     if currency not in {"INR", "USD", "EUR", "GBP"} or timezone_name not in {"Asia/Kolkata", "UTC", "Europe/London", "America/New_York"} or not prefix or low_stock < 0 or retention not in {30, 90, 180, 365, 730}:
         return jsonify({"error": "One or more settings values are invalid."}), 400
+    if not isinstance(courier_options, list) or len(courier_options) > 30:
+        return jsonify({"error": "Courier options must be a list of up to 30 names."}), 400
+    couriers = []
+    for option in courier_options:
+        courier = str(option or "").strip()[:100]
+        if courier and courier.lower() not in {existing.lower() for existing in couriers}:
+            couriers.append(courier)
     settings = {
         "storeName": store_name,
         "supportEmail": support_email,
@@ -263,6 +274,7 @@ def update_settings():
         "emailNotifications": bool(payload.get("emailNotifications")),
         "orderNotifications": bool(payload.get("orderNotifications")),
         "lowStockNotifications": bool(payload.get("lowStockNotifications")),
+        "courierOptions": couriers,
     }
     actor = current_user()
     database().admin_settings.update_one({"_id": "store"}, {"$set": {**settings, "updatedAt": datetime.now(timezone.utc), "updatedBy": actor["_id"]}}, upsert=True)

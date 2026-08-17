@@ -20,6 +20,7 @@ from ...catalog import (
     remove_product_reference,
     update_product_order,
 )
+from ...order_fulfillment import actor_view, migrate_legacy_orders, timeline_event
 from ...rbac import current_user, database, effective_permissions, requireStaff
 
 staff_bp = Blueprint("staff", __name__)
@@ -39,7 +40,7 @@ RESOURCE_COLLECTIONS = {
     "customers": "users",
 }
 PRODUCT_STATUSES = {"draft", "active", "archived"}
-ORDER_STATUSES = {"pending", "confirmed", "processing", "fulfilled", "cancelled"}
+ORDER_STATUSES = {"pending", "order_placed"}
 QUOTE_STATUSES = {"draft", "sent", "accepted", "rejected", "converted"}
 
 
@@ -282,7 +283,13 @@ def dashboard():
     if "quotes:manage" in permissions:
         counts["quotes"] = db.quotes.count_documents({"status": {"$ne": "converted"}})
     if "orders:manage" in permissions:
-        counts["orders"] = db.orders.count_documents({"status": {"$nin": ["fulfilled", "cancelled"]}})
+        migrate_legacy_orders(db)
+        fulfillment_counts = {
+            status: db.orders.count_documents({"fulfillment.status": status})
+            for status in ("order_placed", "confirmed", "processing", "packed", "shipped", "out_for_delivery", "delivered", "return_requested", "returned")
+        }
+        counts["orders"] = sum(fulfillment_counts.get(status, 0) for status in ("order_placed", "confirmed", "processing", "packed", "shipped", "out_for_delivery"))
+        counts["fulfillment"] = fulfillment_counts
     if "customers:manage" in permissions:
         counts["customers"] = db.users.count_documents(_customer_scope(user))
     return jsonify({"dashboard": "staff", "permissions": permissions, "counts": counts}), 200
@@ -331,6 +338,10 @@ def create_resource(resource: str):
             return jsonify({"error": "Product name, unique SKU, non-negative price and stock, and a valid status are required."}), 400
         if availability not in PRODUCT_AVAILABILITY:
             return jsonify({"error": "Choose In Stock, Custom Order, or Sold Out availability."}), 400
+        if availability == "in_stock" and stock <= 0:
+            return jsonify({"error": "In Stock products must have a quantity greater than zero."}), 400
+        if availability in {"custom_order", "sold_out"} and stock != 0:
+            return jsonify({"error": "Custom Order and Sold Out products must have quantity zero."}), 400
         if db.products.find_one({"sku": sku}):
             return jsonify({"error": "That SKU already exists."}), 409
         media = payload.get("media") if isinstance(payload.get("media"), list) else []
@@ -341,13 +352,27 @@ def create_resource(resource: str):
         customer_name = str(payload.get("customerName") or "").strip()
         email = str(payload.get("email") or "").strip().lower()
         total = _number(payload.get("total"))
-        status = str(payload.get("status") or "pending").lower()
+        status = str(payload.get("status") or "order_placed").lower()
         if not customer_name or "@" not in email or total < 0 or status not in ORDER_STATUSES:
             return jsonify({"error": "Customer name, valid email, non-negative total, and a valid status are required."}), 400
         order_number = str(payload.get("orderNumber") or "").strip().upper() or f"RK-{now:%Y%m%d}-{secrets.token_hex(2).upper()}"
         if db.orders.find_one({"orderNumber": order_number}):
             return jsonify({"error": "That order number already exists."}), 409
-        document = {**common, "orderNumber": order_number, "customerName": customer_name, "email": email, "total": total, "currency": "INR", "status": status, "items": payload.get("items") if isinstance(payload.get("items"), list) else []}
+        document = {
+            **common,
+            "orderNumber": order_number,
+            "customerName": customer_name,
+            "email": email,
+            "total": total,
+            "currency": "INR",
+            "status": "order_placed",
+            "paymentStatus": "pending",
+            "payment": {"status": "pending", "gateway": "manual"},
+            "fulfillmentStatus": "order_placed",
+            "fulfillment": {"status": "order_placed", "courier": "", "trackingNumber": "", "trackingUrl": "", "shippedAt": None, "deliveredAt": None},
+            "timeline": [timeline_event("order_placed", now, actor_view("staff", actor), "Order created by the RK team.")],
+            "items": payload.get("items") if isinstance(payload.get("items"), list) else [],
+        }
         collection = db.orders
     elif resource == "quotes":
         customer_name = str(payload.get("customerName") or "").strip()
@@ -437,6 +462,11 @@ def update_resource(resource: str, resource_id: str):
             updates["stock"] = after_stock
             stock_changed = after_stock != before_stock
         availability_changed = "availability" in updates and updates["availability"] != current.get("availability")
+        effective_availability = updates.get("availability", current.get("availability"))
+        if effective_availability == "in_stock" and after_stock <= 0:
+            return jsonify({"error": "In Stock products must have a quantity greater than zero."}), 400
+        if effective_availability in {"custom_order", "sold_out"} and after_stock != 0:
+            return jsonify({"error": "Custom Order and Sold Out products must have quantity zero."}), 400
         reason = str(payload.get("reason") or payload.get("changeReason") or "").strip()[:240]
         if (stock_changed or availability_changed) and not reason:
             return jsonify({"error": "Enter a reason for changing availability or quantity."}), 400
@@ -469,6 +499,11 @@ def update_resource(resource: str, resource_id: str):
         after = _integer(payload.get("stock")) if "stock" in payload else before + _integer(payload.get("adjustment"), 0)
         if after < 0:
             return jsonify({"error": "Stock cannot be negative."}), 400
+        availability = str(current.get("availability") or "").lower()
+        if availability == "in_stock" and after <= 0:
+            return jsonify({"error": "In Stock products must have a quantity greater than zero."}), 400
+        if availability in {"custom_order", "sold_out"} and after != 0:
+            return jsonify({"error": "Custom Order and Sold Out products must have quantity zero."}), 400
         reason = str(payload.get("reason") or "").strip()[:240]
         if not reason:
             return jsonify({"error": "Enter a reason for the inventory change."}), 400
@@ -476,10 +511,7 @@ def update_resource(resource: str, resource_id: str):
         db.inventory_adjustments.insert_one({"productId": object_id, "before": before, "after": after, "adjustment": after - before, "reason": reason, "createdAt": now, "createdBy": actor["_id"]})
     elif resource == "orders":
         if "status" in payload:
-            status = str(payload.get("status") or "").lower()
-            if status not in ORDER_STATUSES:
-                return jsonify({"error": "Invalid order status."}), 400
-            updates["status"] = status
+            return jsonify({"error": "Use the fulfillment actions to change order status."}), 400
         for key in ("customerName", "email"):
             if key in payload:
                 updates[key] = str(payload.get(key) or "").strip().lower() if key == "email" else str(payload.get(key) or "").strip()
@@ -563,7 +595,25 @@ def convert_quote(quote_id: str):
     actor = current_user()
     now = datetime.now(timezone.utc)
     order_number = f"RK-{now:%Y%m%d}-{secrets.token_hex(2).upper()}"
-    order = {"orderNumber": order_number, "customerName": quote.get("customerName"), "email": quote.get("email"), "total": quote.get("total", 0), "currency": quote.get("currency", "INR"), "status": "confirmed", "items": quote.get("items", []), "quoteId": object_id, "createdAt": now, "updatedAt": now, "createdBy": actor["_id"], "updatedBy": actor["_id"]}
+    order = {
+        "orderNumber": order_number,
+        "customerName": quote.get("customerName"),
+        "email": quote.get("email"),
+        "total": quote.get("total", 0),
+        "currency": quote.get("currency", "INR"),
+        "status": "order_placed",
+        "paymentStatus": "pending",
+        "payment": {"status": "pending", "gateway": "manual"},
+        "fulfillmentStatus": "order_placed",
+        "fulfillment": {"status": "order_placed", "courier": "", "trackingNumber": "", "trackingUrl": "", "shippedAt": None, "deliveredAt": None},
+        "timeline": [timeline_event("order_placed", now, actor_view("staff", actor), "Order created from an accepted quote.")],
+        "items": quote.get("items", []),
+        "quoteId": object_id,
+        "createdAt": now,
+        "updatedAt": now,
+        "createdBy": actor["_id"],
+        "updatedBy": actor["_id"],
+    }
     order_id = db.orders.insert_one(order).inserted_id
     db.quotes.update_one({"_id": object_id}, {"$set": {"status": "converted", "orderId": order_id, "convertedAt": now, "updatedAt": now, "updatedBy": actor["_id"]}})
     order["_id"] = order_id

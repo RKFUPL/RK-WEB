@@ -18,7 +18,6 @@ type Lookbook = {
 };
 
 const lookbooks: Lookbook[] = [
-  { title: 'Aakaar', subtitle: 'The debut moodboard of the house.', description: 'Editorial frames, campaign stills, and collection notes gathered into one visual archive.', href: '/collections/aakaar-insights', comingSoon: true },
   { title: 'Anamika', subtitle: 'A softer, more movement-led chapter.', description: 'An evolving lookbook space for future drops, references, and campaign imagery.', href: '/rk-lookbooks/anamika' },
   { title: 'Hastakala', subtitle: 'A craft-first presentation.', description: 'Reserved for hand-finished stories, artisan detail, and heirloom-inspired styling.', href: '/rk-lookbooks/hasthkala' },
   { title: 'Sandook', subtitle: 'A treasured archive of the house.', description: 'A visual story of heirloom moods, considered detail, and timeless occasion dressing.', href: '/rk-lookbooks/sandook' },

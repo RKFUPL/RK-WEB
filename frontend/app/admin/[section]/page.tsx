@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AdminSettings } from '@/components/admin/admin-settings';
 import { CollectionManagementList } from '@/components/collections/collection-management-list';
 import { OperationsSection } from '@/components/staff/operations-section';
+import { OrderManagement } from '@/components/orders/order-management';
 import { apiBaseUrl, type StaffPermission } from '@/lib/rbac';
 
 type AdminUser = { id: string; email?: string; username?: string; displayName?: string; role: 'customer' | 'staff' | 'admin'; isActive: boolean; permissions?: StaffPermission[] };
@@ -112,6 +113,7 @@ export default function AdminSection({ params }: { params: Promise<{ section: st
   if (section === 'settings') return <AdminSettings />;
   if (section === 'reports') return <section className="mt-10 rounded-2xl border border-black/[.06] bg-white p-8 dark:border-white/[.08] dark:bg-[#191a1f]"><h2 className="text-xl font-semibold">Reports & analytics</h2><p className="mt-3 max-w-2xl text-sm leading-7 text-[#8a9098]">Use the Control room period selector for live revenue, orders, traffic sources, product performance, customers, and activity.</p></section>;
   if (section === 'collections') return <CollectionManagementList basePath="/admin/collections" />;
+  if (section === 'orders') return <OrderManagement />;
   if (operationalSections.has(section)) return <OperationsSection section={section} />;
 
   const title = section.replaceAll('-', ' ');

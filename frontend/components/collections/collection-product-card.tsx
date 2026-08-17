@@ -36,6 +36,7 @@ export function CollectionProductCard({ product }: { product: CatalogProduct }) 
       image: primaryImage,
       category: product.category || 'Couture',
       availability: availabilityLabels[product.availability],
+      stock: product.stock,
       route,
     });
     setSaved(added);
@@ -53,6 +54,8 @@ export function CollectionProductCard({ product }: { product: CatalogProduct }) 
       price: Number(product.price || 0),
       quantity: 1,
       image: primaryImage,
+      stock: product.stock,
+      availability: availabilityLabels[product.availability],
     });
     trackAnalyticsEvent('add_to_bag', { productId: product.id, productName: product.name, currency: 'INR', value: product.price, quantity: 1 });
     setCartMessage('Added to bag');

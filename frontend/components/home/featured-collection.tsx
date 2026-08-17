@@ -159,8 +159,8 @@ export function FeaturedCollection() {
                 </p>
                 <div className="mt-7 flex flex-wrap items-center gap-5">
                   <p className="text-[clamp(0.6rem,1.2vw,0.78rem)] uppercase tracking-[0.42em] text-[#fff1df]/85">Coming soon</p>
-                  <a href="/collections/aakaar-insights" className="pointer-events-auto inline-flex items-center justify-center border border-gold/70 px-5 py-3 text-[0.62rem] uppercase tracking-[0.28em] text-[#fff1df] transition duration-500 hover:bg-gold hover:text-ink">
-                    Explore Aakaar <span className="ml-3 text-base">→</span>
+                  <a href="/collections" className="pointer-events-auto inline-flex items-center justify-center border border-gold/70 px-5 py-3 text-[0.62rem] uppercase tracking-[0.28em] text-[#fff1df] transition duration-500 hover:bg-gold hover:text-ink">
+                    Explore Collections <span className="ml-3 text-base">→</span>
                   </a>
                 </div>
               </div>

@@ -86,14 +86,14 @@ export function ProductDetailPage({ productId }: { productId: string }) {
   const nextImage = () => setActiveImage((index) => media.length ? (index + 1) % media.length : 0);
   const saveProduct = () => {
     if (!requireSignIn()) return;
-    const added = toggleWishlist({ productId: product.id, name: product.name || 'Untitled piece', price: product.price, image: media[0], category: product.category || 'Couture', availability: availabilityLabels[product.availability], route });
+    const added = toggleWishlist({ productId: product.id, name: product.name || 'Untitled piece', price: product.price, image: media[0], category: product.category || 'Couture', availability: availabilityLabels[product.availability], stock: product.stock, route });
     setSaved(added);
     if (added) trackAnalyticsEvent('wishlist_add', { productId: product.id, productName: product.name, currency: 'INR', value: product.price });
   };
   const addToCart = () => {
     if (!requireSignIn()) return;
     if (sizes.length && !selectedSize) { setMessage('Please select a size.'); return; }
-    addStoredCartItem({ productId: product.id, name: product.name || 'Untitled piece', price: Number(product.price || 0), quantity, image: media[0], variant: selectedSize ? { id: `size:${selectedSize}`, name: 'Size', value: selectedSize } : undefined });
+    addStoredCartItem({ productId: product.id, name: product.name || 'Untitled piece', price: Number(product.price || 0), quantity, image: media[0], stock: product.stock, availability: availabilityLabels[product.availability], variant: selectedSize ? { id: `size:${selectedSize}`, name: 'Size', value: selectedSize } : undefined });
     trackAnalyticsEvent('add_to_bag', { productId: product.id, productName: product.name, currency: 'INR', value: product.price, quantity });
     setMessage('Added to your shopping bag.');
   };

@@ -5,7 +5,10 @@ from flask import Flask
 from flask import send_file
 from dotenv import load_dotenv
 
-load_dotenv()
+# Resolve the backend environment from the application location rather than
+# the caller's working directory. This keeps local `flask --app wsgi:app run`
+# launches consistent whether they start from the repository root or backend/.
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 # The local development environment can expose a dead placeholder proxy. It
 # prevents Resend from reaching its API even though the backend is healthy.
@@ -18,6 +21,8 @@ from .blueprints.health.routes import health_bp
 from .blueprints.admin.routes import admin_bp
 from .blueprints.analytics.routes import analytics_bp, storefront_activity_bp
 from .blueprints.catalog.routes import catalog_bp
+from .blueprints.payments.routes import payments_bp, razorpay_webhook_bp
+from .blueprints.orders.routes import customer_orders_bp, staff_orders_bp
 from .blueprints.staff.routes import staff_bp
 from .config import get_config
 from .extensions import cors, jwt, limiter, mail, mongo
@@ -80,6 +85,10 @@ def create_app() -> Flask:
     # `analytics`, which can otherwise make incognito visits vanish silently.
     app.register_blueprint(storefront_activity_bp, url_prefix="/api/storefront")
     app.register_blueprint(catalog_bp, url_prefix="/api/catalog")
+    app.register_blueprint(payments_bp, url_prefix="/api/payments")
+    app.register_blueprint(razorpay_webhook_bp, url_prefix="/api/webhooks")
+    app.register_blueprint(customer_orders_bp, url_prefix="/api/orders")
+    app.register_blueprint(staff_orders_bp, url_prefix="/api/staff/orders")
     app.register_blueprint(staff_bp, url_prefix="/api/staff")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
 

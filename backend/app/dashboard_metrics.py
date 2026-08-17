@@ -77,6 +77,10 @@ def build_dashboard(database, period: str, now: datetime | None = None, current_
     visitor_ids = database.analytics_events.distinct("visitorId", page_view_query)
     page_view_count = database.analytics_events.count_documents(page_view_query)
     wishlist_adds = database.analytics_events.count_documents({**public_event_query, "event": "wishlist_add"})
+    fulfillment_counts = {
+        status: database.orders.count_documents({"fulfillment.status": status})
+        for status in ("order_placed", "confirmed", "processing", "packed", "shipped", "out_for_delivery", "delivered", "return_requested", "returned", "cancelled", "refunded")
+    }
 
     order_query = {**date_query, "status": {"$nin": ["cancelled", "canceled", "refunded"]}}
     order_count = 0
@@ -260,6 +264,7 @@ def build_dashboard(database, period: str, now: datetime | None = None, current_
             "wishlistAdds": wishlist_adds,
             "averageRating": round(average_rating, 2),
         },
+        "fulfillmentCounts": fulfillment_counts,
         "sales": sales,
         "trafficSources": traffic,
         "visitorsList": visitors,

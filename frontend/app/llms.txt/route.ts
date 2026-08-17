@@ -12,7 +12,6 @@ export function GET() {
 - [About Rashi Kapoor](${siteUrl}/about-rk)
 
 ## Collections
-- [Aakaar](${siteUrl}/collections/aakaar-insights)
 - [Anamika](${siteUrl}/collections/collections-of-anamika)
 - [Hastakala](${siteUrl}/collections/collections-of-hasthkala)
 - [Inaara](${siteUrl}/collections/collections-of-inaara)

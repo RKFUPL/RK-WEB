@@ -50,24 +50,6 @@ export const featuredCollectionFrames = [
 
 export const collectionPages: readonly CollectionPage[] = [
   {
-    name: 'Aakaar',
-    route: '/collections/aakaar-insights',
-    status: 'Coming Soon',
-    summary: 'The debut collection, defined by sculpted drapes and quiet couture detailing.',
-    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785304593/Rashi_Kapoor1351_xzrpyx.jpg',
-    hero: {
-      type: 'image',
-      image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487994/Rashi_Kapoor2418_compressed_8000kb_qkke56.jpg',
-      desktopObjectPosition: '52% 40%',
-      mobileObjectPosition: '58% 36%',
-      textPosition: 'left',
-      textTheme: 'light',
-      titleScale: 'standard',
-    },
-    fontFamily: 'RK Campaign',
-    fontUrl: 'https://res.cloudinary.com/fm1bwbrd/raw/upload/v1786736151/TAN-MON_CHERI-Regular_w92ze1.otf',
-  },
-  {
     name: 'Anamika',
     route: '/collections/collections-of-anamika',
     status: 'Collection',
@@ -173,11 +155,6 @@ export const searchItems = [
 
 export const categoryItems: readonly CategoryItem[] = [
   {
-    title: 'Aakaar',
-    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg',
-    href: '/collections/aakaar-insights',
-  },
-  {
     title: 'Anamika',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305156/Rashi_Kapoor3092_stukqt.jpg',
     href: '/collections/collections-of-anamika',
@@ -238,13 +215,6 @@ export const featuredLooks = [
 ] as const;
 
 export const lookbookCovers = [
-  {
-    title: 'Aakaar',
-    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg',
-    href: '/collections/aakaar-insights',
-    caption: 'A new chapter in movement and form.',
-    span: 'lg:col-span-4',
-  },
   {
     title: 'Inaara',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861901/Inaara_hn30rg.png',
