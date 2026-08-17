@@ -17,6 +17,15 @@ export type CartItem = {
   stock?: number;
   availability?: string;
   variant?: ProductVariant;
+  /** Optional size selection. Kept separate from color/other variants. */
+  size?: string;
+  /** Sizes and per-size stock copied from the product at add-to-bag time. */
+  sizeOptions?: string[];
+  sizeStock?: Record<string, number>;
+  customSize?: {
+    unit: 'cm' | 'in';
+    measurements: Record<string, string>;
+  };
 };
 
 export type Cart = {

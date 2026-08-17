@@ -14,7 +14,7 @@ function dashboardGroups(role: Role, permissions: StaffPermission[] = []) {
   const shared = [
     { label: 'Overview', items: [{ href: base, label: 'Dashboard', icon: LayoutDashboard }] },
     { label: 'Commerce', items: [allowed('products:manage') ? { href: `${base}/products`, label: 'Products', icon: Package } : null, role === 'staff' && (allowed('products:manage') || allowed('inventory:manage')) ? { href: `${base}/collections`, label: 'Collections', icon: FolderKanban } : null, allowed('orders:manage') ? { href: `${base}/orders`, label: 'Orders', icon: ShoppingBag } : null, allowed('inventory:manage') ? { href: `${base}/inventory`, label: 'Inventory', icon: Boxes } : null, allowed('quotes:manage') ? { href: `${base}/quotes`, label: 'Quotes', icon: FileText } : null].filter(Boolean) as Array<{ href: string; label: string; icon: typeof Package }> },
-    { label: 'Relationship', items: [allowed('customers:manage') ? { href: `${base}/customers`, label: 'Customers', icon: Users } : null].filter(Boolean) as Array<{ href: string; label: string; icon: typeof Users }> },
+    { label: 'Relationship', items: [role === 'admin' && allowed('customers:manage') ? { href: `${base}/customers`, label: 'Customers', icon: Users } : null].filter(Boolean) as Array<{ href: string; label: string; icon: typeof Users }> },
   ];
   if (role === 'staff') return shared.filter((group) => group.items.length);
   shared[1].items.push({ href: '/admin/collections', label: 'Collections', icon: FolderKanban });

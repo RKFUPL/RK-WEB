@@ -22,7 +22,10 @@ export type CollectionPage = {
 
 export const brandLogoUrl = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305776/RK_LOGOMARK_t6untf.svg';
 export const aakarBannerBackgroundUrl = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305719/BG_xsyd8f.png';
-export const storeInteriorVideoUrl = 'https://res.cloudinary.com/fm1bwbrd/video/upload/v1785305865/39_-_RK_Kalkatta_Interior_ivhomn.mp4';
+// Keep this as a normal HTML5 video URL. Cloudinary handles the delivery
+// format/quality negotiation while the poster in the consuming component
+// remains the reliable first-paint fallback.
+export const storeInteriorVideoUrl = 'https://res.cloudinary.com/fm1bwbrd/video/upload/f_auto,q_auto,w_1920/v1785305865/39_-_RK_Kalkatta_Interior_ivhomn.mp4';
 
 export const homeNavigation = [
   'Home',
@@ -140,6 +143,21 @@ export const collectionPages: readonly CollectionPage[] = [
     fontUrl: 'https://res.cloudinary.com/fm1bwbrd/raw/upload/v1786736151/TAN-MON_CHERI-Regular_w92ze1.otf',
   },
 ] as const;
+
+/** The coming-soon Aakaar card is intentionally a gallery-only entry. */
+export const collectionGalleryPages: readonly (CollectionPage & { comingSoon?: boolean })[] = [
+  {
+    name: 'Aakaar',
+    route: '#aakaar-coming-soon',
+    status: 'Coming Soon',
+    summary: featuredCollection.description,
+    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487994/Rashi_Kapoor2418_compressed_8000kb_qkke56.jpg',
+    fontFamily: 'RK Campaign',
+    fontUrl: 'https://res.cloudinary.com/fm1bwbrd/raw/upload/v1786736151/TAN-MON_CHERI-Regular_w92ze1.otf',
+    comingSoon: true,
+  },
+  ...collectionPages,
+];
 
 export const searchItems = [
   ...collectionPages.map((collection) => ({

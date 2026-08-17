@@ -6,7 +6,7 @@ import { motion } from 'framer-motion';
 import { Footer } from '@/components/home/footer';
 import { StickyHeader } from '@/components/home/sticky-header';
 import { SectionShell } from '@/components/home/section-shell';
-import { collectionPages } from '@/lib/home-content';
+import { collectionGalleryPages } from '@/lib/home-content';
 
 function collectionTitleStyle(name: string, fontFamily: string) {
   return {
@@ -15,9 +15,8 @@ function collectionTitleStyle(name: string, fontFamily: string) {
   };
 }
 
-function CampaignImage({ collection, index }: { collection: (typeof collectionPages)[number]; index: number }) {
-  return (
-    <Link href={collection.route} className={`group block ${index % 2 === 1 ? 'md:mt-24 lg:mt-28' : ''}`}>
+function CampaignImage({ collection, index }: { collection: (typeof collectionGalleryPages)[number]; index: number }) {
+  const content = (
       <motion.article
         initial={{ opacity: 0, y: 20 }}
         whileInView={{ opacity: 1, y: 0 }}
@@ -32,6 +31,7 @@ function CampaignImage({ collection, index }: { collection: (typeof collectionPa
             className="collection-card-image block h-auto w-full object-cover"
           />
           <div className="collections-campaign-shade absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-90 transition-opacity duration-300 group-hover:opacity-100" />
+          {collection.comingSoon ? <div className="absolute inset-0 grid place-items-center bg-black/20"><span className="border border-white/70 bg-black/35 px-5 py-3 text-[0.58rem] uppercase tracking-[0.34em] text-white backdrop-blur-sm">Coming soon</span></div> : null}
           <div className="absolute inset-x-0 bottom-0 p-5 text-white md:p-7">
             <p className="text-[0.58rem] uppercase tracking-[0.32em] text-white/75">Collection</p>
             <div className="mt-2 flex items-end justify-between gap-5">
@@ -42,19 +42,21 @@ function CampaignImage({ collection, index }: { collection: (typeof collectionPa
                 {collection.name}
               </h2>
               <span className="flex shrink-0 items-center gap-2 pb-1 text-[0.58rem] uppercase tracking-[0.24em] text-white/85">
-                View collection <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-2" />
+                {collection.comingSoon ? 'Coming soon' : <>View collection <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-2" /></>}
               </span>
             </div>
           </div>
         </div>
       </motion.article>
-    </Link>
   );
+  return collection.comingSoon
+    ? <div id="aakaar-coming-soon" className={`group block ${index % 2 === 1 ? 'md:mt-24 lg:mt-28' : ''}`}>{content}</div>
+    : <Link href={collection.route} className={`group block ${index % 2 === 1 ? 'md:mt-24 lg:mt-28' : ''}`}>{content}</Link>;
 }
 
 export default function CollectionsPage() {
-  const leftColumn = collectionPages.filter((_, index) => index % 2 === 0);
-  const rightColumn = collectionPages.filter((_, index) => index % 2 === 1);
+  const leftColumn = collectionGalleryPages.filter((_, index) => index % 2 === 0);
+  const rightColumn = collectionGalleryPages.filter((_, index) => index % 2 === 1);
 
   return (
     <main className="collections-page bg-ivory text-charcoal">
@@ -103,7 +105,7 @@ export default function CollectionsPage() {
             </div>
 
             <div className="flex flex-col gap-6 md:hidden">
-              {collectionPages.map((collection, index) => (
+              {collectionGalleryPages.map((collection, index) => (
                 <CampaignImage key={collection.name} collection={collection} index={index} />
               ))}
             </div>

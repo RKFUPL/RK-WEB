@@ -97,6 +97,7 @@ export function Footer() {
             loop
             muted
             playsInline
+            preload="metadata"
             onError={() => setMediaFailed(true)}
             className="h-[min(52vw,420px)] w-full object-cover object-center"
             poster={featuredLooks[0].image}

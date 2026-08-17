@@ -37,6 +37,8 @@ export function CollectionProductCard({ product }: { product: CatalogProduct }) 
       category: product.category || 'Couture',
       availability: availabilityLabels[product.availability],
       stock: product.stock,
+      sizeOptions: product.sizeInventory?.map((entry) => entry.size) ?? product.attributes?.sizes,
+      sizeStock: Object.fromEntries((product.sizeInventory ?? []).map((entry) => [entry.size, entry.stock])),
       route,
     });
     setSaved(added);
@@ -46,6 +48,10 @@ export function CollectionProductCard({ product }: { product: CatalogProduct }) 
   const addToCart = () => {
     if (!window.localStorage.getItem('rk_access_token')) {
       window.alert('Please sign in to add pieces to your shopping bag.');
+      return;
+    }
+    if (product.sizeSystemEnabled || (product.sizeInventory?.length ?? 0) > 0 || (product.attributes?.sizes?.length ?? 0) > 0) {
+      window.location.assign(route);
       return;
     }
     addStoredCartItem({
@@ -85,7 +91,7 @@ export function CollectionProductCard({ product }: { product: CatalogProduct }) 
       </div>
       <p className="mt-2 text-xs text-charcoal/70 sm:text-sm">{product.price === undefined ? 'Price on request' : inr.format(product.price)}</p>
       <button type="button" onClick={addToCart} disabled={product.availability === 'sold_out'} className="mt-4 inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.56rem] uppercase tracking-[0.24em] text-charcoal transition hover:border-gold hover:text-gold disabled:cursor-not-allowed disabled:opacity-40">
-        <ShoppingBag size={14} strokeWidth={1.35} />{product.availability === 'sold_out' ? 'Sold out' : cartMessage || 'Add to cart'}
+        <ShoppingBag size={14} strokeWidth={1.35} />{product.availability === 'sold_out' ? 'Sold out' : product.sizeSystemEnabled || (product.sizeInventory?.length ?? 0) > 0 || (product.attributes?.sizes?.length ?? 0) > 0 ? 'Choose size' : cartMessage || 'Add to cart'}
       </button>
     </div>
   </article>;

@@ -27,7 +27,7 @@ export function StorefrontCollectionProducts({ collection, loading = false }: {
   const [sort, setSort] = useState<SortOption>('featured');
   const products = useMemo(() => collection?.products ?? [], [collection]);
   const categories = useMemo(() => unique(products.map((product) => product.category || 'Couture')), [products]);
-  const sizes = useMemo(() => unique(products.flatMap((product) => product.attributes?.sizes ?? [])), [products]);
+  const sizes = useMemo(() => unique(products.flatMap((product) => product.sizeInventory?.map((entry) => entry.size) ?? product.attributes?.sizes ?? [])), [products]);
   const colors = useMemo(() => unique(products.flatMap((product) => product.attributes?.colors ?? (product.attributes?.color ? [String(product.attributes.color)] : []))), [products]);
   const activeFilterCount = [category, size, color, availability, maxPrice].filter(Boolean).length;
 
@@ -35,7 +35,8 @@ export function StorefrontCollectionProducts({ collection, loading = false }: {
     const maximum = maxPrice ? Number(maxPrice) : null;
     const filtered = products.filter((product) => {
       if (category && (product.category || 'Couture') !== category) return false;
-      if (size && !(product.attributes?.sizes ?? []).includes(size)) return false;
+      const productSizes = product.sizeInventory?.map((entry) => entry.size) ?? product.attributes?.sizes ?? [];
+      if (size && !productSizes.includes(size)) return false;
       const productColors = product.attributes?.colors ?? (product.attributes?.color ? [String(product.attributes.color)] : []);
       if (color && !productColors.includes(color)) return false;
       if (availability && product.availability !== availability) return false;

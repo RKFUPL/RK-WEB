@@ -32,6 +32,10 @@ export type CatalogProduct = {
   price?: number;
   currency: 'INR';
   stock?: number;
+  sizeSystemEnabled?: boolean;
+  sizeInventory?: Array<{ size: string; stock: number; enabled?: boolean }>;
+  unallocatedStock?: number;
+  customSizeConfig?: { fields?: string[]; label?: string; unit?: 'cm' | 'in' };
   category?: string;
   description?: string;
   media: string[];

@@ -96,7 +96,10 @@ export function FashionImageMarquee({ images = fashionFilmImages }: FashionImage
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [activePreview, setActivePreview] = useState<PreviewState | null>(null);
   const [previewVisible, setPreviewVisible] = useState(false);
-  const duration = Math.min(80, Math.max(60, images.length * 2.1));
+  // One complete repeated strip should take roughly 30–40 seconds at desktop
+  // widths, keeping the editorial movement visible without making it feel
+  // hurried. The CSS animation is paused while a preview is open or focused.
+  const duration = Math.min(40, Math.max(30, images.length * 1.1));
   const marqueeStyle = {
     '--fashion-marquee-duration': `${duration}s`,
   } as CSSProperties;

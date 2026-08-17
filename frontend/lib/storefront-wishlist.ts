@@ -6,6 +6,8 @@ export type StorefrontWishlistItem = {
   category?: string;
   availability?: string;
   stock?: number;
+  sizeOptions?: string[];
+  sizeStock?: Record<string, number>;
   route: string;
   addedAt: string;
 };

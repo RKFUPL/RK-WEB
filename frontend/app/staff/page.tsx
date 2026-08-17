@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Boxes, FileText, Package, ShoppingBag, Truck, Users } from 'lucide-react';
+import { Boxes, FileText, Package, ShoppingBag, Truck } from 'lucide-react';
 import { apiBaseUrl } from '@/lib/rbac';
 
 type StaffCounts = Record<string, number | Record<string, number>>;
@@ -11,7 +11,6 @@ const modules = [
   ['orders', 'Active orders', ShoppingBag, 'orders:manage', 'orders'],
   ['inventory', 'Low stock', Boxes, 'inventory:manage', 'lowStock'],
   ['quotes', 'Open quotes', FileText, 'quotes:manage', 'quotes'],
-  ['customers', 'Assigned customers', Users, 'customers:manage', 'customers'],
 ] as const;
 
 export default function StaffDashboard() {

@@ -1,4 +1,4 @@
-import { addToCart, emptyCart, removeFromCart } from '@/lib/cart';
+import { addToCart, emptyCart, removeFromCart, cartLineKey, updateCartItemSize } from '@/lib/cart';
 import type { Cart, CartItem } from '@/lib/store-types';
 
 export const cartStorageKey = 'rk_shopping_bag';
@@ -25,23 +25,29 @@ export function addStoredCartItem(item: CartItem) {
   return next;
 }
 
-export function removeStoredCartItem(productId: string, variantId?: string) {
-  const next = removeFromCart(readStoredCart(), productId, variantId);
+export function removeStoredCartItem(productId: string, variantId?: string, lineKey?: string) {
+  const next = removeFromCart(readStoredCart(), productId, variantId, lineKey);
   writeStoredCart(next);
   return next;
 }
 
-export function updateStoredCartQuantity(productId: string, quantity: number, variantId?: string) {
+export function updateStoredCartQuantity(productId: string, quantity: number, variantId?: string, lineKey?: string) {
   const cart = readStoredCart();
-  const current = cart.items.find((item) => item.productId === productId && item.variant?.id === variantId);
+  const current = cart.items.find((item) => lineKey ? cartLineKey(item) === lineKey : item.productId === productId && item.variant?.id === variantId);
   const limited = current?.availability?.toLowerCase().replaceAll(' ', '_') === 'in_stock' && current.stock !== undefined;
   const nextQuantity = limited ? Math.min(quantity, current?.stock ?? quantity) : quantity;
   const next = quantity <= 0
-    ? removeFromCart(cart, productId, variantId)
+    ? removeFromCart(cart, productId, variantId, lineKey)
     : {
         ...cart,
-        items: cart.items.map((item) => item.productId === productId && item.variant?.id === variantId ? { ...item, quantity: nextQuantity } : item),
+        items: cart.items.map((item) => (lineKey ? cartLineKey(item) === lineKey : item.productId === productId && item.variant?.id === variantId) ? { ...item, quantity: nextQuantity } : item),
       };
+  writeStoredCart(next);
+  return next;
+}
+
+export function updateStoredCartSize(lineKey: string, size: string) {
+  const next = updateCartItemSize(readStoredCart(), lineKey, size);
   writeStoredCart(next);
   return next;
 }

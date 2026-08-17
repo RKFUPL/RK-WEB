@@ -3,6 +3,7 @@
 import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
 import { brandLogoUrl } from '@/lib/home-content';
+import { apiBaseUrl } from '@/lib/rbac';
 
 type AccountUser = { id: string; email: string; username?: string; displayName?: string; role: 'customer' | 'staff' | 'admin' };
 type AuthMode = 'login' | 'signup' | 'forgot';
@@ -71,7 +72,6 @@ function signupFieldError(field: SignupField, value: string) {
   return '';
 }
 
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || '';
 const inaaraImage = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305219/RASHI_KAPOOR_-_27-3-240879_xr10ue.jpg';
 const aakaarImage = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785586504/Rashi_Kapoor2496_zwpkfq.jpg';
 
