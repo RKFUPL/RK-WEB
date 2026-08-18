@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowLeft, ChevronLeft, ChevronRight, Check, Heart, Image as ImageIcon, Minus, Plus, Ruler, ShoppingBag, X } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Footer } from '@/components/home/footer';
 import { StickyHeader } from '@/components/home/sticky-header';
 import { SizeChartPopover } from '@/components/products/size-chart-popover';
@@ -42,6 +42,10 @@ export function ProductDetailPage({ productId }: { productId: string }) {
   const [customSizeUnit, setCustomSizeUnit] = useState<'cm' | 'in'>('cm');
   const [customMeasurements, setCustomMeasurements] = useState<Record<string, string>>({});
   const [activeImage, setActiveImage] = useState(0);
+  const mainImageFrameRef = useRef<HTMLDivElement>(null);
+  const thumbnailRailRef = useRef<HTMLDivElement>(null);
+  const thumbnailRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const [thumbnailViewportHeight, setThumbnailViewportHeight] = useState<number>();
   const [quantity, setQuantity] = useState(1);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [openSection, setOpenSection] = useState('');
@@ -94,6 +98,58 @@ export function ProductDetailPage({ productId }: { productId: string }) {
     window.addEventListener('keydown', onKeyDown);
     return () => { document.body.style.overflow = ''; window.removeEventListener('keydown', onKeyDown); };
   }, [lightboxOpen, product]);
+
+  useEffect(() => {
+    const rail = thumbnailRailRef.current;
+    const thumbnail = thumbnailRefs.current[activeImage];
+    if (!rail || !thumbnail) return;
+
+    const vertical = window.matchMedia('(min-width: 1024px)').matches;
+    const itemStart = vertical ? thumbnail.offsetTop : thumbnail.offsetLeft;
+    const itemSize = vertical ? thumbnail.offsetHeight : thumbnail.offsetWidth;
+    const viewportStart = vertical ? rail.scrollTop : rail.scrollLeft;
+    const viewportSize = vertical ? rail.clientHeight : rail.clientWidth;
+    const itemEnd = itemStart + itemSize;
+    const viewportEnd = viewportStart + viewportSize;
+
+    if (itemStart < viewportStart || itemEnd > viewportEnd) {
+      rail.scrollTo(vertical
+        ? { top: itemStart, behavior: 'smooth' }
+        : { left: itemStart, behavior: 'smooth' });
+    }
+  }, [activeImage]);
+
+  useEffect(() => {
+    const mainImageFrame = mainImageFrameRef.current;
+    const rail = thumbnailRailRef.current;
+    const firstThumbnail = thumbnailRefs.current[0];
+    if (!mainImageFrame || !rail || !firstThumbnail || (product?.media.length ?? 0) < 2) return undefined;
+
+    const updateViewportHeight = () => {
+      if (!window.matchMedia('(min-width: 1024px)').matches) {
+        setThumbnailViewportHeight(undefined);
+        return;
+      }
+
+      const availableHeight = mainImageFrame.getBoundingClientRect().height;
+      const thumbnailHeight = firstThumbnail.getBoundingClientRect().height;
+      const styles = window.getComputedStyle(rail);
+      const gap = Number.parseFloat(styles.rowGap || styles.gap) || 0;
+      const thumbnailCount = product?.media.length ?? 0;
+      const completeContentHeight = thumbnailCount * thumbnailHeight + Math.max(0, thumbnailCount - 1) * gap;
+      const visibleCount = Math.max(1, Math.floor((availableHeight + gap) / (thumbnailHeight + gap)));
+      const completeViewportHeight = visibleCount * thumbnailHeight + Math.max(0, visibleCount - 1) * gap;
+
+      setThumbnailViewportHeight(Math.min(completeContentHeight, completeViewportHeight));
+    };
+
+    const resizeObserver = new ResizeObserver(updateViewportHeight);
+    resizeObserver.observe(mainImageFrame);
+    resizeObserver.observe(firstThumbnail);
+    updateViewportHeight();
+
+    return () => resizeObserver.disconnect();
+  }, [product?.media.length]);
 
   if (notFound) return <main className="min-h-screen bg-ivory text-charcoal"><StickyHeader /><div className="mx-auto max-w-3xl px-6 pb-24 pt-40 text-center"><p className="text-[0.6rem] uppercase tracking-[0.35em] text-gold">Product unavailable</p><h1 className="mt-5 font-display text-5xl">This piece could not be found.</h1><Link href="/collections" className="mt-10 inline-flex border-b border-charcoal/40 pb-2 text-xs uppercase tracking-[0.28em]">Explore collections</Link></div><Footer /></main>;
   if (!product) return <main className="min-h-screen bg-ivory text-charcoal"><StickyHeader /><div className="mx-auto grid max-w-[100rem] animate-pulse gap-10 px-6 pb-24 pt-32 lg:grid-cols-2 lg:px-12"><div className="aspect-[4/5] rounded-[14px] bg-sand" /><div className="space-y-5 py-10"><div className="h-3 w-24 bg-sand" /><div className="h-16 w-3/4 bg-sand" /><div className="h-4 w-32 bg-sand" /></div></div></main>;
@@ -168,12 +224,12 @@ export function ProductDetailPage({ productId }: { productId: string }) {
       {backCollection ? <Link href={`/collections/${backCollection.slug}`} className="mb-7 inline-flex items-center gap-2 text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/55 transition hover:text-gold"><ArrowLeft size={14} />{backCollection.name}</Link> : null}
       <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,35rem)_5.5rem_minmax(20rem,1fr)] lg:gap-3 xl:grid-cols-[minmax(0,35rem)_6.5rem_minmax(22rem,1fr)] xl:gap-4">
         <div className="flex justify-center lg:justify-start">
-          <div className="relative aspect-[4/5] h-auto w-full max-w-[35rem] overflow-hidden rounded-[14px] bg-sand">
+          <div ref={mainImageFrameRef} className="relative aspect-[4/5] h-auto w-full max-w-[35rem] overflow-hidden rounded-[14px] bg-sand">
             {currentImage ? <button type="button" onClick={() => setLightboxOpen(true)} className="absolute inset-0 cursor-zoom-in" aria-label="Open product image gallery"><Image src={currentImage} alt={product.name || 'Product'} fill priority className="object-contain transition-opacity duration-500" sizes="(max-width: 1024px) 100vw, 58vw" /></button> : <div className="grid h-full place-items-center text-center text-charcoal/40"><div><ImageIcon size={30} strokeWidth={1.2} className="mx-auto" /><p className="mt-4 text-[0.58rem] uppercase tracking-[0.3em]">Product image coming soon</p></div></div>}
             {media.length > 1 ? <><button type="button" onClick={previousImage} aria-label="Previous product image" className="absolute left-4 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full bg-ivory/85 text-charcoal shadow-sm backdrop-blur-sm transition hover:text-gold"><ChevronLeft size={18} /></button><button type="button" onClick={nextImage} aria-label="Next product image" className="absolute right-4 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full bg-ivory/85 text-charcoal shadow-sm backdrop-blur-sm transition hover:text-gold"><ChevronRight size={18} /></button></> : null}
           </div>
         </div>
-        {media.length > 1 ? <div className="rk-gallery-scroll flex max-w-full gap-3 overflow-x-auto pb-1 lg:max-h-[min(74vh,43.75rem)] lg:w-[5.5rem] lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:pb-0 xl:w-[6.5rem]">{media.map((image, index) => <button key={image + index} type="button" onClick={() => setActiveImage(index)} aria-label={`Show product image ${index + 1}`} aria-current={activeImage === index} className={activeImage === index ? 'relative aspect-[3/4] w-[5.5rem] shrink-0 overflow-hidden rounded-[12px] bg-sand ring-1 ring-gold ring-offset-2 ring-offset-ivory lg:w-full' : 'relative aspect-[3/4] w-[5.5rem] shrink-0 overflow-hidden rounded-[12px] bg-sand opacity-65 transition hover:opacity-100 lg:w-full'}><Image src={image} alt="" fill className="object-cover" sizes="(max-width: 1023px) 5.5rem, 6.5rem" /></button>)}</div> : null}
+        {media.length > 1 ? <div ref={thumbnailRailRef} style={thumbnailViewportHeight ? { maxHeight: `${thumbnailViewportHeight}px` } : undefined} className="rk-product-thumbnail-rail rk-gallery-scroll flex max-w-full snap-x gap-3 overflow-x-auto overflow-y-hidden pb-1 lg:w-[5.5rem] lg:snap-y lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:pb-0 xl:w-[6.5rem]">{media.map((image, index) => <button ref={(node) => { thumbnailRefs.current[index] = node; }} key={image + index} type="button" onClick={() => setActiveImage(index)} aria-label={`Show product image ${index + 1}`} aria-current={activeImage === index} className={activeImage === index ? 'relative aspect-[3/4] w-[5.5rem] shrink-0 snap-start overflow-hidden rounded-[12px] bg-sand ring-1 ring-gold ring-offset-2 ring-offset-ivory lg:w-full' : 'relative aspect-[3/4] w-[5.5rem] shrink-0 snap-start overflow-hidden rounded-[12px] bg-sand opacity-65 transition hover:opacity-100 lg:w-full'}><Image src={image} alt="" fill className="object-cover" sizes="(max-width: 1023px) 5.5rem, 6.5rem" /></button>)}</div> : null}
         <div className={media.length > 1 ? 'lg:sticky lg:top-28 lg:self-start' : 'lg:sticky lg:top-28 lg:col-start-3 lg:self-start'}>
           <p className="text-[0.58rem] uppercase tracking-[0.32em] text-gold">{product.category || 'Couture'}</p>
           <h1 className="mt-3 font-display text-5xl leading-[0.95] sm:text-6xl">{product.name}</h1>

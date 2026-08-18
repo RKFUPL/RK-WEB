@@ -1,38 +1,41 @@
+'use client';
+
 import Link from 'next/link';
-import { ArrowRight } from 'lucide-react';
+import { ArrowLeft, ArrowRight } from 'lucide-react';
+import { useState } from 'react';
 import { runwayCollections } from '@/lib/home-content';
 
 export function ExclusiveRunway() {
-  return (
-    <section aria-labelledby="exclusive-runway-title" className="border-y border-gold/25 bg-[#090806] text-[#f3ecdf]">
-      <div className="mx-auto w-full max-w-7xl px-6 py-20 lg:px-10 lg:py-28">
-        <div className="flex flex-col gap-5 border-b border-gold/25 pb-8 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-[0.6rem] uppercase tracking-[0.42em] text-gold/80">The house on the runway</p>
-            <h2 id="exclusive-runway-title" className="mt-4 font-display text-5xl leading-[0.9] text-[#f5efe5] md:text-7xl">Our Exclusive Runway</h2>
-          </div>
-          <p className="max-w-sm text-sm leading-7 text-[#f5efe5]/52">A singular presentation of movement, craft and couture, reserved for the runway.</p>
-        </div>
+  const [activeIndex, setActiveIndex] = useState(0);
+  const collection = runwayCollections[activeIndex] ?? runwayCollections[0];
 
-        <div className="mt-10">
-          {runwayCollections.map((collection) => (
-            <Link key={collection.name} href={collection.href} className="group grid overflow-hidden border border-gold/25 bg-[#11100d] transition duration-500 hover:border-gold/60 md:grid-cols-[1.18fr_0.82fr]">
-              <div className="relative min-h-[27rem] overflow-hidden md:min-h-[36rem]">
-                <img src={collection.image} alt={`${collection.name} runway`} className="absolute inset-0 h-full w-full object-cover transition duration-1000 ease-out group-hover:scale-[1.025]" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-black/10" />
-              </div>
-              <div className="flex min-h-[22rem] flex-col justify-between border-t border-gold/20 p-8 md:min-h-0 md:border-l md:border-t-0 md:p-12 lg:p-16">
-                <div>
-                  <p className="text-[0.58rem] uppercase tracking-[0.38em] text-gold/75">Runway / 01</p>
-                  <h3 className="mt-6 font-display text-5xl leading-[0.88] text-[#f5efe5] md:text-6xl">{collection.name}</h3>
-                  <p className="mt-7 max-w-sm text-sm leading-7 text-[#f5efe5]/58">{collection.description}</p>
-                </div>
-                <span className="mt-12 inline-flex items-center gap-4 text-[0.62rem] uppercase tracking-[0.34em] text-gold transition group-hover:text-[#f5efe5]">View runway <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-2" /></span>
-              </div>
-            </Link>
-          ))}
-        </div>
+  const hasMultipleCollections = runwayCollections.length > 1;
+  const showPrevious = () => setActiveIndex((index) => (index - 1 + runwayCollections.length) % runwayCollections.length);
+  const showNext = () => setActiveIndex((index) => (index + 1) % runwayCollections.length);
+  const status = collection.status.replaceAll('-', ' ');
+
+  return (
+    <aside aria-labelledby="exclusive-runway-title" className="w-full pt-1">
+      <div className="flex items-center justify-between gap-4 border-b border-gold/45 pb-3">
+        <h3 id="exclusive-runway-title" className="text-[0.6rem] uppercase tracking-[0.32em] text-gold">Our Exclusive Runway</h3>
+        {hasMultipleCollections ? <div className="flex items-center gap-1">
+          <button type="button" onClick={showPrevious} aria-label="Previous runway collection" className="grid h-7 w-7 place-items-center border border-gold/35 text-gold transition hover:border-gold hover:bg-gold hover:text-ink"><ArrowLeft size={12} /></button>
+          <button type="button" onClick={showNext} aria-label="Next runway collection" className="grid h-7 w-7 place-items-center border border-gold/35 text-gold transition hover:border-gold hover:bg-gold hover:text-ink"><ArrowRight size={12} /></button>
+        </div> : null}
       </div>
-    </section>
+
+      <Link href={collection.href} className="group relative mt-4 block min-h-[15rem] overflow-hidden border border-gold/35 bg-[#0b0a08] text-[#f4ede2] transition duration-500 hover:border-gold/70">
+        {collection.image ? <img src={collection.image} alt={`${collection.name} runway collection`} className="absolute inset-0 h-full w-full object-cover transition duration-1000 ease-out group-hover:scale-[1.025]" /> : <div aria-hidden="true" className="absolute inset-0 bg-[radial-gradient(circle_at_78%_24%,rgba(181,138,76,0.2),transparent_30%),linear-gradient(135deg,#17130f,#080706)]" />}
+        <div className="absolute inset-0 bg-gradient-to-r from-black/95 via-black/76 to-black/20" />
+        <div className="relative flex min-h-[15rem] flex-col justify-between p-6">
+          <div>
+            <p className="text-[0.52rem] uppercase tracking-[0.3em] text-gold/80">Runway collection</p>
+            <h4 className="mt-4 font-display text-[2rem] leading-[0.9] text-[#f5efe5]">{collection.name}</h4>
+            <p className="mt-3 text-[0.54rem] uppercase tracking-[0.28em] text-gold/85">{status}</p>
+          </div>
+          <span className="inline-flex items-center gap-3 text-[0.55rem] uppercase tracking-[0.25em] text-gold transition group-hover:text-[#f5efe5]">View runway <ArrowRight className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-1.5" /></span>
+        </div>
+      </Link>
+    </aside>
   );
 }

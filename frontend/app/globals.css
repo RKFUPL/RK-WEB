@@ -17,6 +17,33 @@
   border-radius: 999px;
 }
 
+@media (min-width: 1024px) {
+  .rk-product-thumbnail-rail {
+    /* Four complete 5.5rem portrait thumbnails plus three 0.75rem gaps. */
+    max-height: 31.583rem;
+    overscroll-behavior-y: contain;
+    scrollbar-gutter: stable;
+  }
+}
+
+@media (min-width: 1280px) {
+  .rk-product-thumbnail-rail {
+    /* Keep the viewport aligned to four complete thumbnails at the wider rail size. */
+    max-height: 36.917rem;
+  }
+}
+
+.rk-headline-monogram {
+  display: inline-block;
+  width: auto;
+  max-width: none;
+  height: 0.84em;
+  flex: none;
+  object-fit: contain;
+  overflow: visible;
+  vertical-align: -0.08em;
+}
+
 .shopping-bag-panel {
   background-color: #fffdf9 !important;
 }
@@ -1522,7 +1549,7 @@ body {
 
 .footer-signature-scene {
   display: grid;
-  min-height: clamp(12rem, 22vw, 20rem);
+  min-height: clamp(18rem, 30vw, 28rem);
   padding: 1.5rem;
   place-items: center;
   overflow: hidden;
@@ -1540,8 +1567,8 @@ body {
 
 .footer-signature-art {
   display: block;
-  width: min(90vw, 52rem);
-  height: min(18rem, 24vw);
+  width: min(94vw, 64rem);
+  height: min(24rem, 32vw);
   object-fit: contain;
 }
 
@@ -1555,6 +1582,7 @@ body {
 
 .dark .footer-signature-dark {
   display: block;
+  mix-blend-mode: screen;
 }
 
 .luxury-footer > * {

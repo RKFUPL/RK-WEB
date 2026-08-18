@@ -18,14 +18,14 @@ export function ShopCategories() {
       />
 
       <div className="relative z-10 mx-auto w-full max-w-[78rem] px-6 py-16 lg:px-10 lg:py-16">
-        <div className="grid items-center gap-12 lg:grid-cols-[minmax(15rem,0.76fr)_minmax(0,1.24fr)] lg:gap-16">
+        <div className="grid items-start gap-12 lg:grid-cols-[minmax(15rem,0.76fr)_minmax(0,1.24fr)] lg:gap-16">
           <div className="max-w-[21rem] space-y-6">
             <div className="flex items-center gap-4">
               <p className="text-[0.62rem] uppercase tracking-[0.38em] text-gold">All collections</p>
               <span className="h-px w-12 bg-gold/65" />
             </div>
             <h2 className="font-display text-[clamp(2.8rem,4.4vw,4.5rem)] leading-[0.94] tracking-[-0.035em] text-charcoal">
-              Drape yourself in<br />the luxury of the<br /><span className="inline-flex items-baseline gap-[0.14em]"><img src={brandLogoUrl} alt="RK" className="rk-logo inline-block h-[0.72em] w-auto translate-y-[0.06em] object-contain" /> house.</span>
+              Drape yourself in<br />the luxury of the<br /><span className="inline-flex items-center gap-[0.14em] whitespace-nowrap align-[-0.08em] leading-none"><img src={brandLogoUrl} alt="RK monogram" className="rk-logo rk-headline-monogram" /> house.</span>
             </h2>
             <div className="flex items-center gap-3 text-gold" aria-hidden="true">
               <span className="h-px w-5 bg-gold/70" /><span className="text-base">✦</span><span className="h-px w-5 bg-gold/70" />

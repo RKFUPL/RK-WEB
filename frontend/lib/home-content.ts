@@ -37,7 +37,9 @@ export const espirituLibreImageUrl = 'https://res.cloudinary.com/fm1bwbrd/image/
 
 export const runwayCollections = [
   {
+    id: 'espiritu-libre',
     name: 'Espiritu Libre',
+    status: 'coming-soon',
     image: espirituLibreImageUrl,
     href: '/runway',
     editorialHref: '/rk-lookbooks/espiritu-libre',

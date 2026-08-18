@@ -39,8 +39,8 @@ const socialLinks = {
   x: 'https://x.com/',
 } as const;
 
-const footerSignatureLightImage = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1786444616/RK_black_transparent_aihsgm.svg';
-const footerSignatureDarkImage = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1786444193/RK_gold_transparent_puoxne.svg';
+const footerSignatureLightImage = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1787059394/9bd32d0d-80c9-4607-8798-bec666a8e3ff.png';
+const footerSignatureDarkImage = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1787059406/3c335991-6978-462c-a561-b3d1a23e11a0.png';
 
 const storeLocations = [
   {
