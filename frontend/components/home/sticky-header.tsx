@@ -54,6 +54,7 @@ function AccountPreview({ user, onNavigate }: { user: HeaderUser; onNavigate: ()
 
 export function StickyHeader({ transparentAtTop = false, transparentTheme = 'light' }: StickyHeaderProps) {
   const [scrolled, setScrolled] = useState(false);
+  const [headerVisible, setHeaderVisible] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const [collectionsOpen, setCollectionsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -70,8 +71,11 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
   const [wishlistNotice, setWishlistNotice] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const headerRef = useRef<HTMLElement | null>(null);
+  const previousScrollYRef = useRef(0);
+  const scrollFrameRef = useRef<number | null>(null);
   const pathname = usePathname();
   const router = useRouter();
+  const isHomePage = pathname === '/';
   const isTransparent = ((transparentAtTop && !scrolled) || videoSectionVisible) && !searchOpen;
   const activeTransparentTheme = videoSectionVisible ? 'light' : transparentTheme;
   const transparentLogoIsLight = isTransparent && activeTransparentTheme === 'light';
@@ -97,13 +101,6 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
   }, []);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 12);
-    onScroll();
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
-
-  useEffect(() => {
     const updateVideoVisibility = () => {
       const videoSection = document.getElementById('lookbook');
       if (!videoSection) {
@@ -118,14 +115,38 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
       setVideoSectionVisible(hasReachedVideo && !hasPassedVideo);
     };
 
+    const updateScrollState = () => {
+      const currentScrollY = window.scrollY;
+
+      setScrolled(currentScrollY > 12);
+      if (!isHomePage) {
+        const previousScrollY = previousScrollYRef.current;
+        setHeaderVisible(currentScrollY <= 0 || currentScrollY < previousScrollY);
+      }
+      previousScrollYRef.current = currentScrollY;
+      updateVideoVisibility();
+      scrollFrameRef.current = null;
+    };
+
+    previousScrollYRef.current = window.scrollY;
+    setScrolled(window.scrollY > 12);
+    setHeaderVisible(true);
     updateVideoVisibility();
-    window.addEventListener('scroll', updateVideoVisibility, { passive: true });
+
+    const onScroll = () => {
+      if (scrollFrameRef.current !== null) return;
+      scrollFrameRef.current = window.requestAnimationFrame(updateScrollState);
+    };
+
+    window.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', updateVideoVisibility);
     return () => {
-      window.removeEventListener('scroll', updateVideoVisibility);
+      window.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', updateVideoVisibility);
+      if (scrollFrameRef.current !== null) window.cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = null;
     };
-  }, [pathname]);
+  }, [isHomePage, pathname]);
 
   useEffect(() => {
     const token = window.localStorage.getItem('rk_access_token');
@@ -305,11 +326,12 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
     <header
       ref={headerRef}
       className={cn(
-        'fixed inset-x-0 top-0 z-[200] border-b backdrop-blur-[2px] transition-[background-color,border-color,box-shadow,backdrop-filter] duration-500',
+        'fixed inset-x-0 top-0 z-[200] border-b backdrop-blur-[2px] transition-[background-color,border-color,box-shadow,backdrop-filter,transform] duration-500 ease-out',
         isTransparent
           ? cn('border-transparent bg-transparent shadow-none', activeTransparentTheme === 'dark' ? 'text-[#1e1b18]' : 'text-white')
           : 'border-black/6 bg-white text-charcoal shadow-[0_1px_0_rgba(0,0,0,0.04)]',
-        scrolled && !isTransparent ? 'shadow-[0_4px_18px_rgba(0,0,0,0.06)]' : ''
+        scrolled && !isTransparent ? 'shadow-[0_4px_18px_rgba(0,0,0,0.06)]' : '',
+        isHomePage || headerVisible || searchOpen || menuOpen || wishlistOpen || bagOpen || accountOpen ? 'translate-y-0' : '-translate-y-full'
       )}
     >
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-10">

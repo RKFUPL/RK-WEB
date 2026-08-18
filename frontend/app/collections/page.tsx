@@ -7,7 +7,7 @@ import { Footer } from '@/components/home/footer';
 import { ExclusiveRunway } from '@/components/home/exclusive-runway';
 import { StickyHeader } from '@/components/home/sticky-header';
 import { SectionShell } from '@/components/home/section-shell';
-import { brandLogoUrl, collectionGalleryPages } from '@/lib/home-content';
+import { collectionGalleryPages } from '@/lib/home-content';
 
 function collectionTitleStyle() {
   return {
@@ -83,7 +83,7 @@ export default function CollectionsPage() {
           <header className="space-y-6 lg:sticky lg:top-28 lg:self-start">
             <p className="text-[0.65rem] uppercase tracking-[0.3em] text-charcoal/60">All collections</p>
             <h1 className="max-w-sm font-display text-6xl leading-[0.88] md:text-8xl">
-              Drape yourself in the luxury of the <span className="inline-flex items-center gap-[0.14em] whitespace-nowrap align-[-0.08em] leading-none"><img src={brandLogoUrl} alt="RK monogram" className="rk-logo rk-headline-monogram" /> house.</span>
+              Drape yourself in the luxury of the <span className="whitespace-nowrap">house.</span>
             </h1>
             <span className="block h-px w-14 bg-gold" />
             <p className="max-w-sm text-sm leading-7 text-charcoal/65 md:text-base md:leading-8">

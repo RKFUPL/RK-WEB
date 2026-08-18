@@ -1,18 +1,20 @@
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowLeft, ChevronLeft, ChevronRight, Check, Heart, Image as ImageIcon, Minus, Plus, Ruler, ShoppingBag, X } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Check, Heart, Image as ImageIcon, Mail, Minus, Plus, Ruler, ShoppingBag, X } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { Footer } from '@/components/home/footer';
 import { StickyHeader } from '@/components/home/sticky-header';
+import { CollectionProductCard } from '@/components/collections/collection-product-card';
 import { SizeChartPopover } from '@/components/products/size-chart-popover';
 import { trackAnalyticsEvent } from '@/lib/analytics';
 import { availabilityLabels, inr, type CatalogProduct, type ManagedCollection } from '@/lib/catalog';
 import { apiBaseUrl } from '@/lib/rbac';
 import { addStoredCartItem } from '@/lib/storefront-cart';
 import { readWishlist, toggleWishlist, wishlistChangedEvent } from '@/lib/storefront-wishlist';
+import { cloudinaryImageUrl } from '@/lib/utils';
 
 function textValue(value: unknown) {
   if (Array.isArray(value)) return value.filter(Boolean).join(', ');
@@ -35,10 +37,20 @@ const defaultCustomSizeFields = [
 export function ProductDetailPage({ productId }: { productId: string }) {
   const [product, setProduct] = useState<CatalogProduct | null>(null);
   const [collections, setCollections] = useState<ManagedCollection[]>([]);
+  const [relatedProducts, setRelatedProducts] = useState<CatalogProduct[]>([]);
+  const [relatedProductsLoading, setRelatedProductsLoading] = useState(false);
   const [saved, setSaved] = useState(false);
   const [selectedSize, setSelectedSize] = useState('');
   const [customSizeOpen, setCustomSizeOpen] = useState(false);
   const [customSizeError, setCustomSizeError] = useState('');
+  const [customOrderOpen, setCustomOrderOpen] = useState(false);
+  const [customOrderName, setCustomOrderName] = useState('');
+  const [customOrderEmail, setCustomOrderEmail] = useState('');
+  const [customOrderPhone, setCustomOrderPhone] = useState('');
+  const [customOrderSize, setCustomOrderSize] = useState('');
+  const [customOrderMessage, setCustomOrderMessage] = useState('');
+  const [customOrderError, setCustomOrderError] = useState('');
+  const [customOrderBusy, setCustomOrderBusy] = useState(false);
   const [customSizeUnit, setCustomSizeUnit] = useState<'cm' | 'in'>('cm');
   const [customMeasurements, setCustomMeasurements] = useState<Record<string, string>>({});
   const [activeImage, setActiveImage] = useState(0);
@@ -54,6 +66,9 @@ export function ProductDetailPage({ productId }: { productId: string }) {
 
   useEffect(() => {
     setProduct(null);
+    setCollections([]);
+    setRelatedProducts([]);
+    setRelatedProductsLoading(false);
     setNotFound(false);
     setActiveImage(0);
     setQuantity(1);
@@ -72,12 +87,43 @@ export function ProductDetailPage({ productId }: { productId: string }) {
   }, [productId]);
 
   useEffect(() => {
-    if (!customSizeOpen) return undefined;
+    const collectionSlug = collections[0]?.slug;
+    if (!collectionSlug) {
+      setRelatedProducts([]);
+      setRelatedProductsLoading(false);
+      return undefined;
+    }
+
+    let active = true;
+    setRelatedProductsLoading(true);
+    fetch(`${apiBaseUrl}/api/catalog/collections/${encodeURIComponent(collectionSlug)}`, { cache: 'no-store' })
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || 'Unable to load related products.');
+        return payload.collection as ManagedCollection & { products?: CatalogProduct[] };
+      })
+      .then((collection) => {
+        if (!active) return;
+        setRelatedProducts((collection.products || []).filter((item) => item.id !== productId).slice(0, 4));
+      })
+      .catch(() => {
+        if (active) setRelatedProducts([]);
+      })
+      .finally(() => {
+        if (active) setRelatedProductsLoading(false);
+      });
+
+    return () => { active = false; };
+  }, [collections, productId]);
+
+  useEffect(() => {
+    if (!customSizeOpen && !customOrderOpen) return undefined;
     setCustomSizeError('');
+    setCustomOrderError('');
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = previousOverflow; };
-  }, [customSizeOpen]);
+  }, [customOrderOpen, customSizeOpen]);
 
   useEffect(() => {
     const sync = () => setSaved(readWishlist().some((item) => item.productId === productId));
@@ -169,7 +215,9 @@ export function ProductDetailPage({ productId }: { productId: string }) {
   const backCollection = collections[0];
   const route = `/products/${product.id}`;
   const currentImage = media[activeImage] || media[0];
+  const currentMainImage = cloudinaryImageUrl(currentImage, 1600);
   const quantityStockLimit = product.availability === 'in_stock' ? selectedSizeEntry?.stock ?? product.stock : undefined;
+  const soldOut = product.availability === 'sold_out';
   const requireSignIn = () => {
     if (window.localStorage.getItem('rk_access_token')) return true;
     window.alert('Please sign in to use your wishlist or shopping bag.');
@@ -177,6 +225,10 @@ export function ProductDetailPage({ productId }: { productId: string }) {
   };
   const previousImage = () => setActiveImage((index) => media.length ? (index - 1 + media.length) % media.length : 0);
   const nextImage = () => setActiveImage((index) => media.length ? (index + 1) % media.length : 0);
+  const requestCustomOrder = () => {
+    setCustomOrderError('');
+    setCustomOrderOpen(true);
+  };
   const saveProduct = () => {
     if (!requireSignIn()) return;
     const added = toggleWishlist({ productId: product.id, name: product.name || 'Untitled piece', price: product.price, image: media[0], category: product.category || 'Couture', availability: availabilityLabels[product.availability], stock: product.stock, sizeOptions: sizes, sizeStock: Object.fromEntries(sizeInventory.map((entry) => [entry.size, entry.stock])), route });
@@ -190,6 +242,51 @@ export function ProductDetailPage({ productId }: { productId: string }) {
     addStoredCartItem({ productId: product.id, name: product.name || 'Untitled piece', price: Number(product.price || 0), quantity, image: media[0], stock: selectedSizeEntry?.stock ?? product.stock, availability: availabilityLabels[product.availability], size: selectedSize || undefined, sizeOptions: sizes, sizeStock: Object.fromEntries(sizeInventory.map((entry) => [entry.size, entry.stock])), inventoryMode: sizeConfigured ? 'size' : 'legacy', purchaseMode: customSize ? 'custom_size' : 'standard_size', customSize, variant: selectedSize ? { id: `size:${selectedSize}`, name: 'Size', value: selectedSize } : customSize ? { id: `custom:${JSON.stringify(customSize)}`, name: 'Size', value: 'Custom' } : undefined });
     trackAnalyticsEvent('add_to_bag', { productId: product.id, productName: product.name, currency: 'INR', value: product.price, quantity });
     setMessage('Added to your shopping bag.');
+  };
+  const submitCustomOrder = async () => {
+    if (!customOrderName.trim()) {
+      setCustomOrderError('Enter your name.');
+      return;
+    }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(customOrderEmail.trim())) {
+      setCustomOrderError('Enter a valid email address.');
+      return;
+    }
+
+    setCustomOrderBusy(true);
+    setCustomOrderError('');
+    const measurements = Object.fromEntries(
+      Object.entries(customMeasurements).filter(([key, value]) => key !== '_customReady' && value.trim()),
+    );
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/catalog/custom-order-requests`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productId: product.id,
+          name: customOrderName,
+          email: customOrderEmail,
+          phone: customOrderPhone,
+          requestedSize: customOrderSize,
+          measurements,
+          message: customOrderMessage,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'The request could not be sent.');
+      setCustomOrderOpen(false);
+      setCustomOrderName('');
+      setCustomOrderEmail('');
+      setCustomOrderPhone('');
+      setCustomOrderSize('');
+      setCustomOrderMessage('');
+      setCustomMeasurements({});
+      setMessage(payload.message || 'Request received. The RK team will get back to you by email.');
+    } catch (error) {
+      setCustomOrderError(error instanceof Error ? error.message : 'The request could not be sent.');
+    } finally {
+      setCustomOrderBusy(false);
+    }
   };
   const saveCustomMeasurements = () => {
     if (customSizeFields.some((field) => !customMeasurements[field]?.trim())) {
@@ -211,8 +308,11 @@ export function ProductDetailPage({ productId }: { productId: string }) {
     setMessage('Custom measurements saved.');
   };
   const attributes = product.attributes || {};
+  const productDescription = textValue(product.description);
+  const summaryDescription = productDescription || 'Product description coming soon.';
+  const detailedDescription = textValue(attributes.detailedDescription || attributes.descriptionDetails || attributes.longDescription);
   const informationSections = [
-    { id: 'description', label: 'Description', value: textValue(product.description) || 'Product description coming soon.' },
+    ...(detailedDescription ? [{ id: 'description', label: 'Description', value: detailedDescription }] : []),
     { id: 'details', label: 'Product Details', value: textValue(attributes.productDetails || attributes.details || attributes.customizationInformation) || 'Contact the RK team for additional product details.' },
     { id: 'size-fit', label: 'Size & Fit', value: textValue(attributes.sizeFit || attributes.sizing || (sizes.length ? 'Available sizes: ' + sizes.join(', ') : '')) || 'Contact the RK team for personalised sizing guidance.' },
     { id: 'care', label: 'Care Guide', value: [textValue(attributes.careGuide || attributes.care), [textValue(attributes.fabric), textValue(attributes.material)].filter(Boolean).join(' · ')].filter(Boolean).join(' · ') || 'Contact the RK team for care guidance specific to this piece.' },
@@ -222,29 +322,40 @@ export function ProductDetailPage({ productId }: { productId: string }) {
   return <main className="bg-ivory text-charcoal"><StickyHeader />
     <section className="mx-auto max-w-[100rem] px-4 pb-20 pt-28 sm:px-8 lg:px-12 lg:pb-28 lg:pt-32">
       {backCollection ? <Link href={`/collections/${backCollection.slug}`} className="mb-7 inline-flex items-center gap-2 text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/55 transition hover:text-gold"><ArrowLeft size={14} />{backCollection.name}</Link> : null}
-      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,35rem)_5.5rem_minmax(20rem,1fr)] lg:gap-3 xl:grid-cols-[minmax(0,35rem)_6.5rem_minmax(22rem,1fr)] xl:gap-4">
+      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,35rem)_5.5rem_minmax(20rem,1fr)] lg:gap-x-3 xl:grid-cols-[minmax(0,35rem)_6.5rem_minmax(22rem,1fr)] xl:gap-x-4">
         <div className="flex justify-center lg:justify-start">
           <div ref={mainImageFrameRef} className="relative aspect-[4/5] h-auto w-full max-w-[35rem] overflow-hidden rounded-[14px] bg-sand">
-            {currentImage ? <button type="button" onClick={() => setLightboxOpen(true)} className="absolute inset-0 cursor-zoom-in" aria-label="Open product image gallery"><Image src={currentImage} alt={product.name || 'Product'} fill priority className="object-contain transition-opacity duration-500" sizes="(max-width: 1024px) 100vw, 58vw" /></button> : <div className="grid h-full place-items-center text-center text-charcoal/40"><div><ImageIcon size={30} strokeWidth={1.2} className="mx-auto" /><p className="mt-4 text-[0.58rem] uppercase tracking-[0.3em]">Product image coming soon</p></div></div>}
+            {currentMainImage ? <button type="button" onClick={() => setLightboxOpen(true)} className="absolute inset-0 cursor-zoom-in" aria-label="Open product image gallery"><Image src={currentMainImage} alt={product.name || 'Product'} fill priority className="object-contain transition-opacity duration-500" sizes="(max-width: 1024px) 100vw, 58vw" /></button> : <div className="grid h-full place-items-center text-center text-charcoal/40"><div><ImageIcon size={30} strokeWidth={1.2} className="mx-auto" /><p className="mt-4 text-[0.58rem] uppercase tracking-[0.3em]">Product image coming soon</p></div></div>}
             {media.length > 1 ? <><button type="button" onClick={previousImage} aria-label="Previous product image" className="absolute left-4 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full bg-ivory/85 text-charcoal shadow-sm backdrop-blur-sm transition hover:text-gold"><ChevronLeft size={18} /></button><button type="button" onClick={nextImage} aria-label="Next product image" className="absolute right-4 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full bg-ivory/85 text-charcoal shadow-sm backdrop-blur-sm transition hover:text-gold"><ChevronRight size={18} /></button></> : null}
           </div>
         </div>
-        {media.length > 1 ? <div ref={thumbnailRailRef} style={thumbnailViewportHeight ? { maxHeight: `${thumbnailViewportHeight}px` } : undefined} className="rk-product-thumbnail-rail rk-gallery-scroll flex max-w-full snap-x gap-3 overflow-x-auto overflow-y-hidden pb-1 lg:w-[5.5rem] lg:snap-y lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:pb-0 xl:w-[6.5rem]">{media.map((image, index) => <button ref={(node) => { thumbnailRefs.current[index] = node; }} key={image + index} type="button" onClick={() => setActiveImage(index)} aria-label={`Show product image ${index + 1}`} aria-current={activeImage === index} className={activeImage === index ? 'relative aspect-[3/4] w-[5.5rem] shrink-0 snap-start overflow-hidden rounded-[12px] bg-sand ring-1 ring-gold ring-offset-2 ring-offset-ivory lg:w-full' : 'relative aspect-[3/4] w-[5.5rem] shrink-0 snap-start overflow-hidden rounded-[12px] bg-sand opacity-65 transition hover:opacity-100 lg:w-full'}><Image src={image} alt="" fill className="object-cover" sizes="(max-width: 1023px) 5.5rem, 6.5rem" /></button>)}</div> : null}
-        <div className={media.length > 1 ? 'lg:sticky lg:top-28 lg:self-start' : 'lg:sticky lg:top-28 lg:col-start-3 lg:self-start'}>
-          <p className="text-[0.58rem] uppercase tracking-[0.32em] text-gold">{product.category || 'Couture'}</p>
-          <h1 className="mt-3 font-display text-5xl leading-[0.95] sm:text-6xl">{product.name}</h1>
-          {product.sku ? <p className="mt-3 text-[0.62rem] uppercase tracking-[0.25em] text-charcoal/45">{product.sku}</p> : null}
-          <p className="mt-5 text-lg">{product.price === undefined ? 'Price on request' : inr.format(product.price)}</p>
-          <p className="mt-2 text-[0.58rem] uppercase tracking-[0.25em] text-gold">{availabilityLabels[product.availability]}</p>
-          {sizeConfigured ? <fieldset className="mt-5"><legend className="sr-only">Choose a size</legend><div className="flex items-center justify-between gap-4"><span className="text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/50">Size</span><SizeChartPopover /></div><div className="mt-3 flex flex-wrap gap-2">{sizes.map((size) => { const item = sizeInventory.find((entry) => entry.size === size); const unavailable = item?.enabled === false || product.availability === 'sold_out' || (product.availability === 'in_stock' && (!item || item.stock <= 0)); return <button key={size} type="button" disabled={unavailable} onClick={() => { setSelectedSize(size); setCustomMeasurements({}); setQuantity(1); setMessage(''); }} aria-label={`${size}${unavailable ? ', unavailable' : ''}`} className={`min-w-12 border px-3 py-2.5 text-xs transition ${selectedSize === size ? 'border-gold bg-gold text-ink' : 'border-black/15 hover:border-gold dark:border-white/20'} ${unavailable ? 'cursor-not-allowed opacity-30' : ''}`}>{size}</button>; })}</div>{product.availability === 'in_stock' && selectedSizeEntry ? <p className="mt-2 text-xs text-charcoal/55">{selectedSizeEntry.stock} available in {selectedSize}.</p> : null}{customSizeFields.length ? <button type="button" onClick={() => setCustomSizeOpen(true)} className="mt-3 inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.58rem] uppercase tracking-[0.22em] text-charcoal/70 transition hover:border-gold hover:text-gold"><Ruler size={14} />Want a custom size?</button> : null}</fieldset> : customSizeFields.length ? <button type="button" onClick={() => setCustomSizeOpen(true)} className="mt-5 inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.58rem] uppercase tracking-[0.22em] text-charcoal/70 transition hover:border-gold hover:text-gold"><Ruler size={14} />Want a custom size?</button> : null}
+        {media.length > 1 ? <div ref={thumbnailRailRef} style={thumbnailViewportHeight ? { maxHeight: `${thumbnailViewportHeight}px` } : undefined} className="rk-product-thumbnail-rail rk-gallery-scroll flex max-w-full snap-x gap-3 overflow-x-auto overflow-y-hidden pb-1 lg:w-[5.5rem] lg:snap-y lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:pb-0 xl:w-[6.5rem]">{media.map((image, index) => <button ref={(node) => { thumbnailRefs.current[index] = node; }} key={image + index} type="button" onClick={() => setActiveImage(index)} aria-label={`Show product image ${index + 1}`} aria-current={activeImage === index} className={activeImage === index ? 'relative aspect-[3/4] w-[5.5rem] shrink-0 snap-start overflow-hidden rounded-[12px] bg-sand ring-1 ring-gold ring-offset-2 ring-offset-ivory lg:w-full' : 'relative aspect-[3/4] w-[5.5rem] shrink-0 snap-start overflow-hidden rounded-[12px] bg-sand opacity-65 transition hover:opacity-100 lg:w-full'}><Image src={cloudinaryImageUrl(image, 240) || image} alt="" fill className="object-cover" sizes="(max-width: 1023px) 5.5rem, 6.5rem" /></button>)}</div> : null}
+        <div className={media.length > 1 ? 'lg:sticky lg:top-28 lg:self-start lg:pl-[clamp(4rem,5vw,6.25rem)] lg:pt-2' : 'lg:sticky lg:top-28 lg:col-start-3 lg:self-start lg:pl-[clamp(4rem,5vw,6.25rem)] lg:pt-2'}>
+          <p className="text-xs font-normal uppercase tracking-[0.28em] text-gold">{product.category || 'Couture'}</p>
+          {backCollection ? <p className="mt-4 font-display text-[clamp(1.75rem,2.2vw,2.125rem)] leading-none text-charcoal/85">{backCollection.name}</p> : null}
+          <h1 className="mt-4 font-display text-[clamp(2.625rem,4vw,3.25rem)] leading-[0.95]">{product.name || 'Untitled piece'}</h1>
+          {product.sku ? <p className="mt-4 text-xs uppercase tracking-[0.24em] text-charcoal/45">SKU: {product.sku}</p> : null}
+          <p className="mt-7 max-w-[34rem] text-[0.95rem] leading-7 text-charcoal/68">{summaryDescription}</p>
+          <div className="mt-7 border-t border-black/12 pt-5 dark:border-white/15">
+            <p className="text-lg">{product.price === undefined ? 'Price on request' : inr.format(product.price)}</p>
+            <p className="mt-3 text-[0.58rem] uppercase tracking-[0.25em] text-gold">{availabilityLabels[product.availability]}</p>
+          </div>
+          {soldOut ? <div className="mt-6 border border-gold/35 bg-gold/[.06] p-4"><p className="text-[0.58rem] uppercase tracking-[0.25em] text-gold">Custom orders considered</p><p className="mt-3 text-sm leading-6 text-charcoal/65">This piece is currently sold out, but you can send a custom order request. The RK team will review it and get back to you by email.</p></div> : sizeConfigured ? <fieldset className="mt-6"><legend className="sr-only">Choose a size</legend><div className="flex items-center justify-between gap-4"><span className="text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/50">Size</span><SizeChartPopover /></div><div className="mt-3 flex flex-wrap gap-2">{sizes.map((size) => { const item = sizeInventory.find((entry) => entry.size === size); const unavailable = item?.enabled === false || (product.availability === 'in_stock' && (!item || item.stock <= 0)); return <button key={size} type="button" disabled={unavailable} onClick={() => { setSelectedSize(size); setCustomMeasurements({}); setQuantity(1); setMessage(''); }} aria-label={`${size}${unavailable ? ', unavailable' : ''}`} className={`min-w-12 border px-3 py-2.5 text-xs transition ${selectedSize === size ? 'border-gold bg-gold text-ink' : 'border-black/15 hover:border-gold dark:border-white/20'} ${unavailable ? 'cursor-not-allowed opacity-30' : ''}`}>{size}</button>; })}</div>{product.availability === 'in_stock' && selectedSizeEntry ? <p className="mt-2 text-xs text-charcoal/55">{selectedSizeEntry.stock} available in {selectedSize}.</p> : null}{customSizeFields.length ? <button type="button" onClick={() => setCustomSizeOpen(true)} className="mt-3 inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.58rem] uppercase tracking-[0.22em] text-charcoal/70 transition hover:border-gold hover:text-gold"><Ruler size={14} />Want a custom size?</button> : null}</fieldset> : customSizeFields.length ? <button type="button" onClick={() => setCustomSizeOpen(true)} className="mt-6 inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.58rem] uppercase tracking-[0.22em] text-charcoal/70 transition hover:border-gold hover:text-gold"><Ruler size={14} />Want a custom size?</button> : null}
           {customMeasurements._customReady ? <p className="mt-2 text-xs text-gold">Custom measurements added to this piece.</p> : null}
-          <div className="mt-5 flex items-center justify-between border-y border-black/12 py-3 dark:border-white/15"><span className="text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/50">Quantity</span><div className="flex items-center gap-4"><button type="button" disabled={product.availability === 'sold_out' || quantity <= 1} onClick={() => setQuantity((value) => Math.max(1, value - 1))} aria-label="Decrease quantity" className="grid h-8 w-8 place-items-center border border-black/15 transition hover:border-gold disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/20"><Minus size={13} /></button><span className="min-w-5 text-center text-sm">{quantity}</span><button type="button" disabled={product.availability === 'sold_out' || (quantityStockLimit !== undefined && quantity >= quantityStockLimit)} onClick={() => setQuantity((value) => value + 1)} aria-label="Increase quantity" className="grid h-8 w-8 place-items-center border border-black/15 transition hover:border-gold disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/20"><Plus size={13} /></button></div></div>
-          <div className="mt-5 grid grid-cols-[1fr_auto] gap-3"><button type="button" onClick={addToCart} disabled={product.availability === 'sold_out'} className="inline-flex items-center justify-center gap-3 bg-ink px-5 py-3.5 text-[0.62rem] uppercase tracking-[0.26em] text-ivory transition hover:bg-gold hover:text-ink disabled:cursor-not-allowed disabled:opacity-45"><ShoppingBag size={16} />{product.availability === 'sold_out' ? 'Sold out' : 'Add to cart'}</button><button type="button" onClick={saveProduct} aria-pressed={saved} aria-label={saved ? 'Remove from wishlist' : 'Add to wishlist'} className="grid w-14 place-items-center border border-black/15 transition hover:border-gold hover:text-gold dark:border-white/20"><Heart size={18} className={saved ? 'fill-gold text-gold' : ''} /></button></div>
-          {message ? <p className="mt-3 text-xs text-gold">{message}</p> : null}
-          {informationSections.length ? <div className="mt-7 border-t border-black/12 dark:border-white/15">{informationSections.map((section) => <div key={section.id} className="border-b border-black/12 dark:border-white/15"><button type="button" onClick={() => setOpenSection((current) => current === section.id ? '' : section.id)} aria-expanded={openSection === section.id} className="flex w-full items-center justify-between py-4 text-left text-[0.6rem] uppercase tracking-[0.28em]"><span>{section.label}</span><Plus size={15} className={`transition-transform ${openSection === section.id ? 'rotate-45' : ''}`} /></button><AnimatePresence initial={false}>{openSection === section.id ? <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden"><p className="pb-5 text-sm leading-7 text-charcoal/65">{section.value}</p></motion.div> : null}</AnimatePresence></div>)}</div> : null}
+          {!soldOut ? <div className="mt-6 flex items-center justify-between border-y border-black/12 py-3 dark:border-white/15"><span className="text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/50">Quantity</span><div className="flex items-center gap-4"><button type="button" disabled={quantity <= 1} onClick={() => setQuantity((value) => Math.max(1, value - 1))} aria-label="Decrease quantity" className="grid h-8 w-8 place-items-center border border-black/15 transition hover:border-gold disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/20"><Minus size={13} /></button><span className="min-w-5 text-center text-sm">{quantity}</span><button type="button" disabled={quantityStockLimit !== undefined && quantity >= quantityStockLimit} onClick={() => setQuantity((value) => value + 1)} aria-label="Increase quantity" className="grid h-8 w-8 place-items-center border border-black/15 transition hover:border-gold disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/20"><Plus size={13} /></button></div></div> : null}
+          <div className="mt-6 grid grid-cols-[1fr_auto] gap-3"><button type="button" onClick={soldOut ? requestCustomOrder : addToCart} className="inline-flex items-center justify-center gap-3 bg-ink px-5 py-3.5 text-[0.62rem] uppercase tracking-[0.26em] text-ivory transition hover:bg-gold hover:text-ink">{soldOut ? <Mail size={16} /> : <ShoppingBag size={16} />}{soldOut ? 'Request custom order' : 'Add to cart'}</button><button type="button" onClick={saveProduct} aria-pressed={saved} aria-label={saved ? 'Remove from wishlist' : 'Add to wishlist'} className="grid w-14 place-items-center border border-black/15 transition hover:border-gold hover:text-gold dark:border-white/20"><Heart size={18} className={saved ? 'fill-gold text-gold' : ''} /></button></div>
+          {message ? <p className="mt-4 text-xs text-gold">{message}</p> : null}
+          {informationSections.length ? <div className="mt-8 border-t border-black/12 dark:border-white/15">{informationSections.map((section) => <div key={section.id} className="border-b border-black/12 dark:border-white/15"><button type="button" onClick={() => setOpenSection((current) => current === section.id ? '' : section.id)} aria-expanded={openSection === section.id} className="flex w-full items-center justify-between py-4 text-left text-[0.6rem] uppercase tracking-[0.28em]"><span>{section.label}</span><Plus size={15} className={`transition-transform ${openSection === section.id ? 'rotate-45' : ''}`} /></button><AnimatePresence initial={false}>{openSection === section.id ? <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden"><p className="pb-5 text-sm leading-7 text-charcoal/65">{section.value}</p></motion.div> : null}</AnimatePresence></div>)}</div> : null}
         </div>
       </div>
     </section>
+    {relatedProductsLoading || relatedProducts.length ? <section className="border-t border-black/10 bg-ivory px-4 pb-20 pt-16 text-charcoal dark:border-white/10 sm:px-8 sm:pb-24 lg:px-12 lg:pt-20">
+      <div className="mx-auto max-w-[100rem]">
+        <p className="text-xs uppercase tracking-[0.3em] text-gold">From the collection</p>
+        <h2 className="mt-4 font-display text-4xl uppercase leading-none tracking-[0.03em] sm:text-5xl">YOU MAY ALSO LIKE</h2>
+        {relatedProductsLoading ? <div className="mt-10 grid grid-cols-2 gap-x-3 gap-y-10 md:grid-cols-3 md:gap-x-6 lg:grid-cols-4 lg:gap-x-7">{Array.from({ length: 4 }, (_, index) => <div key={index} className="animate-pulse"><div className="aspect-[3/4] bg-sand" /><div className="mt-4 h-3 w-1/3 bg-sand" /><div className="mt-3 h-5 w-3/4 bg-sand" /></div>)}</div> : <div className="mt-10 grid grid-cols-2 gap-x-3 gap-y-10 md:grid-cols-3 md:gap-x-6 md:gap-y-14 lg:grid-cols-4 lg:gap-x-7">{relatedProducts.map((relatedProduct) => <CollectionProductCard key={relatedProduct.id} product={relatedProduct} />)}</div>}
+      </div>
+    </section> : null}
     <Footer />
     <AnimatePresence>
       {customSizeOpen ? <motion.div
@@ -295,6 +406,45 @@ export function ProductDetailPage({ productId }: { productId: string }) {
         </motion.div>
       </motion.div> : null}
     </AnimatePresence>
-    <AnimatePresence>{lightboxOpen && currentImage ? <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} role="dialog" aria-modal="true" aria-label="Product image gallery" className="fixed inset-0 z-[100] grid place-items-center bg-ink/95 p-4 sm:p-8"><button type="button" onClick={() => setLightboxOpen(false)} aria-label="Close image gallery" className="absolute right-5 top-5 z-10 grid h-11 w-11 place-items-center rounded-full border border-white/25 text-white transition hover:border-gold hover:text-gold"><X size={20} /></button><div className="relative h-[min(86vh,56rem)] w-[min(92vw,72rem)]"><Image src={currentImage} alt={product.name || 'Product'} fill className="object-contain" sizes="92vw" /></div>{media.length > 1 ? <><button type="button" onClick={previousImage} aria-label="Previous product image" className="absolute left-4 top-1/2 grid h-12 w-12 -translate-y-1/2 place-items-center rounded-full border border-white/25 text-white transition hover:border-gold hover:text-gold sm:left-8"><ChevronLeft size={22} /></button><button type="button" onClick={nextImage} aria-label="Next product image" className="absolute right-4 top-1/2 grid h-12 w-12 -translate-y-1/2 place-items-center rounded-full border border-white/25 text-white transition hover:border-gold hover:text-gold sm:right-8"><ChevronRight size={22} /></button></> : null}</motion.div> : null}</AnimatePresence>
+    <AnimatePresence>
+      {customOrderOpen ? <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[110] grid place-items-center bg-ink/65 p-4"
+        onClick={() => setCustomOrderOpen(false)}
+      >
+        <motion.div
+          initial={{ y: 18, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 18, opacity: 0 }}
+          onClick={(event) => event.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Request a custom order"
+          className="max-h-[92vh] w-full max-w-xl overflow-y-auto bg-ivory p-6 text-charcoal shadow-2xl sm:p-8"
+        >
+          <div className="flex items-start justify-between gap-5">
+            <div>
+              <p className="text-[0.58rem] uppercase tracking-[0.28em] text-gold">Made on request</p>
+              <h2 className="mt-3 font-display text-3xl">Request a custom order</h2>
+            </div>
+            <button type="button" onClick={() => setCustomOrderOpen(false)} aria-label="Close custom order request"><X size={19} /></button>
+          </div>
+          <p className="mt-4 text-sm leading-6 text-charcoal/60">Tell us how you would like this piece made. The RK team will review your request and get back to you by email.</p>
+          <div className="mt-6 grid gap-5 sm:grid-cols-2">
+            <label className="text-[0.58rem] uppercase tracking-[0.18em] text-charcoal/50">Name<input value={customOrderName} onChange={(event) => setCustomOrderName(event.target.value)} className="mt-2 w-full border-b border-black/15 bg-transparent py-3 text-sm normal-case tracking-normal outline-none" autoComplete="name" /></label>
+            <label className="text-[0.58rem] uppercase tracking-[0.18em] text-charcoal/50">Email<input type="email" value={customOrderEmail} onChange={(event) => setCustomOrderEmail(event.target.value)} className="mt-2 w-full border-b border-black/15 bg-transparent py-3 text-sm normal-case tracking-normal outline-none" autoComplete="email" /></label>
+            <label className="text-[0.58rem] uppercase tracking-[0.18em] text-charcoal/50">Phone <span className="normal-case tracking-normal text-charcoal/35">(optional)</span><input value={customOrderPhone} onChange={(event) => setCustomOrderPhone(event.target.value)} className="mt-2 w-full border-b border-black/15 bg-transparent py-3 text-sm normal-case tracking-normal outline-none" autoComplete="tel" /></label>
+            <label className="text-[0.58rem] uppercase tracking-[0.18em] text-charcoal/50">Preferred size <span className="normal-case tracking-normal text-charcoal/35">(optional)</span><select value={customOrderSize} onChange={(event) => setCustomOrderSize(event.target.value)} className="mt-2 w-full border-b border-black/15 bg-transparent py-3 text-sm normal-case tracking-normal outline-none"><option value="">Tell us in the request</option>{sizes.map((size) => <option key={size} value={size}>{size}</option>)}<option value="Custom measurements">Custom measurements</option></select></label>
+          </div>
+          {customSizeFields.length ? <div className="mt-6"><p className="text-[0.58rem] uppercase tracking-[0.2em] text-charcoal/50">Measurements <span className="normal-case tracking-normal text-charcoal/35">(optional)</span></p><div className="mt-3 grid gap-5 sm:grid-cols-2">{customSizeFields.map((field) => <label key={field} className="text-[0.58rem] uppercase tracking-[0.18em] text-charcoal/50">{field}<input inputMode="decimal" value={customMeasurements[field] ?? ''} onChange={(event) => setCustomMeasurements((current) => ({ ...current, [field]: event.target.value, _customReady: '' }))} className="mt-2 w-full border-b border-black/15 bg-transparent py-3 text-sm normal-case tracking-normal outline-none" /></label>)}</div></div> : null}
+          <label className="mt-6 block text-[0.58rem] uppercase tracking-[0.18em] text-charcoal/50">Request details <span className="normal-case tracking-normal text-charcoal/35">(optional)</span><textarea value={customOrderMessage} onChange={(event) => setCustomOrderMessage(event.target.value)} rows={4} placeholder="Share your preferred fit, occasion, or any details for the RK team." className="mt-2 w-full resize-none border border-black/15 bg-transparent p-3 text-sm normal-case tracking-normal outline-none placeholder:text-charcoal/35" /></label>
+          {customOrderError ? <p role="alert" className="mt-5 text-sm text-red-700">{customOrderError}</p> : null}
+          <button type="button" onClick={submitCustomOrder} disabled={customOrderBusy} className="mt-8 inline-flex w-full items-center justify-center gap-2 bg-ink px-5 py-4 text-[0.6rem] uppercase tracking-[0.24em] text-ivory transition hover:bg-gold hover:text-ink disabled:cursor-wait disabled:opacity-50"><Mail size={14} />{customOrderBusy ? 'Sending request...' : 'Send custom order request'}</button>
+        </motion.div>
+      </motion.div> : null}
+    </AnimatePresence>
+    <AnimatePresence>{lightboxOpen && currentMainImage ? <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} role="dialog" aria-modal="true" aria-label="Product image gallery" className="fixed inset-0 z-[100] grid place-items-center bg-ink/95 p-4 sm:p-8"><button type="button" onClick={() => setLightboxOpen(false)} aria-label="Close image gallery" className="absolute right-5 top-5 z-10 grid h-11 w-11 place-items-center rounded-full border border-white/25 text-white transition hover:border-gold hover:text-gold"><X size={20} /></button><div className="relative h-[min(86vh,56rem)] w-[min(92vw,72rem)]"><Image src={currentMainImage} alt={product.name || 'Product'} fill className="object-contain" sizes="92vw" /></div>{media.length > 1 ? <><button type="button" onClick={previousImage} aria-label="Previous product image" className="absolute left-4 top-1/2 grid h-12 w-12 -translate-y-1/2 place-items-center rounded-full border border-white/25 text-white transition hover:border-gold hover:text-gold sm:left-8"><ChevronLeft size={22} /></button><button type="button" onClick={nextImage} aria-label="Next product image" className="absolute right-4 top-1/2 grid h-12 w-12 -translate-y-1/2 place-items-center rounded-full border border-white/25 text-white transition hover:border-gold hover:text-gold sm:right-8"><ChevronRight size={22} /></button></> : null}</motion.div> : null}</AnimatePresence>
   </main>;
 }

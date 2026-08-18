@@ -4,6 +4,7 @@ import { ArrowDown } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
 import type { CSSProperties } from 'react';
 import type { CollectionHeroConfig, ManagedCollection } from '@/lib/catalog';
+import { cloudinaryImageUrl } from '@/lib/utils';
 
 type CollectionHeroProps = {
   collection: Pick<ManagedCollection, 'name' | 'description' | 'season' | 'year' | 'designerNote' | 'collectionNumber' | 'location' | 'campaignInformation'>;
@@ -14,21 +15,23 @@ type CollectionHeroProps = {
 function HeroMedia({ hero }: { hero: CollectionHeroConfig }) {
   const reduceMotion = useReducedMotion();
   const fallbackImage = hero.poster || hero.image;
+  const desktopImage = cloudinaryImageUrl(fallbackImage, 1920);
+  const mobileImage = cloudinaryImageUrl(hero.mobileImage || fallbackImage, 900);
   const mediaStyle = {
     '--collection-hero-desktop-position': hero.desktopObjectPosition || 'center center',
     '--collection-hero-mobile-position': hero.mobileObjectPosition || hero.desktopObjectPosition || 'center center',
   } as CSSProperties;
 
   if (hero.type === 'video' && hero.video && !reduceMotion) {
-    return <video autoPlay muted loop playsInline preload="metadata" poster={fallbackImage || undefined} aria-label="Collection campaign film" className="collection-campaign-media" style={mediaStyle}>
+    return <video autoPlay muted loop playsInline preload="metadata" poster={desktopImage || undefined} aria-label="Collection campaign film" className="collection-campaign-media" style={mediaStyle}>
       {hero.mobileVideo ? <source media="(max-width: 767px)" src={hero.mobileVideo} /> : null}
       <source src={hero.video} />
     </video>;
   }
 
   return fallbackImage ? <picture className="block h-full w-full">
-    {hero.mobileImage ? <source media="(max-width: 767px)" srcSet={hero.mobileImage} /> : null}
-    <img src={fallbackImage} alt="" role="presentation" loading="eager" fetchPriority="high" className="collection-campaign-media" style={mediaStyle} />
+    {hero.mobileImage ? <source media="(max-width: 767px)" srcSet={mobileImage} /> : null}
+    <img src={desktopImage} alt="" role="presentation" loading="eager" fetchPriority="high" className="collection-campaign-media" style={mediaStyle} />
   </picture> : <div className="h-full w-full bg-sand" aria-hidden="true" />;
 }
 

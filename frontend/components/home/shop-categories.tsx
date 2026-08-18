@@ -1,4 +1,4 @@
-import { brandLogoUrl, categoryItems } from '@/lib/home-content';
+import { categoryItems } from '@/lib/home-content';
 import { CategoryCard } from './category-card';
 
 export function ShopCategories() {
@@ -25,7 +25,7 @@ export function ShopCategories() {
               <span className="h-px w-12 bg-gold/65" />
             </div>
             <h2 className="font-display text-[clamp(2.8rem,4.4vw,4.5rem)] leading-[0.94] tracking-[-0.035em] text-charcoal">
-              Drape yourself in<br />the luxury of the<br /><span className="inline-flex items-center gap-[0.14em] whitespace-nowrap align-[-0.08em] leading-none"><img src={brandLogoUrl} alt="RK monogram" className="rk-logo rk-headline-monogram" /> house.</span>
+              Drape yourself in<br />the luxury of the<br /><span className="whitespace-nowrap">house.</span>
             </h2>
             <div className="flex items-center gap-3 text-gold" aria-hidden="true">
               <span className="h-px w-5 bg-gold/70" /><span className="text-base">✦</span><span className="h-px w-5 bg-gold/70" />
