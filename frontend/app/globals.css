@@ -95,6 +95,9 @@ html.dark {
   position: relative;
   isolation: isolate;
   overflow: hidden;
+  --collection-column-gap: clamp(32px, 4vw, 64px);
+  --collection-row-gap: clamp(32px, 3.5vw, 56px);
+  --collection-stagger-offset: clamp(40px, 5vw, 76px);
   background: #f8f6f2;
 }
 
@@ -116,6 +119,59 @@ html.dark {
 
 .collections-gallery-backdrop-dark {
   opacity: 0;
+}
+
+.collections-campaign-image {
+  aspect-ratio: 3 / 4;
+}
+
+.collections-campaign-overlay {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.collections-landing-card-title {
+  max-width: 85%;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.collections-landing-card-cta {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.collections-gallery-grid {
+  column-gap: var(--collection-column-gap);
+}
+
+.collections-gallery-column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--collection-row-gap);
+}
+
+/* Keep the slightly tighter original rhythm between Hastakala and Naqab. */
+.collections-gallery-column--left > .collections-gallery-card--after-hastakala {
+  margin-top: calc(-1 * clamp(8px, 0.75vw, 14px));
+}
+
+.collections-gallery-column--staggered {
+  padding-top: var(--collection-stagger-offset);
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .collections-gallery-column--staggered {
+    padding-top: clamp(28px, 4vw, 48px);
+  }
+}
+
+@media (max-width: 767px) {
+  .collections-gallery-column {
+    gap: clamp(24px, 6vw, 36px);
+  }
 }
 
 .dark .collections-gallery-scene {

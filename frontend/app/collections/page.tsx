@@ -8,14 +8,14 @@ import { StickyHeader } from '@/components/home/sticky-header';
 import { SectionShell } from '@/components/home/section-shell';
 import { collectionGalleryPages } from '@/lib/home-content';
 
-function collectionTitleStyle(name: string, fontFamily: string) {
+function collectionTitleStyle() {
   return {
-    fontFamily: `${fontFamily}, var(--font-display), serif`,
-    fontSize: name === 'Hastakala' ? 'clamp(1.65rem, 4vw, 3rem)' : undefined,
+    fontFamily: 'RK Anamika, var(--font-display), serif',
   };
 }
 
-function CampaignImage({ collection, index }: { collection: (typeof collectionGalleryPages)[number]; index: number }) {
+function CampaignImage({ collection }: { collection: (typeof collectionGalleryPages)[number] }) {
+  const cardClassName = collection.name === 'Naqab' ? 'collections-gallery-card--after-hastakala' : '';
   const content = (
       <motion.article
         initial={{ opacity: 0, y: 20 }}
@@ -23,7 +23,7 @@ function CampaignImage({ collection, index }: { collection: (typeof collectionGa
         viewport={{ once: true, amount: 0.12 }}
         transition={{ duration: 0.75, ease: [0.22, 1, 0.36, 1] }}
       >
-        <div className={`collections-campaign-image relative overflow-hidden bg-sand ${collection.comingSoon ? 'aspect-[3/4]' : ''}`}>
+        <div className="collections-campaign-image relative aspect-[3/4] overflow-hidden bg-sand">
           <img
             src={collection.image}
             alt={`${collection.name} collection campaign`}
@@ -32,16 +32,16 @@ function CampaignImage({ collection, index }: { collection: (typeof collectionGa
           />
           <div className="collections-campaign-shade absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-90 transition-opacity duration-300 group-hover:opacity-100" />
           {collection.comingSoon ? <div className="absolute inset-0 grid place-items-center bg-black/10"><span className="px-5 py-3 text-[0.58rem] uppercase tracking-[0.42em] text-white/90 drop-shadow-[0_1px_12px_rgba(0,0,0,.65)] backdrop-blur-[1px]">Coming soon</span></div> : null}
-          <div className="absolute inset-x-0 bottom-0 p-5 text-white md:p-7">
+          <div className="collections-campaign-overlay absolute inset-x-0 bottom-0 w-full box-border p-5 text-white md:p-7">
             <p className="text-[0.58rem] uppercase tracking-[0.32em] text-white/75">Collection</p>
-            <div className="mt-2 flex items-end justify-between gap-5">
+            <div className="mt-2 flex min-w-0 flex-wrap items-end justify-between gap-x-5 gap-y-2">
               <h2
-                style={collectionTitleStyle(collection.name, collection.fontFamily)}
-                className="text-4xl leading-[0.86] tracking-[0.025em] transition-colors duration-300 group-hover:text-white md:text-5xl"
+                style={collectionTitleStyle()}
+                className="collections-landing-card-title min-w-0 max-w-[85%] break-words text-4xl leading-[0.86] tracking-[0.025em] transition-colors duration-300 group-hover:text-white md:text-5xl"
               >
                 {collection.name}
               </h2>
-              <span className="flex shrink-0 items-center gap-2 pb-1 text-[0.58rem] uppercase tracking-[0.24em] text-white/85">
+              <span className="collections-landing-card-cta flex min-w-0 max-w-full shrink items-center gap-2 break-words pb-1 text-[0.58rem] uppercase tracking-[0.24em] text-white/85">
                 {collection.comingSoon ? 'Coming soon' : <>View collection <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-2" /></>}
               </span>
             </div>
@@ -50,8 +50,8 @@ function CampaignImage({ collection, index }: { collection: (typeof collectionGa
       </motion.article>
   );
   return collection.comingSoon
-    ? <div id="aakaar-coming-soon" className={`group block ${index % 2 === 1 ? 'md:mt-24 lg:mt-28' : ''}`}>{content}</div>
-    : <Link href={collection.route} className={`group block ${index % 2 === 1 ? 'md:mt-24 lg:mt-28' : ''}`}>{content}</Link>;
+    ? <div id="aakaar-coming-soon" className={`collections-gallery-card group block ${cardClassName}`}>{content}</div>
+    : <Link href={collection.route} className={`collections-gallery-card group block ${cardClassName}`}>{content}</Link>;
 }
 
 export default function CollectionsPage() {
@@ -91,22 +91,22 @@ export default function CollectionsPage() {
           </header>
 
           <section aria-label="All collections" className="min-w-0">
-            <div className="hidden items-start gap-6 md:grid md:grid-cols-2 lg:gap-8">
-              <div className="flex min-w-0 flex-col gap-6 lg:gap-8">
-                {leftColumn.map((collection, index) => (
-                  <CampaignImage key={collection.name} collection={collection} index={index * 2} />
+            <div className="collections-gallery-grid hidden items-start md:grid md:grid-cols-2">
+              <div className="collections-gallery-column collections-gallery-column--left">
+                {leftColumn.map((collection) => (
+                  <CampaignImage key={collection.name} collection={collection} />
                 ))}
               </div>
-              <div className="flex min-w-0 flex-col gap-6 lg:gap-8">
-                {rightColumn.map((collection, index) => (
-                  <CampaignImage key={collection.name} collection={collection} index={index * 2 + 1} />
+              <div className="collections-gallery-column collections-gallery-column--staggered">
+                {rightColumn.map((collection) => (
+                  <CampaignImage key={collection.name} collection={collection} />
                 ))}
               </div>
             </div>
 
-            <div className="flex flex-col gap-6 md:hidden">
-              {collectionGalleryPages.map((collection, index) => (
-                <CampaignImage key={collection.name} collection={collection} index={index} />
+            <div className="collections-gallery-column md:hidden">
+              {collectionGalleryPages.map((collection) => (
+                <CampaignImage key={collection.name} collection={collection} />
               ))}
             </div>
           </section>

@@ -10,6 +10,7 @@ from bson import ObjectId
 from flask import Blueprint, current_app, jsonify, request
 
 from .rbac import database
+from .time_utils import as_utc_datetime, isoformat_utc
 
 
 feedback_bp = Blueprint("feedback", __name__)
@@ -35,8 +36,7 @@ def cleanup_feedback(db, now: datetime | None = None) -> int:
 
 
 def create_feedback_token(db, order: dict, delivered_at: object | None = None) -> str:
-    now = delivered_at if isinstance(delivered_at, datetime) else datetime.now(timezone.utc)
-    now = now.replace(tzinfo=now.tzinfo or timezone.utc)
+    now = as_utc_datetime(delivered_at) or datetime.now(timezone.utc)
     token = secrets.token_urlsafe(32)
     db.feedback_tokens.insert_one({
         "tokenHash": _hash(token),
@@ -59,7 +59,7 @@ def _token_record(db, token: str) -> dict | None:
 
 
 def _context(record: dict) -> dict:
-    return {"orderNumber": record.get("orderNumber"), "items": record.get("items") or [], "expiresAt": record.get("expiresAt")}
+    return {"orderNumber": record.get("orderNumber"), "items": record.get("items") or [], "expiresAt": isoformat_utc(record.get("expiresAt"))}
 
 
 def _rating(payload: dict, key: str) -> int | None:

@@ -20,6 +20,8 @@ from flask import current_app
 from pymongo import ReturnDocument
 from pymongo.errors import OperationFailure
 
+from .time_utils import as_utc_datetime, isoformat_utc, json_value as serialize_json_value
+
 
 PAYMENT_STATUSES = ("pending", "paid", "failed", "refunded")
 FULFILLMENT_STATUSES = (
@@ -96,19 +98,11 @@ class OrderTransitionConflict(RuntimeError):
 
 
 def _iso(value: datetime) -> str:
-    return value.isoformat().replace("+00:00", "Z")
+    return isoformat_utc(value) or ""
 
 
 def json_value(value: Any) -> Any:
-    if isinstance(value, datetime):
-        return _iso(value)
-    if isinstance(value, ObjectId):
-        return str(value)
-    if isinstance(value, list):
-        return [json_value(item) for item in value]
-    if isinstance(value, dict):
-        return {key: json_value(item) for key, item in value.items()}
-    return value
+    return serialize_json_value(value)
 
 
 def safe_text(value: object, maximum: int = 240) -> str:
@@ -184,9 +178,9 @@ def timeline_event(status: str, timestamp: datetime, actor: dict, note: str = ""
 
 
 def _historical_timeline(order: dict, fulfillment_status: str, payment_status: str) -> list[dict]:
-    created = order.get("createdAt") if isinstance(order.get("createdAt"), datetime) else datetime.now(timezone.utc)
-    payment_at = order.get("paymentVerifiedAt") if isinstance(order.get("paymentVerifiedAt"), datetime) else created
-    updated = order.get("updatedAt") if isinstance(order.get("updatedAt"), datetime) else payment_at
+    created = as_utc_datetime(order.get("createdAt")) or datetime.now(timezone.utc)
+    payment_at = as_utc_datetime(order.get("paymentVerifiedAt")) or created
+    updated = as_utc_datetime(order.get("updatedAt")) or payment_at
     events = [timeline_event("order_placed", created, actor_view("customer"), "Order placed.")]
     if payment_status == "paid":
         events.append(timeline_event("payment_confirmed", payment_at, actor_view("system", name="Razorpay"), "Payment confirmed."))

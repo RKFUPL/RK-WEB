@@ -10,6 +10,7 @@ from flask import Blueprint, current_app, jsonify, request
 from pymongo import ReturnDocument
 
 from .rbac import database
+from .time_utils import isoformat_utc
 
 
 returns_bp = Blueprint("returns", __name__)
@@ -87,7 +88,7 @@ def get_return_form(token: str):
     record = _record(database(), token)
     if not record:
         return jsonify({"error": "This return link is invalid or has already been used."}), 410
-    return jsonify({"return": {"orderNumber": record.get("orderNumber"), "reason": record.get("reason"), "acceptedAt": record.get("acceptedAt")}}), 200
+    return jsonify({"return": {"orderNumber": record.get("orderNumber"), "reason": record.get("reason"), "acceptedAt": isoformat_utc(record.get("acceptedAt"))}}), 200
 
 
 @returns_bp.post("/<token>")

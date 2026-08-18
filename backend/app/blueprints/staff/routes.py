@@ -23,6 +23,7 @@ from ...catalog import (
 from ...order_fulfillment import actor_view, migrate_legacy_orders, timeline_event
 from ...inventory import default_size_inventory, has_size_system, normalise_size_inventory, total_size_stock
 from ...rbac import current_user, database, effective_permissions, requireStaff
+from ...time_utils import json_value as serialize_json_value
 
 staff_bp = Blueprint("staff", __name__)
 
@@ -60,15 +61,7 @@ def _integer(value: object, default: int = -1) -> int:
 
 
 def _json_value(value):
-    if isinstance(value, datetime):
-        return value.isoformat().replace("+00:00", "Z")
-    if isinstance(value, ObjectId):
-        return str(value)
-    if isinstance(value, list):
-        return [_json_value(item) for item in value]
-    if isinstance(value, dict):
-        return {key: _json_value(item) for key, item in value.items()}
-    return value
+    return serialize_json_value(value)
 
 
 def _document_view(document: dict) -> dict:

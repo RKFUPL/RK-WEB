@@ -9,6 +9,7 @@ from flask import Blueprint, jsonify, request
 from ...rbac import ROLES, STAFF_PERMISSIONS, current_user, database, effective_permissions, requireAdmin
 from ...dashboard_metrics import build_dashboard
 from ...order_fulfillment import migrate_legacy_orders
+from ...time_utils import json_value as serialize_json_value
 
 
 def _password_hash(password: str) -> str:
@@ -69,8 +70,8 @@ def _user_view(user: dict) -> dict:
         "phone": user.get("phone"),
         "isActive": user.get("isActive", True),
         "emailVerified": user.get("emailVerified", False),
-        "createdAt": user.get("createdAt"),
-        "updatedAt": user.get("updatedAt"),
+        "createdAt": serialize_json_value(user.get("createdAt")),
+        "updatedAt": serialize_json_value(user.get("updatedAt")),
     }
 
 
@@ -80,12 +81,7 @@ def _document_view(document: dict) -> dict:
     for key, value in document.items():
         if key == "_id" or key in hidden:
             continue
-        if isinstance(value, datetime):
-            result[key] = value.isoformat().replace("+00:00", "Z")
-        elif isinstance(value, ObjectId):
-            result[key] = str(value)
-        else:
-            result[key] = value
+        result[key] = serialize_json_value(value)
     return result
 
 

@@ -10,6 +10,7 @@ from bson import ObjectId
 from pymongo.errors import OperationFailure
 
 from .inventory import has_size_system, product_size_inventory, total_size_stock
+from .time_utils import json_value as serialize_json_value
 
 
 EXCLUDED_COLLECTION_SLUGS = {"aakaar", "aakaar-insights", "collections-of-aakaar"}
@@ -107,15 +108,7 @@ PRODUCT_SEEDS = (
 
 
 def _json_value(value):
-    if isinstance(value, datetime):
-        return value.isoformat().replace("+00:00", "Z")
-    if isinstance(value, ObjectId):
-        return str(value)
-    if isinstance(value, list):
-        return [_json_value(item) for item in value]
-    if isinstance(value, dict):
-        return {key: _json_value(item) for key, item in value.items()}
-    return value
+    return serialize_json_value(value)
 
 
 def is_excluded_collection(collection: dict | None = None, slug: str = "") -> bool:

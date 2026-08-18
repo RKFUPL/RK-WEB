@@ -6,6 +6,7 @@ import { CollectionManagementList } from '@/components/collections/collection-ma
 import { OperationsSection } from '@/components/staff/operations-section';
 import { OrderManagement } from '@/components/orders/order-management';
 import { apiBaseUrl, type StaffPermission } from '@/lib/rbac';
+import { formatDate } from '@/lib/date-time';
 
 type AdminUser = { id: string; email?: string; username?: string; displayName?: string; role: 'customer' | 'staff' | 'admin'; isActive: boolean; permissions?: StaffPermission[] };
 type ResourceItem = Record<string, unknown> & { id: string };
@@ -19,7 +20,7 @@ const columns: Record<string, Array<[string, string]>> = {
 const permissionOptions: Array<[StaffPermission, string]> = [['products:manage', 'Products'], ['inventory:manage', 'Inventory'], ['quotes:manage', 'Quotes'], ['orders:manage', 'Orders'], ['customers:manage', 'Customers']];
 
 function formatValue(key: string, value: unknown) {
-  if (key === 'createdAt' && typeof value === 'string') return new Date(value).toLocaleDateString();
+  if (key === 'createdAt' && typeof value === 'string') return formatDate(value);
   return value === null || value === undefined || value === '' ? '—' : String(value);
 }
 

@@ -24,6 +24,7 @@ from ...order_fulfillment import (
 )
 from ...payments import RazorpayAPIError, is_configured, razorpay_api_request, verify_payment_signature, verify_webhook_signature
 from ...rbac import current_user, database, requireAuth
+from ...time_utils import json_value as serialize_json_value
 
 
 payments_bp = Blueprint("payments", __name__)
@@ -35,15 +36,7 @@ class StockUnavailable(RuntimeError):
 
 
 def _json_value(value):
-    if isinstance(value, datetime):
-        return value.isoformat().replace("+00:00", "Z")
-    if isinstance(value, ObjectId):
-        return str(value)
-    if isinstance(value, list):
-        return [_json_value(item) for item in value]
-    if isinstance(value, dict):
-        return {key: _json_value(item) for key, item in value.items()}
-    return value
+    return serialize_json_value(value)
 
 
 def _order_view(order: dict) -> dict:

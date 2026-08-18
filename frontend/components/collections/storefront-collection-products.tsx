@@ -5,6 +5,7 @@ import { SlidersHorizontal, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { CollectionProductCard } from '@/components/collections/collection-product-card';
 import type { CatalogProduct, ManagedCollection, ProductAvailability } from '@/lib/catalog';
+import { parseTimestamp } from '@/lib/date-time';
 
 type SortOption = 'featured' | 'newest' | 'price_asc' | 'price_desc';
 
@@ -46,7 +47,7 @@ export function StorefrontCollectionProducts({ collection, loading = false }: {
     return [...filtered].sort((left, right) => {
       if (sort === 'price_asc') return Number(left.price ?? Number.MAX_SAFE_INTEGER) - Number(right.price ?? Number.MAX_SAFE_INTEGER);
       if (sort === 'price_desc') return Number(right.price ?? 0) - Number(left.price ?? 0);
-      if (sort === 'newest') return new Date(right.createdAt ?? 0).getTime() - new Date(left.createdAt ?? 0).getTime();
+      if (sort === 'newest') return (parseTimestamp(right.createdAt)?.getTime() ?? 0) - (parseTimestamp(left.createdAt)?.getTime() ?? 0);
       return Number(left.displayOrder ?? 0) - Number(right.displayOrder ?? 0);
     });
   }, [availability, category, color, maxPrice, products, size, sort]);

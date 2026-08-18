@@ -1,3 +1,5 @@
+import { formatDate, formatDateTime, formatLongDate } from '@/lib/date-time';
+
 export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
 export type FulfillmentStatus = 'order_placed' | 'confirmed' | 'processing' | 'packed' | 'shipped' | 'out_for_delivery' | 'delivered' | 'cancelled' | 'return_requested' | 'returned' | 'refunded';
 
@@ -52,6 +54,6 @@ export const fulfillmentSteps: Array<{ status: string; label: string }> = [
 ];
 
 export const inr = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
-export const orderDate = (value?: string, long = false) => value ? new Intl.DateTimeFormat('en-IN', long ? { day: 'numeric', month: 'long', year: 'numeric' } : { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(value)) : '—';
-export const orderDateTime = (value?: string) => value ? new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value)) : '—';
+export const orderDate = (value?: string, long = false) => long ? formatLongDate(value) : formatDate(value);
+export const orderDateTime = (value?: string) => formatDateTime(value);
 export const titleCase = (value?: string) => value ? value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()) : '—';
