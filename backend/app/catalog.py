@@ -387,7 +387,7 @@ def collection_product_documents(db, collection: dict) -> list[tuple[dict, int]]
     return [(products[ref["productId"]], int(ref.get("displayOrder", 0))) for ref in refs if ref["productId"] in products]
 
 
-def product_view(product: dict, *, display_order: int | None = None) -> dict:
+def product_view(product: dict, *, display_order: int | None = None, media_limit: int | None = None) -> dict:
     configured = has_size_system(product)
     size_inventory = product_size_inventory(product) if configured else []
     public_attributes = _json_value(product.get("attributes") or {})
@@ -418,7 +418,7 @@ def product_view(product: dict, *, display_order: int | None = None) -> dict:
         "customSizeConfig": _json_value(product.get("customSizeConfig") or {}),
         "category": product.get("category"),
         "description": product.get("description"),
-        "media": _json_value(product.get("media") or []),
+        "media": _json_value(product.get("media") or [])[:media_limit] if media_limit is not None else _json_value(product.get("media") or []),
         "attributes": public_attributes,
         "isDummy": bool(product.get("isDummy")),
         "createdAt": _json_value(product.get("createdAt")),
@@ -437,7 +437,7 @@ def product_view(product: dict, *, display_order: int | None = None) -> dict:
     return result
 
 
-def collection_view(db, collection: dict, *, include_products: bool = True) -> dict:
+def collection_view(db, collection: dict, *, include_products: bool = True, product_media_limit: int | None = None) -> dict:
     product_pairs = collection_product_documents(db, collection)
     result = {
         "id": str(collection["_id"]),
@@ -458,7 +458,7 @@ def collection_view(db, collection: dict, *, include_products: bool = True) -> d
         "productCount": len(product_pairs),
     }
     if include_products:
-        result["products"] = [product_view(product, display_order=order) for product, order in product_pairs]
+        result["products"] = [product_view(product, display_order=order, media_limit=product_media_limit) for product, order in product_pairs]
     return result
 
 
