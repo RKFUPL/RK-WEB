@@ -16,6 +16,10 @@ export type CartItem = {
   image?: string;
   stock?: number;
   availability?: string;
+  /** Explicitly distinguishes legacy product stock from size stock. */
+  inventoryMode?: 'legacy' | 'size';
+  /** Distinguishes a standard-size purchase from a submitted custom-size order. */
+  purchaseMode?: 'standard_size' | 'custom_size';
   variant?: ProductVariant;
   /** Optional size selection. Kept separate from color/other variants. */
   size?: string;

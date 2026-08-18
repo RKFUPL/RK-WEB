@@ -44,7 +44,7 @@ export function EditorialPage({ eyebrow, title, intro, sections, closing }: Edit
             </div>
             {section.image ? (
               <div className={section.imageFirst ? 'order-1 md:order-2' : 'order-2'}>
-                <div className="relative aspect-[4/5] overflow-hidden bg-sand shadow-[0_20px_70px_rgba(42,38,34,0.08)]">
+                <div className="relative aspect-[4/5] overflow-hidden rounded-[14px] bg-sand shadow-[0_20px_70px_rgba(42,38,34,0.08)]">
                   <img src={section.image} alt={section.imageAlt || section.title} className="h-full w-full object-cover" loading={index === 0 ? 'eager' : 'lazy'} />
                 </div>
               </div>

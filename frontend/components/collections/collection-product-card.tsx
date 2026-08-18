@@ -15,6 +15,7 @@ export function CollectionProductCard({ product }: { product: CatalogProduct }) 
   const route = `/products/${product.id}`;
   const primaryImage = product.media?.[0];
   const secondaryImage = product.media?.[1];
+  const sizeConfigured = product.sizeInventoryConfigured === true;
 
   useEffect(() => {
     const sync = () => setSaved(readWishlist().some((item) => item.productId === product.id));
@@ -37,7 +38,7 @@ export function CollectionProductCard({ product }: { product: CatalogProduct }) 
       category: product.category || 'Couture',
       availability: availabilityLabels[product.availability],
       stock: product.stock,
-      sizeOptions: product.sizeInventory?.map((entry) => entry.size) ?? product.attributes?.sizes,
+      sizeOptions: sizeConfigured ? product.sizeInventory?.filter((entry) => entry.enabled !== false).map((entry) => entry.size) : undefined,
       sizeStock: Object.fromEntries((product.sizeInventory ?? []).map((entry) => [entry.size, entry.stock])),
       route,
     });
@@ -50,7 +51,7 @@ export function CollectionProductCard({ product }: { product: CatalogProduct }) 
       window.alert('Please sign in to add pieces to your shopping bag.');
       return;
     }
-    if (product.sizeSystemEnabled || (product.sizeInventory?.length ?? 0) > 0 || (product.attributes?.sizes?.length ?? 0) > 0) {
+    if (sizeConfigured) {
       window.location.assign(route);
       return;
     }
@@ -62,6 +63,7 @@ export function CollectionProductCard({ product }: { product: CatalogProduct }) 
       image: primaryImage,
       stock: product.stock,
       availability: availabilityLabels[product.availability],
+      inventoryMode: 'legacy',
     });
     trackAnalyticsEvent('add_to_bag', { productId: product.id, productName: product.name, currency: 'INR', value: product.price, quantity: 1 });
     setCartMessage('Added to bag');
@@ -69,7 +71,7 @@ export function CollectionProductCard({ product }: { product: CatalogProduct }) 
   };
 
   return <article className="collection-product-card group min-w-0">
-    <div className="collection-product-image-wrapper relative aspect-[3/4] overflow-hidden bg-sand">
+    <div className="collection-product-image-wrapper relative aspect-[3/4] overflow-hidden rounded-[14px] bg-sand">
       <Link href={route} aria-label={`View ${product.name || 'product'}`} className="block h-full w-full">
         {primaryImage ? <>
           <Image src={primaryImage} alt={product.name || 'Collection product'} fill sizes="(max-width: 767px) 50vw, (max-width: 1023px) 33vw, 25vw" className={`collection-product-image object-cover ${secondaryImage ? 'group-hover:opacity-0' : ''}`} />
@@ -91,7 +93,7 @@ export function CollectionProductCard({ product }: { product: CatalogProduct }) 
       </div>
       <p className="mt-2 text-xs text-charcoal/70 sm:text-sm">{product.price === undefined ? 'Price on request' : inr.format(product.price)}</p>
       <button type="button" onClick={addToCart} disabled={product.availability === 'sold_out'} className="mt-4 inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.56rem] uppercase tracking-[0.24em] text-charcoal transition hover:border-gold hover:text-gold disabled:cursor-not-allowed disabled:opacity-40">
-        <ShoppingBag size={14} strokeWidth={1.35} />{product.availability === 'sold_out' ? 'Sold out' : product.sizeSystemEnabled || (product.sizeInventory?.length ?? 0) > 0 || (product.attributes?.sizes?.length ?? 0) > 0 ? 'Choose size' : cartMessage || 'Add to cart'}
+        <ShoppingBag size={14} strokeWidth={1.35} />{product.availability === 'sold_out' ? 'Sold out' : sizeConfigured ? 'Choose size' : cartMessage || 'Add to cart'}
       </button>
     </div>
   </article>;

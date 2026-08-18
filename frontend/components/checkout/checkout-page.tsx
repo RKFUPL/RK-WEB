@@ -138,7 +138,7 @@ export function CheckoutPage() {
       const response = await fetch(`${apiBaseUrl}/api/payments/razorpay/order`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
-        body: JSON.stringify({ checkoutAttemptId, cart: cart.items.map((item) => ({ productId: item.productId, quantity: item.quantity, variant: item.variant, size: item.size, customSize: item.customSize })), shipping: { ...shipping, addressId: selectedAddressId || undefined } }),
+        body: JSON.stringify({ checkoutAttemptId, cart: cart.items.map((item) => ({ productId: item.productId, quantity: item.quantity, variant: item.variant, size: item.size, purchaseMode: item.purchaseMode, customSize: item.customSize })), shipping: { ...shipping, addressId: selectedAddressId || undefined } }),
       });
       const data = await response.json() as RazorpayResponse & { error?: string };
       if (!response.ok) throw new Error(data.error || 'We could not start payment.');

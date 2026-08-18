@@ -1,6 +1,8 @@
+import { collectionGalleryPages } from '@/lib/home-content';
 import { siteUrl } from '@/lib/site-metadata';
 
 export function GET() {
+  const collectionLinks = collectionGalleryPages.map((collection) => `- [${collection.name}](${siteUrl}${collection.route})`).join('\n');
   const content = `# Rashi Kapoor
 
 > Luxury Indian womenswear and couture, presented through collections and editorial lookbooks.
@@ -9,14 +11,11 @@ export function GET() {
 - [Home](${siteUrl}/)
 - [Collections](${siteUrl}/collections)
 - [Lookbooks](${siteUrl}/rk-lookbooks)
+- [Runway](${siteUrl}/runway)
 - [About Rashi Kapoor](${siteUrl}/about-rk)
 
 ## Collections
-- [Anamika](${siteUrl}/collections/collections-of-anamika)
-- [Hastakala](${siteUrl}/collections/collections-of-hasthkala)
-- [Inaara](${siteUrl}/collections/collections-of-inaara)
-- [Naqab](${siteUrl}/collections/collections-of-naqab)
-- [Sandook](${siteUrl}/collections/collections-of-sandook)
+${collectionLinks}
 `;
   return new Response(content, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
 }

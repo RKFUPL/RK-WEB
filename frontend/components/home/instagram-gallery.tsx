@@ -13,7 +13,7 @@ export function InstagramGallery() {
       </div>
       <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {instagramItems.map((image, index) => (
-          <article key={image} className="group relative aspect-[4/5] overflow-hidden bg-white">
+          <article key={image} className="group relative aspect-[4/5] overflow-hidden rounded-[14px] bg-white">
             <Image
               src={image}
               alt={`Instagram placeholder ${index + 1}`}

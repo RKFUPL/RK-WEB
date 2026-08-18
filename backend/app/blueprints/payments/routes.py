@@ -13,7 +13,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError, OperationFailure
 
 from ...catalog import ensure_catalog_seed
-from ...inventory import has_size_system, stock_for_size, validate_custom_size
+from ...inventory import has_size_system, stock_for_size, total_size_stock, validate_custom_size
 from ...order_fulfillment import (
     actor_view,
     ensure_order_tracking,
@@ -134,15 +134,25 @@ def _checkout_items(db, cart: object) -> tuple[list[dict], int]:
         product = db.products.find_one({"_id": product_id, "status": {"$ne": "archived"}, "isActive": {"$ne": False}})
         if not product:
             raise ValueError("One of the pieces in your bag is no longer available.")
-        availability = str(product.get("availability") or ("sold_out" if int(product.get("stock") or 0) <= 0 else "in_stock")).lower()
+        configured = has_size_system(product)
+        available_total = total_size_stock(product) if configured else int(product.get("stock") or 0)
+        availability = str(product.get("availability") or ("sold_out" if available_total <= 0 else "in_stock")).lower()
         if availability == "sold_out":
             raise ValueError(f'{product.get("name") or "A selected piece"} is sold out.')
         raw_size = raw_item.get("size")
         if not raw_size and variant and str(variant.get("name") or "").strip().lower() == "size":
             raw_size = variant.get("value")
-        size = _safe_text(raw_size, 20).upper()
+        size = _safe_text(raw_size, 20).upper() if configured else ""
         custom_size = validate_custom_size(product, raw_item.get("customSize"))
-        if has_size_system(product) and not size and not custom_size:
+        requested_mode = _safe_text(raw_item.get("purchaseMode"), 30).lower()
+        purchase_mode = requested_mode if requested_mode in {"standard_size", "custom_size"} else "custom_size" if custom_size else "standard_size"
+        if purchase_mode == "custom_size" and not custom_size:
+            raise ValueError("Complete the custom measurements before checkout.")
+        if purchase_mode == "standard_size" and custom_size:
+            raise ValueError("Choose either a standard size or custom measurements.")
+        if size and custom_size:
+            raise ValueError("Choose either a standard size or custom measurements.")
+        if configured and not size and not custom_size:
             raise ValueError(f'Select a size for {product.get("name") or "this piece"}.')
         key = (str(product_id), variant_id, size, json.dumps(custom_size, sort_keys=True) if custom_size else "")
         if key in seen:
@@ -156,7 +166,7 @@ def _checkout_items(db, cart: object) -> tuple[list[dict], int]:
         if price < 0:
             raise ValueError("A selected piece does not have a valid price.")
         if availability == "in_stock":
-            available = stock_for_size(product, size) if has_size_system(product) and size else int(product.get("stock") or 0)
+            available = stock_for_size(product, size) if configured and size else available_total
             if available is None:
                 raise ValueError(f'{size or "That size"} is not available for {product.get("name") or "this piece"}.')
             if quantity > available:
@@ -174,6 +184,8 @@ def _checkout_items(db, cart: object) -> tuple[list[dict], int]:
             "lineTotal": line_total,
             "image": media[0] if media and isinstance(media[0], str) else "",
             "availability": availability,
+            "inventoryMode": "size" if configured else "legacy",
+            "purchaseMode": purchase_mode,
             "variant": {"id": variant_id, "name": _safe_text((variant or {}).get("name"), 60), "value": _safe_text((variant or {}).get("value"), 120)} if variant_id else None,
             "size": size or None,
             "customSize": custom_size,
@@ -253,7 +265,7 @@ def _fulfil_paid_order(db, order: dict, payment_id: str, source: str, payment_si
             if str(item.get("availability") or "").lower() != "in_stock":
                 continue
             size = str(item.get("size") or "").strip().upper()
-            product = db.products.find_one({"_id": product_id}, {"sizeSystemEnabled": 1, "sizeInventory": 1}) or {}
+            product = db.products.find_one({"_id": product_id}, {"sizeInventoryConfigured": 1, "sizeSystemEnabled": 1, "sizeInventory": 1}) or {}
             if size and has_size_system(product):
                 result = db.products.update_one(
                     {"_id": product_id, "status": {"$ne": "archived"}, "isActive": {"$ne": False}, "availability": "in_stock", "sizeInventory": {"$elemMatch": {"size": size, "enabled": True, "stock": {"$gte": quantity}}}},

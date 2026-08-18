@@ -10,7 +10,7 @@ import { CAREERS_URL } from '@/lib/external-links';
 const footerColumns = [
   {
     title: 'Navigation',
-    links: ['Collections', 'Lookbook', 'About'],
+    links: ['Collections', 'Lookbook', 'Runway', 'About'],
   },
   {
     title: 'Company',
@@ -21,6 +21,13 @@ const footerColumns = [
     links: ['Privacy', 'Terms', 'Cookies', 'Shipping', 'Security'],
   },
 ] as const;
+
+const navigationHrefs: Record<string, string> = {
+  Collections: '/collections',
+  Lookbook: '/rk-lookbooks',
+  Runway: '/runway',
+  About: '/about',
+};
 
 // Update social destinations here when the final brand profiles are ready.
 const socialLinks = {
@@ -187,14 +194,9 @@ export function Footer() {
                           </Link>
                         ) : (
                           <Link
-                            href={
-                              link === 'Collections'
-                                ? '/collections'
-                                : link === 'Lookbook'
-                                  ? '/rk-lookbooks'
-                                  : '/about'
-                            }
-                            className="transition hover:text-gold"
+                            href={navigationHrefs[link]}
+                            aria-current={pathname === navigationHrefs[link] ? 'page' : undefined}
+                            className={`transition hover:text-gold ${pathname === navigationHrefs[link] ? 'text-gold' : ''}`}
                           >
                             {link}
                           </Link>

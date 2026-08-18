@@ -1,7 +1,6 @@
-from bson import ObjectId
 from flask import Blueprint, jsonify
 
-from ...catalog import collection_document, collection_view, ensure_catalog_seed, is_excluded_collection, product_view
+from ...catalog import collection_document, collection_view, ensure_catalog_seed, is_excluded_collection, product_document, product_view
 from ...rbac import database
 
 
@@ -21,12 +20,10 @@ def storefront_collection(slug: str):
 @catalog_bp.get("/products/<product_id>")
 def storefront_product(product_id: str):
     db = database()
-    if not ObjectId.is_valid(product_id):
-        return jsonify({"error": "Product not found."}), 404
-    object_id = ObjectId(product_id)
-    product = db.products.find_one({"_id": object_id, "status": {"$ne": "archived"}, "isActive": {"$ne": False}})
+    product = product_document(db, product_id)
     if not product:
         return jsonify({"error": "Product not found."}), 404
+    object_id = product["_id"]
     collections = [
         collection_view(db, collection, include_products=False)
         for collection in db.collections.find({"productRefs.productId": object_id})

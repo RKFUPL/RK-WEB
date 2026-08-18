@@ -3,7 +3,7 @@ import { pageMetadata } from '@/lib/site-metadata';
 
 export const metadata = pageMetadata(
   'Couture Collections',
-  'Explore Rashi Kapoor collections including Anamika, Hastakala, Inaara, Naqab, and Sandook.',
+  'Explore Rashi Kapoor collections including Aakaar, Hastakala, Inaara, Anamika, Naqab, and Sandook.',
   '/collections',
 );
 

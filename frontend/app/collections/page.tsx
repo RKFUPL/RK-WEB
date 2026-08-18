@@ -23,7 +23,7 @@ function CampaignImage({ collection }: { collection: (typeof collectionGalleryPa
         viewport={{ once: true, amount: 0.12 }}
         transition={{ duration: 0.75, ease: [0.22, 1, 0.36, 1] }}
       >
-        <div className="collections-campaign-image relative aspect-[3/4] overflow-hidden bg-sand">
+        <div className="collections-campaign-image relative aspect-[3/4] overflow-hidden rounded-[14px] bg-sand">
           <img
             src={collection.image}
             alt={`${collection.name} collection campaign`}

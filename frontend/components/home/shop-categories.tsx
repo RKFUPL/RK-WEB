@@ -1,4 +1,4 @@
-import { categoryItems } from '@/lib/home-content';
+import { brandLogoUrl, categoryItems } from '@/lib/home-content';
 import { CategoryCard } from './category-card';
 
 export function ShopCategories() {
@@ -21,17 +21,17 @@ export function ShopCategories() {
         <div className="grid items-center gap-12 lg:grid-cols-[minmax(15rem,0.76fr)_minmax(0,1.24fr)] lg:gap-16">
           <div className="max-w-[21rem] space-y-6">
             <div className="flex items-center gap-4">
-              <p className="text-[0.62rem] uppercase tracking-[0.38em] text-gold">Explore collections</p>
+              <p className="text-[0.62rem] uppercase tracking-[0.38em] text-gold">All collections</p>
               <span className="h-px w-12 bg-gold/65" />
             </div>
             <h2 className="font-display text-[clamp(2.8rem,4.4vw,4.5rem)] leading-[0.94] tracking-[-0.035em] text-charcoal">
-              Drape yourself in<br />the luxury of<br />handcrafted fashion.
+              Drape yourself in<br />the luxury of the<br /><span className="inline-flex items-baseline gap-[0.14em]"><img src={brandLogoUrl} alt="RK" className="rk-logo inline-block h-[0.72em] w-auto translate-y-[0.06em] object-contain" /> house.</span>
             </h2>
             <div className="flex items-center gap-3 text-gold" aria-hidden="true">
               <span className="h-px w-5 bg-gold/70" /><span className="text-base">✦</span><span className="h-px w-5 bg-gold/70" />
             </div>
             <p className="max-w-[19rem] text-sm leading-6 text-charcoal/68">
-              Each piece is a celebration of intricate craftsmanship, heritage weaves and contemporary silhouettes.
+              A curated expression of our design philosophy. Each collection is a story woven in fabric, texture and craftsmanship, with its own palette, proportion, and distinct editorial point of view.
             </p>
             <a href="/collections" className="inline-flex items-center gap-5 border border-gold/65 px-5 py-3 text-[0.6rem] uppercase tracking-[0.27em] text-charcoal transition duration-300 hover:bg-gold hover:text-ink">
               View all collections <span className="text-base leading-none">→</span>
@@ -40,7 +40,7 @@ export function ShopCategories() {
 
           <div className="collection-editorial-grid grid w-full max-w-[44rem] grid-cols-2 gap-4 sm:grid-cols-3 lg:justify-self-end">
             {categoryItems.map((item, index) => (
-              <CategoryCard key={item.title} title={item.title} image={item.image} href={item.href} index={index} />
+              <CategoryCard key={item.title} title={item.title} image={item.image} href={item.href} index={index} comingSoon={item.comingSoon} />
             ))}
           </div>
         </div>

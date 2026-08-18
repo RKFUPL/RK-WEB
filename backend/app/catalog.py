@@ -19,7 +19,10 @@ COLLECTION_HERO_TYPES = {"image", "video"}
 COLLECTION_HERO_LAYOUTS = {"full_bleed", "editorial_split", "media_dominant"}
 FX_BUFFER_PERCENT = 5
 
-NORMAL_COLLECTIONS = (
+NORMAL_COLLECTION_ORDER = ("Aakaar", "Hastakala", "Inaara", "Anamika", "Naqab", "Sandook")
+_NORMAL_COLLECTION_RANK = {name.lower(): index for index, name in enumerate(NORMAL_COLLECTION_ORDER)}
+
+_NORMAL_COLLECTIONS = (
     {
         "name": "Anamika",
         "slug": "collections-of-anamika",
@@ -71,6 +74,8 @@ NORMAL_COLLECTIONS = (
         "dummyAvailability": "in_stock",
     },
 )
+
+NORMAL_COLLECTIONS = tuple(sorted(_NORMAL_COLLECTIONS, key=lambda collection: _NORMAL_COLLECTION_RANK.get(collection["name"].lower(), len(NORMAL_COLLECTION_ORDER))))
 
 # These are real storefront records, not frontend-only fixtures.  The
 # deliberately blank commercial fields are editable later from Admin/Staff;
@@ -154,17 +159,56 @@ def ensure_catalog_seed(db) -> None:
     # Preserve the legacy numeric stock as explicitly unallocated stock. Do
     # not invent per-size quantities during migration; staff can allocate the
     # quantity to XS/S/M/L/XL when the product is ready for size inventory.
-    for product in db.products.find({"unallocatedStock": {"$exists": False}}, {"stock": 1, "sizeInventory": 1}):
+    # The explicit configuration flag is backfilled from the old flag only;
+    # missing size data always remains legacy inventory.
+    for product in db.products.find({}, {"stock": 1, "sizeInventory": 1, "sizeSystemEnabled": 1, "sizeInventoryConfigured": 1, "unallocatedStock": 1}):
         try:
             legacy_stock = max(0, int(product.get("stock") or 0))
         except (TypeError, ValueError):
             legacy_stock = 0
         size_inventory = product.get("sizeInventory") if isinstance(product.get("sizeInventory"), list) else []
         allocated = sum(max(0, int(item.get("stock") or 0)) for item in size_inventory if isinstance(item, dict))
+        configured = bool(product.get("sizeInventoryConfigured")) if "sizeInventoryConfigured" in product else bool(product.get("sizeSystemEnabled")) if "sizeSystemEnabled" in product else bool(size_inventory)
+        updates = {
+            "sizeInventoryConfigured": configured,
+            "sizeSystemEnabled": configured,
+        }
+        if configured:
+            # Configured stock is derived from the size quantities. Never
+            # overwrite the existing product stock during migration; only
+            # preserve the remainder for the admin to allocate explicitly.
+            updates["unallocatedStock"] = max(0, legacy_stock - allocated) if "unallocatedStock" not in product else max(0, int(product.get("unallocatedStock") or 0))
+        else:
+            updates["unallocatedStock"] = legacy_stock
+        if all(product.get(key) == value for key, value in updates.items()):
+            continue
         db.products.update_one(
-            {"_id": product["_id"], "unallocatedStock": {"$exists": False}},
-            {"$set": {"unallocatedStock": max(0, legacy_stock - allocated), "sizeSystemEnabled": bool(size_inventory)}},
+            {"_id": product["_id"]},
+            {"$set": updates},
         )
+
+    # Collection entries are references, not a second product store. Convert
+    # older string references to ObjectIds and remove only references whose
+    # product was actually deleted. This prevents a stale collection entry
+    # from producing a product URL that can never resolve.
+    for collection in db.collections.find({}, {"productRefs": 1}):
+        refs = collection.get("productRefs") or []
+        normalized_refs = []
+        changed = False
+        for ref in refs:
+            if not isinstance(ref, dict):
+                changed = True
+                continue
+            raw_product_id = ref.get("productId")
+            product_id = raw_product_id if isinstance(raw_product_id, ObjectId) else ObjectId(str(raw_product_id)) if ObjectId.is_valid(str(raw_product_id or "")) else None
+            if not product_id or not db.products.find_one({"_id": product_id}, {"_id": 1}):
+                changed = True
+                continue
+            if product_id != raw_product_id:
+                changed = True
+            normalized_refs.append({**ref, "productId": product_id})
+        if changed:
+            db.collections.update_one({"_id": collection["_id"]}, {"$set": {"productRefs": normalized_refs}})
 
     for position, seed in enumerate(NORMAL_COLLECTIONS, start=1):
         collection = db.collections.find_one({"slug": seed["slug"]})
@@ -197,7 +241,7 @@ def ensure_catalog_seed(db) -> None:
             collection = db.collections.find_one({"_id": result.inserted_id})
         else:
             collection_updates = {}
-            if collection.get("displayOrder") is None:
+            if collection.get("displayOrder") != position:
                 collection_updates["displayOrder"] = position
             if not isinstance(collection.get("hero"), dict):
                 collection_updates["hero"] = {
@@ -226,6 +270,10 @@ def ensure_catalog_seed(db) -> None:
                 "price": seed["dummyPrice"],
                 "currency": "INR",
                 "stock": seed["dummyStock"],
+                "unallocatedStock": seed["dummyStock"],
+                "sizeInventoryConfigured": False,
+                "sizeSystemEnabled": False,
+                "sizeInventory": [],
                 "availability": seed["dummyAvailability"],
                 "status": "active",
                 "description": "Placeholder product record. Replace these fields when the real product is ready.",
@@ -264,6 +312,10 @@ def ensure_catalog_seed(db) -> None:
                 "price": seed["price"],
                 "currency": "INR",
                 "stock": 0,
+                "unallocatedStock": 0,
+                "sizeInventoryConfigured": False,
+                "sizeSystemEnabled": False,
+                "sizeInventory": [],
                 "availability": "custom_order",
                 "status": "active",
                 "description": "",
@@ -317,6 +369,16 @@ def collection_document(db, slug: str) -> dict | None:
     return None if is_excluded_collection(collection, slug) else collection
 
 
+def product_document(db, identifier: str) -> dict | None:
+    """Resolve the canonical public product id, with slug compatibility."""
+    filters = {"status": {"$ne": "archived"}, "isActive": {"$ne": False}}
+    if ObjectId.is_valid(identifier):
+        product = db.products.find_one({"_id": ObjectId(identifier), **filters})
+        if product:
+            return product
+    return db.products.find_one({"slug": str(identifier).strip(), **filters})
+
+
 def collection_product_documents(db, collection: dict) -> list[tuple[dict, int]]:
     refs = [ref for ref in (collection.get("productRefs") or []) if isinstance(ref, dict) and isinstance(ref.get("productId"), ObjectId)]
     refs.sort(key=lambda ref: (int(ref.get("displayOrder", 0)), str(ref["productId"])))
@@ -326,22 +388,31 @@ def collection_product_documents(db, collection: dict) -> list[tuple[dict, int]]
 
 
 def product_view(product: dict, *, display_order: int | None = None) -> dict:
-    size_inventory = product_size_inventory(product) if has_size_system(product) else []
+    configured = has_size_system(product)
+    size_inventory = product_size_inventory(product) if configured else []
     public_attributes = _json_value(product.get("attributes") or {})
     if size_inventory and isinstance(public_attributes, dict) and not public_attributes.get("sizes"):
         public_attributes["sizes"] = [item["size"] for item in size_inventory if item.get("enabled", True)]
-    public_stock = total_size_stock(product) if size_inventory else product.get("stock")
+    public_stock = total_size_stock(product) if configured else product.get("stock")
+    stored_availability = str(product.get("availability") or "").lower()
+    if stored_availability not in PRODUCT_AVAILABILITY:
+        stored_availability = "in_stock" if int(public_stock or 0) > 0 else "sold_out"
+    # A zero legacy stock is genuinely sold out; the regression was treating
+    # *missing size data* as zero. Legacy products with stock remain in stock.
+    public_availability = "sold_out" if stored_availability == "in_stock" and int(public_stock or 0) <= 0 else stored_availability
     result = {
         "id": str(product["_id"]),
+        "publicId": str(product["_id"]),
         "name": product.get("name"),
         "sku": product.get("sku"),
         "slug": product.get("slug") or str(product["_id"]),
         "status": product.get("status", "draft"),
-        "availability": product.get("availability") or ("sold_out" if int(product.get("stock") or 0) <= 0 else "in_stock"),
+        "availability": public_availability,
         "price": product.get("price"),
         "currency": "INR",
         "stock": public_stock,
-        "sizeSystemEnabled": bool(size_inventory),
+        "sizeSystemEnabled": configured,
+        "sizeInventoryConfigured": configured,
         "sizeInventory": _json_value(size_inventory),
         "unallocatedStock": int(product.get("unallocatedStock") or 0),
         "customSizeConfig": _json_value(product.get("customSizeConfig") or {}),

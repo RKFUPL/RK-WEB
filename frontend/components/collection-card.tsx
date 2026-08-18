@@ -19,7 +19,7 @@ const collectionFontSize: Record<string, string> = { Hastakala: '1.45rem' };
 export function CollectionCard({ title, category, image }: CollectionCardProps) {
   return (
     <article className="group overflow-hidden border border-black/6 bg-white shadow-luxe">
-      <div className="relative aspect-[4/5] overflow-hidden">
+      <div className="relative aspect-[4/5] overflow-hidden rounded-[14px]">
         <Image
           src={image}
           alt={title}

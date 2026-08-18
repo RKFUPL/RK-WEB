@@ -1,9 +1,13 @@
-"""Shared size-inventory rules for catalogue, staff, and checkout flows.
+"""Shared inventory rules for catalogue, staff, and checkout flows.
 
-The legacy ``stock`` field remains the unallocated quantity for products that
-have not been moved to size-level inventory. Once ``sizeSystemEnabled`` is
-true, ``sizeInventory`` is authoritative and ``stock`` is maintained as its
-total for older clients and reports.
+Products have two deliberately different inventory modes:
+
+* ``legacy`` uses the existing product-level ``stock`` field.
+* ``size`` uses the explicit ``sizeInventoryConfigured`` flag and the
+  per-size quantities.
+
+The explicit flag is important. An absent size array is not the same thing as
+an intentionally configured array whose quantities are all zero.
 """
 
 from __future__ import annotations
@@ -12,14 +16,40 @@ from collections.abc import Iterable
 
 
 STANDARD_SIZES = ("XS", "S", "M", "L", "XL")
+DEFAULT_CUSTOM_SIZE_FIELDS = (
+    "Bust",
+    "Waist",
+    "Hip",
+    "Shoulder",
+    "Armhole",
+    "Sleeve Length",
+    "Height",
+    "Blouse/Top Length",
+    "Bottom Length",
+    "Inseam",
+)
 
 
 def size_label(value: object) -> str:
     return str(value or "").strip().upper()[:20]
 
 
+def inventory_mode(product: dict) -> str:
+    """Return the canonical inventory mode for a product.
+
+    ``sizeInventoryConfigured`` is the current field. The two older fields
+    are read only as backwards-compatible fallbacks so existing documents are
+    not accidentally converted to size-managed products.
+    """
+    if "sizeInventoryConfigured" in product:
+        return "size" if bool(product.get("sizeInventoryConfigured")) else "legacy"
+    if "sizeSystemEnabled" in product:
+        return "size" if bool(product.get("sizeSystemEnabled")) else "legacy"
+    return "size" if isinstance(product.get("sizeInventory"), (list, dict)) and bool(product.get("sizeInventory")) else "legacy"
+
+
 def has_size_system(product: dict) -> bool:
-    return bool(product.get("sizeSystemEnabled")) or bool(product.get("sizeInventory"))
+    return inventory_mode(product) == "size"
 
 
 def normalise_size_inventory(value: object, *, default_enabled: bool = True) -> list[dict]:
@@ -49,11 +79,9 @@ def default_size_inventory() -> list[dict]:
 
 
 def product_size_inventory(product: dict) -> list[dict]:
-    configured = normalise_size_inventory(product.get("sizeInventory"))
-    if configured:
-        return configured
-    attributes = product.get("attributes") if isinstance(product.get("attributes"), dict) else {}
-    return normalise_size_inventory(attributes.get("sizes"))
+    if not has_size_system(product):
+        return []
+    return normalise_size_inventory(product.get("sizeInventory"))
 
 
 def total_size_stock(product: dict) -> int:
@@ -73,7 +101,7 @@ def custom_size_fields(product: dict) -> list[str]:
     if not isinstance(config, dict):
         attributes = product.get("attributes") if isinstance(product.get("attributes"), dict) else {}
         config = attributes.get("customSizeConfig") if isinstance(attributes.get("customSizeConfig"), dict) else {}
-    fields = config.get("fields") if isinstance(config.get("fields"), list) else []
+    fields = config.get("fields") if isinstance(config.get("fields"), list) else DEFAULT_CUSTOM_SIZE_FIELDS if has_size_system(product) or str(product.get("availability") or "").lower() == "custom_order" else []
     return [str(field).strip()[:50] for field in fields if str(field).strip()][:16]
 
 

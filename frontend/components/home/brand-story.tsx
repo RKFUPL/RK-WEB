@@ -45,7 +45,7 @@ export function BrandStory() {
         <div className="relative min-h-[30rem] overflow-visible border border-black/10 bg-white p-3 lg:min-h-[40rem]">
           <div className="absolute -bottom-5 -left-5 hidden h-24 w-24 border-b border-l border-gold lg:block" />
           <div className="absolute -right-4 -top-4 h-20 w-20 border-r border-t border-gold/80" />
-          <div className="relative h-full min-h-[28rem] overflow-hidden bg-sand lg:min-h-[37.5rem]">
+          <div className="relative h-full min-h-[28rem] overflow-hidden rounded-[14px] bg-sand lg:min-h-[37.5rem]">
           <Image
             src={brandStory.image}
             alt={brandStory.title}

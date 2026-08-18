@@ -5,7 +5,7 @@ export type FulfillmentStatus = 'order_placed' | 'confirmed' | 'processing' | 'p
 
 export type OrderActor = { type: 'customer' | 'staff' | 'system'; userId?: string; name?: string };
 export type OrderTimelineEvent = { id: string; status: string; label: string; timestamp: string; actor: OrderActor; note?: string; customerNote?: string; internalNote?: string; notifyCustomer?: boolean; metadata?: { courier?: string; trackingNumber?: string } };
-export type OrderItem = { productId?: string; name: string; sku?: string; quantity: number; unitPrice?: number; lineTotal?: number; image?: string; size?: string; customSize?: { unit?: string; measurements?: Record<string, number> } | null; variant?: { id?: string; name?: string; value?: string } | null };
+export type OrderItem = { productId?: string; name: string; sku?: string; quantity: number; unitPrice?: number; lineTotal?: number; image?: string; size?: string; purchaseMode?: 'standard_size' | 'custom_size'; customSize?: { unit?: string; measurements?: Record<string, number> } | null; variant?: { id?: string; name?: string; value?: string } | null };
 export type ShippingAddress = { fullName?: string; phone?: string; line1?: string; line2?: string; city?: string; state?: string; postalCode?: string; country?: string };
 export type OrderPayment = { status: PaymentStatus; gateway?: string; razorpayOrderId?: string; razorpayPaymentId?: string; verifiedAt?: string };
 export type OrderFulfillment = { status: FulfillmentStatus; courier?: string; trackingNumber?: string; trackingUrl?: string; shippingNote?: string; shippedAt?: string; deliveredAt?: string; delivery?: { receivedBy?: string; proofPhoto?: string; signature?: string; deliveredAt?: string } };

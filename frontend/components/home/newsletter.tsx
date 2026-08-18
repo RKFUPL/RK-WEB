@@ -57,7 +57,7 @@ export function Newsletter() {
           viewport={{ once: true, amount: 0.18 }}
           transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
         >
-          <div className="relative h-full w-full overflow-hidden"><Image src={brandStory.image} alt="Rashi Kapoor campaign" fill sizes="(max-width: 1024px) 100vw, 58vw" className="object-cover object-center transition duration-[1400ms] hover:scale-[1.04]" /><div className="absolute inset-0 bg-gradient-to-t from-[#17100d]/30 to-transparent" /></div>
+          <div className="relative h-full w-full overflow-hidden rounded-[14px]"><Image src={brandStory.image} alt="Rashi Kapoor campaign" fill sizes="(max-width: 1024px) 100vw, 58vw" className="object-cover object-center transition duration-[1400ms] hover:scale-[1.04]" /><div className="absolute inset-0 bg-gradient-to-t from-[#17100d]/30 to-transparent" /></div>
         </motion.div>
       </div>
       </div>

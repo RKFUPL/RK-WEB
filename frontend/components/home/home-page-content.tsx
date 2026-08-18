@@ -1,6 +1,7 @@
 import { StickyHeader } from './sticky-header';
 import { FeaturedCollection } from './featured-collection';
 import { ShopCategories } from './shop-categories';
+import { ExclusiveRunway } from './exclusive-runway';
 import { FeaturedLooks } from './featured-looks';
 import { Services } from './services';
 import { Newsletter } from './newsletter';
@@ -21,6 +22,7 @@ export function HomePageContent({ ready }: HomePageContentProps) {
         <FeaturedCollection />
         <div className="theme-transition-below">
           <ShopCategories />
+          <ExclusiveRunway />
           <FeaturedLooks />
           <div className="testimonials-newsletter-scene">
             <Services />

@@ -29,3 +29,5 @@ services:
     envVars:
       - key: FRONTEND_URL
         value: https://physihome.shop
+      - key: FRONTEND_URLS
+        value: https://rkfupl.onrender.com,https://physihome.shop

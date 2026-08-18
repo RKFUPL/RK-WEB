@@ -3,7 +3,7 @@ import { pageMetadata } from '@/lib/site-metadata';
 
 export const metadata = pageMetadata(
   'Editorial Lookbooks',
-  'Browse the Rashi Kapoor editorial archive, including Anamika, Hastakala, Sandook, Espiritu Libre, and Inaara.',
+  'Browse the Rashi Kapoor editorial archive, including Aakaar, Hastakala, Inaara, Anamika, Naqab, and Sandook.',
   '/rk-lookbooks',
 );
 

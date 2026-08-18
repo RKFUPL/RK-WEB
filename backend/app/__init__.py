@@ -38,11 +38,13 @@ def create_app() -> Flask:
     # Keep the production allowlist explicit because authentication uses
     # credentials. Local origins remain available for development.
     allowed_origins = {
+        "https://rkfupl.onrender.com",
         "https://physihome.shop",
         "https://www.physihome.shop",
         "http://localhost:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
         "http://127.0.0.1:5000",
     }
     if frontend_url:
@@ -76,6 +78,14 @@ def create_app() -> Flask:
     limiter.init_app(app)
     mail.init_app(app)
     mongo.init_app(app)
+
+    @app.before_request
+    def handle_api_preflight():
+        # CORS preflight is not an authenticated application request. Return
+        # before JWT-wrapped view functions so legitimate browser clients get
+        # the negotiated headers; the actual GET/POST still remains guarded.
+        if request.method == "OPTIONS" and request.path.startswith("/api/"):
+            return app.make_response(("", 204))
 
     @app.before_request
     def maintain_feedback_data():

@@ -2,10 +2,14 @@ import unittest
 
 from bson import ObjectId
 
-from app.catalog import PRODUCT_SEEDS, collection_hero, is_excluded_collection, product_view
+from app.catalog import NORMAL_COLLECTIONS, PRODUCT_SEEDS, collection_hero, is_excluded_collection, product_view
+from app.inventory import DEFAULT_CUSTOM_SIZE_FIELDS, custom_size_fields, validate_custom_size
 
 
 class CatalogTests(unittest.TestCase):
+    def test_normal_collection_seed_order_matches_the_storefront_sequence(self):
+        self.assertEqual([collection["name"] for collection in NORMAL_COLLECTIONS], ["Hastakala", "Inaara", "Anamika", "Naqab", "Sandook"])
+
     def test_aakaar_is_excluded_without_deleting_its_data(self):
         self.assertTrue(is_excluded_collection({"name": "Aakaar", "slug": "aakaar-insights"}))
         self.assertFalse(is_excluded_collection({"name": "Anamika", "slug": "collections-of-anamika"}))
@@ -17,6 +21,42 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(view["availability"], "in_stock")
         self.assertEqual(view["pricing"]["baseCurrency"], "INR")
         self.assertEqual(view["pricing"]["fxBufferPercent"], 5)
+
+    def test_product_view_keeps_legacy_stock_when_size_inventory_is_not_configured(self):
+        view = product_view({"_id": ObjectId(), "name": "Legacy piece", "stock": 5, "availability": "in_stock", "sizeInventory": []})
+        self.assertEqual(view["stock"], 5)
+        self.assertFalse(view["sizeInventoryConfigured"])
+        self.assertEqual(view["sizeInventory"], [])
+
+    def test_product_view_uses_only_configured_size_quantities(self):
+        view = product_view({
+            "_id": ObjectId(), "name": "Sized piece", "stock": 6, "availability": "in_stock",
+            "sizeInventoryConfigured": True,
+            "sizeInventory": [
+                {"size": "XS", "stock": 2, "enabled": True},
+                {"size": "S", "stock": 0, "enabled": True},
+                {"size": "M", "stock": 3, "enabled": True},
+                {"size": "L", "stock": 1, "enabled": True},
+                {"size": "XL", "stock": 0, "enabled": True},
+            ],
+        })
+        self.assertEqual(view["stock"], 6)
+        self.assertTrue(view["sizeInventoryConfigured"])
+        self.assertEqual([entry["size"] for entry in view["sizeInventory"]], ["XS", "S", "M", "L", "XL"])
+
+    def test_size_managed_products_get_the_generic_custom_measurement_form(self):
+        product = {"sizeInventoryConfigured": True, "sizeInventory": []}
+        self.assertEqual(custom_size_fields(product), list(DEFAULT_CUSTOM_SIZE_FIELDS))
+        measurements = {field: "35" for field in DEFAULT_CUSTOM_SIZE_FIELDS}
+        self.assertEqual(validate_custom_size(product, {"unit": "in", "measurements": measurements})["measurements"], measurements)
+
+    def test_custom_order_products_require_the_generic_measurement_set(self):
+        product = {"availability": "custom_order", "sizeInventoryConfigured": False}
+        measurements = {field: "35" for field in DEFAULT_CUSTOM_SIZE_FIELDS}
+        self.assertEqual(len(custom_size_fields(product)), len(DEFAULT_CUSTOM_SIZE_FIELDS))
+        with self.assertRaises(ValueError):
+            validate_custom_size(product, {"unit": "cm", "measurements": {"Bust": "35"}})
+        self.assertIsNotNone(validate_custom_size(product, {"unit": "cm", "measurements": measurements}))
 
     def test_legacy_collection_image_is_normalized_to_reusable_hero(self):
         hero = collection_hero({"heroImage": "https://example.com/hero.jpg"})

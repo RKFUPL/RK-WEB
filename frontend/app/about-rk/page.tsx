@@ -71,7 +71,7 @@ export default function AboutRkPage() {
           </div>
 
           <div className="space-y-6">
-            <div className="relative min-h-[30rem] overflow-hidden border border-black/6 bg-white">
+            <div className="relative min-h-[30rem] overflow-hidden rounded-[14px] border border-black/6 bg-white">
               <Image
                 src={brandStory.image}
                 alt={brandStory.title}

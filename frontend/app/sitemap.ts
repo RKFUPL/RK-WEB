@@ -15,6 +15,7 @@ const staticPaths = [
   '/careers',
   '/collections',
   '/rk-lookbooks',
+  '/runway',
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {
