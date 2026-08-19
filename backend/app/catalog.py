@@ -5,6 +5,7 @@ always lives in the products collection so Admin, Staff, inventory, orders,
 quotes, and the storefront resolve the same record.
 """
 from datetime import datetime, timezone
+from threading import Lock
 
 from bson import ObjectId
 from pymongo.errors import OperationFailure
@@ -18,6 +19,49 @@ PRODUCT_AVAILABILITY = {"in_stock", "custom_order", "sold_out"}
 COLLECTION_HERO_TYPES = {"image", "video"}
 COLLECTION_HERO_LAYOUTS = {"full_bleed", "editorial_split", "media_dominant"}
 FX_BUFFER_PERCENT = 5
+
+_catalog_seed_lock = Lock()
+_catalog_seeded_database_keys: set[tuple[int, str]] = set()
+
+STOREFRONT_COLLECTION_PROJECTION = {
+    "_id": 1,
+    "name": 1,
+    "slug": 1,
+    "status": 1,
+    "description": 1,
+    "heroImage": 1,
+    "hero": 1,
+    "season": 1,
+    "year": 1,
+    "designerNote": 1,
+    "collectionNumber": 1,
+    "location": 1,
+    "campaignInformation": 1,
+    "createdAt": 1,
+    "updatedAt": 1,
+    "productRefs": 1,
+}
+
+STOREFRONT_PRODUCT_PROJECTION = {
+    "_id": 1,
+    "name": 1,
+    "sku": 1,
+    "slug": 1,
+    "status": 1,
+    "availability": 1,
+    "price": 1,
+    "stock": 1,
+    "sizeSystemEnabled": 1,
+    "sizeInventoryConfigured": 1,
+    "sizeInventory": 1,
+    "unallocatedStock": 1,
+    "category": 1,
+    "media": {"$slice": 2},
+    "attributes.sizes": 1,
+    "attributes.colors": 1,
+    "attributes.color": 1,
+    "isDummy": 1,
+}
 
 NORMAL_COLLECTION_ORDER = ("Aakaar", "Hastakala", "Inaara", "Anamika", "Naqab", "Sandook")
 _NORMAL_COLLECTION_RANK = {name.lower(): index for index, name in enumerate(NORMAL_COLLECTION_ORDER)}
@@ -364,8 +408,26 @@ def ensure_catalog_seed(db) -> None:
             )
 
 
-def collection_document(db, slug: str) -> dict | None:
-    collection = db.collections.find_one({"slug": slug})
+def ensure_catalog_seed_once(db) -> None:
+    """Run the compatibility seed at most once for each live DB handle.
+
+    The seed is retained for older deployments and local databases, but it is
+    not request work. PyMongo already reuses the application-level client;
+    this guard keeps the public collection endpoint from recreating indexes,
+    scanning products, and normalising references on every visit.
+    """
+    database_key = (id(getattr(db, "client", db)), str(getattr(db, "name", "")))
+    if database_key in _catalog_seeded_database_keys:
+        return
+    with _catalog_seed_lock:
+        if database_key in _catalog_seeded_database_keys:
+            return
+        ensure_catalog_seed(db)
+        _catalog_seeded_database_keys.add(database_key)
+
+
+def collection_document(db, slug: str, projection: dict | None = None) -> dict | None:
+    collection = db.collections.find_one({"slug": slug}, projection) if projection is not None else db.collections.find_one({"slug": slug})
     return None if is_excluded_collection(collection, slug) else collection
 
 
@@ -379,11 +441,11 @@ def product_document(db, identifier: str) -> dict | None:
     return db.products.find_one({"slug": str(identifier).strip(), **filters})
 
 
-def collection_product_documents(db, collection: dict) -> list[tuple[dict, int]]:
+def collection_product_documents(db, collection: dict, projection: dict | None = None) -> list[tuple[dict, int]]:
     refs = [ref for ref in (collection.get("productRefs") or []) if isinstance(ref, dict) and isinstance(ref.get("productId"), ObjectId)]
     refs.sort(key=lambda ref: (int(ref.get("displayOrder", 0)), str(ref["productId"])))
     product_ids = [ref["productId"] for ref in refs]
-    products = {product["_id"]: product for product in db.products.find({"_id": {"$in": product_ids}})} if product_ids else {}
+    products = {product["_id"]: product for product in db.products.find({"_id": {"$in": product_ids}}, projection)} if product_ids else {}
     return [(products[ref["productId"]], int(ref.get("displayOrder", 0))) for ref in refs if ref["productId"] in products]
 
 
@@ -437,8 +499,31 @@ def product_view(product: dict, *, display_order: int | None = None, media_limit
     return result
 
 
-def collection_view(db, collection: dict, *, include_products: bool = True, product_media_limit: int | None = None) -> dict:
-    product_pairs = collection_product_documents(db, collection)
+def product_card_view(product: dict, *, display_order: int | None = None, media_limit: int = 2) -> dict:
+    """Return only the fields needed by the public collection product grid."""
+    result = product_view(product, display_order=display_order, media_limit=media_limit)
+    for key in ("publicId", "customSizeConfig", "description", "createdAt", "updatedAt", "pricing"):
+        result.pop(key, None)
+    attributes = result.get("attributes")
+    if isinstance(attributes, dict):
+        result["attributes"] = {
+            key: attributes[key]
+            for key in ("sizes", "colors", "color")
+            if key in attributes
+        }
+    return result
+
+
+def collection_view(
+    db,
+    collection: dict,
+    *,
+    include_products: bool = True,
+    product_media_limit: int | None = None,
+    product_cards: bool = False,
+) -> dict:
+    product_projection = STOREFRONT_PRODUCT_PROJECTION if product_cards else None
+    product_pairs = collection_product_documents(db, collection, product_projection)
     result = {
         "id": str(collection["_id"]),
         "name": collection.get("name"),
@@ -458,7 +543,12 @@ def collection_view(db, collection: dict, *, include_products: bool = True, prod
         "productCount": len(product_pairs),
     }
     if include_products:
-        result["products"] = [product_view(product, display_order=order, media_limit=product_media_limit) for product, order in product_pairs]
+        view = product_card_view if product_cards else product_view
+        media_limit = product_media_limit if product_media_limit is not None else 2 if product_cards else None
+        result["products"] = [
+            view(product, display_order=order, media_limit=media_limit)
+            for product, order in product_pairs
+        ]
     return result
 
 

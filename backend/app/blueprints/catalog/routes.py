@@ -5,7 +5,15 @@ import re
 import resend
 from flask import Blueprint, current_app, jsonify, request
 
-from ...catalog import collection_document, collection_view, ensure_catalog_seed, is_excluded_collection, product_document, product_view
+from ...catalog import (
+    STOREFRONT_COLLECTION_PROJECTION,
+    collection_document,
+    collection_view,
+    ensure_catalog_seed_once,
+    is_excluded_collection,
+    product_document,
+    product_view,
+)
 from ...extensions import limiter
 from ...rbac import database
 
@@ -128,11 +136,16 @@ def create_custom_order_request():
 @catalog_bp.get("/collections/<slug>")
 def storefront_collection(slug: str):
     db = database()
-    ensure_catalog_seed(db)
-    collection = collection_document(db, slug)
+    ensure_catalog_seed_once(db)
+    collection = collection_document(db, slug, STOREFRONT_COLLECTION_PROJECTION)
     if not collection:
         return jsonify({"error": "Collection not found."}), 404
-    return jsonify({"collection": collection_view(db, collection, product_media_limit=2)}), 200
+    response = jsonify({"collection": collection_view(db, collection, product_media_limit=2, product_cards=True)})
+    # Collection content is public and mostly editorial. A short edge cache
+    # removes repeat DB work without allowing inventory status to go stale for
+    # more than a few seconds; cart/checkout still revalidates stock.
+    response.headers["Cache-Control"] = "public, max-age=0, s-maxage=15, stale-while-revalidate=30"
+    return response, 200
 
 
 @catalog_bp.get("/products/<product_id>")

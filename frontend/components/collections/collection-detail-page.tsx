@@ -19,7 +19,7 @@ export function CollectionDetailPage({ collection }: { collection: CollectionPag
   useEffect(() => {
     let active = true;
     setLoading(true);
-    fetch(`${apiBaseUrl}/api/catalog/collections/${encodeURIComponent(slug)}`, { cache: 'no-store' })
+    fetch(`${apiBaseUrl}/api/catalog/collections/${encodeURIComponent(slug)}`)
       .then(async (response) => {
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || 'Unable to load collection.');
