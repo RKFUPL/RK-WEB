@@ -20,7 +20,7 @@ from ...catalog import (
     remove_product_reference,
     update_product_order,
 )
-from ...order_fulfillment import actor_view, migrate_legacy_orders, timeline_event
+from ...order_fulfillment import RETURN_FULFILLMENT_STATUSES, actor_view, migrate_legacy_orders, timeline_event
 from ...inventory import default_size_inventory, has_size_system, normalise_size_inventory, total_size_stock
 from ...rbac import current_user, database, effective_permissions, requireStaff
 from ...time_utils import json_value as serialize_json_value
@@ -280,8 +280,9 @@ def dashboard():
         migrate_legacy_orders(db)
         fulfillment_counts = {
             status: db.orders.count_documents({"fulfillment.status": status})
-            for status in ("order_placed", "confirmed", "processing", "packed", "shipped", "out_for_delivery", "delivered", "return_requested", "returned")
+            for status in ("order_placed", "confirmed", "processing", "packed", "shipped", "out_for_delivery", "delivered", "return_requested", "returned", "refunded")
         }
+        fulfillment_counts["returns"] = sum(fulfillment_counts.get(status, 0) for status in RETURN_FULFILLMENT_STATUSES)
         counts["orders"] = sum(fulfillment_counts.get(status, 0) for status in ("order_placed", "confirmed", "processing", "packed", "shipped", "out_for_delivery"))
         counts["fulfillment"] = fulfillment_counts
     if "customers:manage" in permissions:

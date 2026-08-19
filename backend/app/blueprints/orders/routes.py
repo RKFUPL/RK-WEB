@@ -9,6 +9,7 @@ from ...order_fulfillment import (
     ACTIVE_FULFILLMENT_STATUSES,
     FULFILLMENT_STATUSES,
     PAYMENT_STATUSES,
+    RETURN_FULFILLMENT_STATUSES,
     OrderTransitionConflict,
     OrderTransitionError,
     apply_transition,
@@ -74,9 +75,12 @@ def _staff_order_query() -> tuple[dict, str | None]:
             return {}, "Choose a valid payment filter."
         query["payment.status"] = payment
     if fulfillment != "all":
-        if fulfillment not in FULFILLMENT_STATUSES:
+        if fulfillment == "returns":
+            query["fulfillment.status"] = {"$in": list(RETURN_FULFILLMENT_STATUSES)}
+        elif fulfillment not in FULFILLMENT_STATUSES:
             return {}, "Choose a valid fulfillment filter."
-        query["fulfillment.status"] = fulfillment
+        else:
+            query["fulfillment.status"] = fulfillment
     if courier.lower() != "all":
         courier_filter = _safe_regex(courier, 100)
         if courier_filter:
@@ -116,10 +120,16 @@ def _configured_couriers(database_instance) -> list[str]:
 
 
 def _order_counts(database_instance) -> dict:
-    return {
-        "payment": {status: database_instance.orders.count_documents({"payment.status": status}) for status in PAYMENT_STATUSES},
-        "fulfillment": {status: database_instance.orders.count_documents({"fulfillment.status": status}) for status in FULFILLMENT_STATUSES},
+    payment_counts = {
+        status: database_instance.orders.count_documents({"$or": [{"payment.status": status}, {"paymentStatus": status}]})
+        for status in PAYMENT_STATUSES
     }
+    fulfillment_counts = {
+        status: database_instance.orders.count_documents({"$or": [{"fulfillment.status": status}, {"fulfillmentStatus": status}, {"status": status}]})
+        for status in FULFILLMENT_STATUSES
+    }
+    fulfillment_counts["returns"] = sum(fulfillment_counts.get(status, 0) for status in RETURN_FULFILLMENT_STATUSES)
+    return {"payment": payment_counts, "fulfillment": fulfillment_counts}
 
 
 @customer_orders_bp.get("")

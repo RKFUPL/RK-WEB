@@ -3,6 +3,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from .order_fulfillment import RETURN_FULFILLMENT_STATUSES
+
 
 PERIOD_DAYS = {"7d": 7, "30d": 30, "90d": 90}
 
@@ -94,6 +96,7 @@ def build_dashboard(database, period: str, now: datetime | None = None, current_
         status: database.orders.count_documents({"$or": [{"fulfillment.status": status}, {"fulfillmentStatus": status}]})
         for status in ("order_placed", "confirmed", "processing", "packed", "shipped", "out_for_delivery", "delivered", "return_requested", "returned", "cancelled", "refunded")
     }
+    fulfillment_counts["returns"] = sum(fulfillment_counts.get(status, 0) for status in RETURN_FULFILLMENT_STATUSES)
 
     order_query = {
         **date_query,

@@ -37,6 +37,7 @@ FULFILLMENT_STATUSES = (
     "returned",
     "refunded",
 )
+RETURN_FULFILLMENT_STATUSES = ("return_requested", "returned", "refunded")
 ACTIVE_FULFILLMENT_STATUSES = {
     "order_placed", "confirmed", "processing", "packed", "shipped", "out_for_delivery"
 }
