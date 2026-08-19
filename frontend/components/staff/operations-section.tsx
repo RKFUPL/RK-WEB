@@ -58,6 +58,13 @@ function currency(value: unknown) {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(value ?? 0));
 }
 
+function productColourText(item: Item) {
+  const attributes = item.attributes && typeof item.attributes === 'object' ? item.attributes as Record<string, unknown> : {};
+  const value = Array.isArray(attributes.colors) && attributes.colors.length ? attributes.colors : attributes.color;
+  if (Array.isArray(value)) return value.filter(Boolean).map(String).join(', ');
+  return value ? String(value) : '';
+}
+
 function statusFor(item: Item, total: number) {
   const availability = String(item.availability ?? '').toLowerCase();
   if (total <= 0 || availability === 'sold_out') return { label: 'Out of stock', dot: 'bg-red-500' };
@@ -253,9 +260,10 @@ export function OperationsSection({ section: rawSection }: { section: string }) 
       const entries = product ? draftFor(item) : [];
       const total = product ? totalFor(item) : 0;
       const status = product ? statusFor({ ...item, availability: editing === item.id ? editForm.availability : item.availability }, total) : null;
+      const productColours = product ? productColourText(item) : '';
       return <tr key={item.id} className="border-b border-black/[.06] align-middle last:border-b-0">
         {columns[section].map(([key]) => <td key={key} className={`py-4 pr-4 text-[#6e747d] ${product && key === 'sizeInventory' ? 'align-top' : ''}`}>
-          {product && key === 'name' ? <div className="flex min-w-[14rem] items-center gap-3"><ProductThumbnail item={item} /><div className="min-w-0"><p className="truncate font-medium text-[#20242b] dark:text-white">{String(item.name ?? 'Unnamed product')}</p><p className="mt-1 text-[10px] text-[#858b94]">{String(item.category || 'Couture')}</p></div></div>
+          {product && key === 'name' ? <div className="flex min-w-[14rem] items-center gap-3"><ProductThumbnail item={item} /><div className="min-w-0"><p className="flex min-w-0 items-baseline gap-2"><span className="truncate font-medium text-[#20242b] dark:text-white">{String(item.name ?? 'Unnamed product')}</span>{productColours ? <span title={productColours} className="max-w-[9rem] shrink-0 truncate text-[9px] uppercase tracking-[.1em] text-[#9a7a4d]">· {productColours}</span> : null}</p><p className="mt-1 text-[10px] text-[#858b94]">{String(item.category || 'Couture')}</p></div></div>
             : product && key === 'price' ? <span className="whitespace-nowrap tabular-nums">{currency(item.price)}</span>
             : product && key === 'stock' ? <span className="text-base font-medium tabular-nums text-[#20242b] dark:text-white">{total}</span>
             : product && key === 'sizeInventory' ? <ProductSizeCell entries={entries} allocationTarget={allocationTargetFor(item)} onChange={(size, value) => updateProductSize(item, size, value)} />

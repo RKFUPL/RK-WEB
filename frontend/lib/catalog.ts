@@ -36,7 +36,9 @@ export type CatalogProduct = {
   sizeInventoryConfigured?: boolean;
   sizeInventory?: Array<{ size: string; stock: number; enabled?: boolean }>;
   unallocatedStock?: number;
-  customSizeConfig?: { fields?: string[]; label?: string; unit?: 'cm' | 'in' };
+  customSizeConfig?: { enabled?: boolean; fields?: string[]; label?: string; unit?: 'cm' | 'in' };
+  taxInclusive?: boolean;
+  mrpIncludesGst?: boolean;
   category?: string;
   description?: string;
   media: string[];
@@ -68,6 +70,8 @@ export type ManagedCollection = {
   name: string;
   slug: string;
   status: string;
+  collectionType?: 'standard' | 'runway';
+  taxInclusive?: boolean;
   description?: string;
   heroImage?: string;
   hero?: CollectionHeroConfig;

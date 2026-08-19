@@ -168,6 +168,13 @@ def update_collection(slug: str):
         if status not in {"collection", "draft", "active", "archived"}:
             return jsonify({"error": "Choose a valid collection status."}), 400
         updates["status"] = status
+    if "collectionType" in payload:
+        collection_type = str(payload.get("collectionType") or "standard").strip().lower()
+        if collection_type not in {"standard", "runway"}:
+            return jsonify({"error": "Collection type must be standard or runway."}), 400
+        updates["collectionType"] = collection_type
+    if "taxInclusive" in payload:
+        updates["taxInclusive"] = bool(payload.get("taxInclusive"))
     for key in ("description", "heroImage"):
         if key in payload:
             value = str(payload.get(key) or "").strip()
@@ -358,7 +365,8 @@ def create_resource(resource: str):
             return jsonify({"error": "That SKU already exists."}), 409
         media = payload.get("media") if isinstance(payload.get("media"), list) else []
         attributes = payload.get("attributes") if isinstance(payload.get("attributes"), dict) else {}
-        document = {**common, "name": name, "sku": sku, "price": price, "stock": total_stock, "unallocatedStock": unallocated_stock, "sizeInventoryConfigured": size_enabled, "sizeSystemEnabled": size_enabled, "sizeInventory": size_inventory, "status": status, "availability": availability, "currency": "INR", "category": str(payload.get("category") or "").strip(), "description": str(payload.get("description") or "").strip(), "media": media[:12], "attributes": attributes, "isActive": status != "archived"}
+        tax_inclusive = bool(payload.get("taxInclusive") or payload.get("mrpIncludesGst"))
+        document = {**common, "name": name, "sku": sku, "price": price, "taxInclusive": tax_inclusive, "mrpIncludesGst": tax_inclusive, "stock": total_stock, "unallocatedStock": unallocated_stock, "sizeInventoryConfigured": size_enabled, "sizeSystemEnabled": size_enabled, "sizeInventory": size_inventory, "status": status, "availability": availability, "currency": "INR", "category": str(payload.get("category") or "").strip(), "description": str(payload.get("description") or "").strip(), "media": media[:12], "attributes": attributes, "isActive": status != "archived"}
         if isinstance(payload.get("customSizeConfig"), dict):
             document["customSizeConfig"] = payload["customSizeConfig"]
         collection = db.products
@@ -455,6 +463,10 @@ def update_resource(resource: str, resource_id: str):
             if price is not None and price < 0:
                 return jsonify({"error": "Price cannot be negative."}), 400
             updates["price"] = price
+        if "taxInclusive" in payload or "mrpIncludesGst" in payload:
+            raw_tax_inclusive = payload.get("taxInclusive") if "taxInclusive" in payload else payload.get("mrpIncludesGst")
+            tax_inclusive = bool(raw_tax_inclusive)
+            updates.update({"taxInclusive": tax_inclusive, "mrpIncludesGst": tax_inclusive})
         if "status" in payload:
             status = str(payload.get("status") or "").lower()
             if status not in PRODUCT_STATUSES:

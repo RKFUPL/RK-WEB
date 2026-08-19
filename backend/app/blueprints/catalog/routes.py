@@ -12,6 +12,7 @@ from ...catalog import (
     ensure_catalog_seed_once,
     is_excluded_collection,
     product_document,
+    product_is_runway,
     product_view,
 )
 from ...extensions import limiter
@@ -111,6 +112,8 @@ def create_custom_order_request():
     product = product_document(db, product_id)
     if not product:
         return jsonify({"error": "Product not found."}), 404
+    if not product_is_runway(db, product["_id"]):
+        return jsonify({"error": "Custom order requests are available only for Runway pieces."}), 403
 
     record = {
         "productId": str(product["_id"]),

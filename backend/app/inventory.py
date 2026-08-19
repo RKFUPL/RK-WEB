@@ -101,7 +101,9 @@ def custom_size_fields(product: dict) -> list[str]:
     if not isinstance(config, dict):
         attributes = product.get("attributes") if isinstance(product.get("attributes"), dict) else {}
         config = attributes.get("customSizeConfig") if isinstance(attributes.get("customSizeConfig"), dict) else {}
-    fields = config.get("fields") if isinstance(config.get("fields"), list) else DEFAULT_CUSTOM_SIZE_FIELDS if has_size_system(product) or str(product.get("availability") or "").lower() == "custom_order" else []
+    if config.get("enabled") is False:
+        return []
+    fields = config.get("fields") if isinstance(config.get("fields"), list) else DEFAULT_CUSTOM_SIZE_FIELDS if config.get("enabled") is True or has_size_system(product) or str(product.get("availability") or "").lower() == "custom_order" else []
     return [str(field).strip()[:50] for field in fields if str(field).strip()][:16]
 
 

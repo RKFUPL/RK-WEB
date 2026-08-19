@@ -10,7 +10,7 @@ from threading import Lock
 from bson import ObjectId
 from pymongo.errors import OperationFailure
 
-from .inventory import has_size_system, product_size_inventory, total_size_stock
+from .inventory import DEFAULT_CUSTOM_SIZE_FIELDS, STANDARD_SIZES, has_size_system, product_size_inventory, total_size_stock
 from .time_utils import json_value as serialize_json_value
 
 
@@ -28,6 +28,8 @@ STOREFRONT_COLLECTION_PROJECTION = {
     "name": 1,
     "slug": 1,
     "status": 1,
+    "collectionType": 1,
+    "taxInclusive": 1,
     "description": 1,
     "heroImage": 1,
     "hero": 1,
@@ -50,6 +52,8 @@ STOREFRONT_PRODUCT_PROJECTION = {
     "status": 1,
     "availability": 1,
     "price": 1,
+    "taxInclusive": 1,
+    "mrpIncludesGst": 1,
     "stock": 1,
     "sizeSystemEnabled": 1,
     "sizeInventoryConfigured": 1,
@@ -73,6 +77,7 @@ _NORMAL_COLLECTIONS = (
         "description": "A refined story shaped by movement, texture, and modern occasion dressing.",
         "heroImage": "https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305156/Rashi_Kapoor3092_stukqt.jpg",
         "heroLayout": "full_bleed",
+        "taxInclusive": True,
         "dummyPrice": 120000,
         "dummyStock": 5,
         "dummyAvailability": "in_stock",
@@ -125,7 +130,7 @@ NORMAL_COLLECTIONS = tuple(sorted(_NORMAL_COLLECTIONS, key=lambda collection: _N
 # deliberately blank commercial fields are editable later from Admin/Staff;
 # custom_order keeps an unknown inventory quantity from being presented as
 # available stock while still allowing a request to be added to the bag.
-PRODUCT_SEEDS = (
+CORE_PRODUCT_SEEDS = (
     {
         "seedKey": "rk:product:173-hot-pink",
         "collectionSlug": "collections-of-hasthkala",
@@ -155,6 +160,265 @@ PRODUCT_SEEDS = (
     },
 )
 
+# Product data transcribed from the supplied Anamika line sheets. CK-42 is
+# intentionally omitted at the owner's request. The CK-56 A description is
+# deliberately the visible source fragment so it can be replaced in the
+# product record when the final copy is available.
+ANAMIKA_PRODUCT_SEEDS = (
+    {
+        "seedKey": "rk:anamika:ck-45",
+        "collectionSlug": "collections-of-anamika",
+        "displayOrder": 1,
+        "name": "CK-45",
+        "sku": "CK-45",
+        "slug": "ck-45",
+        "description": "DRAPED SARI WITH A UNIQUE FLOWERS APPLIQUE BORDER SHEDDED IN CRYSTALS GLASS BEADS WITH OVERLAY CAPE TEAMED A HEAVY BLOUSE TO MATCH BORDER AND PANT SET",
+        "colors": ["BLACK", "IVORY"],
+        "price": 85000,
+    },
+    {
+        "seedKey": "rk:anamika:ck-05",
+        "collectionSlug": "collections-of-anamika",
+        "displayOrder": 2,
+        "name": "CK-05",
+        "sku": "CK-05",
+        "slug": "ck-05",
+        "description": "DRAPED SAREE WITH HEAVY CRYSTAL AND BEADED EMBROIDERED BLOUSE TEAMED WITH LACEY PANTS",
+        "colors": ["BLACK", "BERRY"],
+        "price": 78000,
+    },
+    {
+        "seedKey": "rk:anamika:ck-55",
+        "collectionSlug": "collections-of-anamika",
+        "displayOrder": 3,
+        "name": "CK-55",
+        "sku": "CK-55",
+        "slug": "ck-55",
+        "description": "DRAPE SAREE WITH HEAVY BORDER TEAMED WITH HEAVY EMBROIDERY BLOUSE ALONG WITH SHEER OVERLAY CAPE.",
+        "colors": ["IVORY"],
+        "price": 98000,
+    },
+    {
+        "seedKey": "rk:anamika:ck-56-a",
+        "collectionSlug": "collections-of-anamika",
+        "displayOrder": 4,
+        "name": "CK-56 A",
+        "sku": "CK-56 A",
+        "slug": "ck-56-a",
+        "description": "ana work, box pleat detailing on p",
+        "colors": ["BLACK", "ASH GREY"],
+        "price": 78000,
+    },
+    {
+        "seedKey": "rk:anamika:ck-44",
+        "collectionSlug": "collections-of-anamika",
+        "displayOrder": 5,
+        "name": "CK-44",
+        "sku": "CK-44",
+        "slug": "ck-44",
+        "description": "DRAPE SAREE WITH HEAVY CRYSTAL AND SEQUINS BORDER WITH HEAVY BLOUSE WITH PANTS SET",
+        "colors": ["BLACK", "DUSTY IVORY", "TEAL"],
+        "price": 88000,
+    },
+    {
+        "seedKey": "rk:anamika:ck-27",
+        "collectionSlug": "collections-of-anamika",
+        "displayOrder": 6,
+        "name": "CK-27",
+        "sku": "CK-27",
+        "slug": "ck-27",
+        "description": "DRAPE SAREE WITH HEAVY CRYSTAL BORDER WITH HEAVILY EMBLISHED BUSTIER TEAMED WITH PANTS",
+        "colors": ["IVORY", "ASH GREY"],
+        "price": 78000,
+    },
+    {
+        "seedKey": "rk:anamika:ck-36",
+        "collectionSlug": "collections-of-anamika",
+        "displayOrder": 7,
+        "name": "CK-36",
+        "sku": "CK-36",
+        "slug": "ck-36",
+        "description": "DRAPED SARI WITH A GLASS BEADS,CRYSTALS AND OSTRICH FEATHER BORDER TEAMED WITH A HEAVILY EMBROIDERED BLOUSE AND PANT SET",
+        "colors": ["DUSTY IVORY", "BLACK", "ASH BLUE"],
+        "price": 78000,
+    },
+    {
+        "seedKey": "rk:anamika:ck-17",
+        "collectionSlug": "collections-of-anamika",
+        "displayOrder": 8,
+        "name": "CK-17",
+        "sku": "CK-17",
+        "slug": "ck-17",
+        "description": "HEAVY EMBROIDERED VICTORIAN LONG JACKET WITH DRAPPED SAREE WITH A MATCHING BORDER AND BUSTIER",
+        "colors": ["LILAC"],
+        "price": 158000,
+    },
+    {
+        "seedKey": "rk:anamika:ck-49",
+        "collectionSlug": "collections-of-anamika",
+        "displayOrder": 9,
+        "name": "CK-49",
+        "sku": "CK-49",
+        "slug": "ck-49",
+        "description": "HEAVY EMBROIDERED BUSTIER TEAMED WITH CUTDANA EMBROIDERY SHARARA WITH FREE FLOWING LONG CAPE",
+        "colors": ["IVORY"],
+        "price": 88000,
+    },
+    {
+        "seedKey": "rk:anamika:ck-50",
+        "collectionSlug": "collections-of-anamika",
+        "displayOrder": 10,
+        "name": "CK-50",
+        "sku": "CK-50",
+        "slug": "ck-50",
+        "description": "HEAVY EMBROIDERED SLEEVELESS KURTA WITH EMBROIDERED SHARARA WITH DUPPATTA",
+        "colors": ["POWDER PINK"],
+        "price": 128000,
+    },
+    {
+        "seedKey": "rk:anamika:ck-51",
+        "collectionSlug": "collections-of-anamika",
+        "displayOrder": 11,
+        "name": "CK-51",
+        "sku": "CK-51",
+        "slug": "ck-51",
+        "description": "HEAVY EMBROIDERED SLEEVELESS KURTA WITH EMBROIDERED SHARARA WITH DUPPATTA",
+        "colors": ["ASH BLUE"],
+        "price": 138000,
+    },
+    {
+        "seedKey": "rk:anamika:ck-53",
+        "collectionSlug": "collections-of-anamika",
+        "displayOrder": 12,
+        "name": "CK-53",
+        "sku": "CK-53",
+        "slug": "ck-53",
+        "description": "DRAPED GOWN ALONG WITH A HEAVY EMBROIDEY CAPE AND PEARL BORDER ALL AROUND",
+        "colors": ["DUSTY IVORY", "ASH BLUE", "BLACK"],
+        "price": 68000,
+    },
+    {
+        "seedKey": "rk:anamika:ck-10a",
+        "collectionSlug": "collections-of-anamika",
+        "displayOrder": 13,
+        "name": "CK-10A",
+        "sku": "CK-10A",
+        "slug": "ck-10a",
+        "description": "HEAVY PEARL SHARARA WITH A HEAVILY BORDER TEAMED WITH HEAVY JACKET WITH FLOWER EMBROIDERY AND BRATTLE TO GO",
+        "colors": ["LILAC"],
+        "price": 148000,
+    },
+    {
+        "seedKey": "rk:anamika:ck-64",
+        "collectionSlug": "collections-of-anamika",
+        "displayOrder": 14,
+        "name": "CK-64",
+        "sku": "CK-64",
+        "slug": "ck-64",
+        "description": "TAUPE HEAVILY EMBROIDERED JACKET WITH BRALETTE TEAMED WITH BOX PLEAT PALLAZO",
+        "colors": ["Taupe", "Ash grey"],
+        "price": 85000,
+    },
+    {
+        "seedKey": "rk:anamika:ck-63",
+        "collectionSlug": "collections-of-anamika",
+        "displayOrder": 15,
+        "name": "CK-63",
+        "sku": "CK-63",
+        "slug": "ck-63",
+        "description": "HEAVY EMBROIDERED JACKET WITH INTRICATE FLORAL PATTERNS WITH DELICATE WORK ON BRALETTE TEAMED UP WITH GRACEFUL PLEATED PALLAZO",
+        "colors": ["Ivory"],
+        "price": 98000,
+    },
+    {
+        "seedKey": "rk:anamika:ck-62",
+        "collectionSlug": "collections-of-anamika",
+        "displayOrder": 16,
+        "name": "CK-62",
+        "sku": "CK-62",
+        "slug": "ck-62",
+        "description": "A HEAVILY EMBROIDERED JACKET WITH INTRICATE WORK PAIRED WITH EMBLISED BRALETTE WITH STATEMENT DRAPE SKIRT",
+        "colors": ["Ivory"],
+        "price": 85000,
+    },
+)
+
+ANAMIKA_PRODUCT_SEEDS = tuple(
+    {
+        **seed,
+        "sizes": list(STANDARD_SIZES),
+        "stock": 0,
+        "availability": "sold_out",
+        "taxInclusive": True,
+        "mrpIncludesGst": True,
+        "category": "Couture",
+        "media": [],
+        "customSizeConfig": {
+            "enabled": True,
+            "fields": list(DEFAULT_CUSTOM_SIZE_FIELDS),
+            "label": "Want a custom size?",
+            "unit": "in",
+        },
+    }
+    for seed in ANAMIKA_PRODUCT_SEEDS
+)
+
+PRODUCT_SEEDS = CORE_PRODUCT_SEEDS + ANAMIKA_PRODUCT_SEEDS
+
+
+def _product_seed_document(seed: dict, now: datetime) -> dict:
+    """Build one canonical product document from a catalogue seed."""
+    sizes = [str(size).strip().upper() for size in seed.get("sizes", []) if str(size).strip()]
+    colors = [str(color).strip() for color in seed.get("colors", []) if str(color).strip()]
+    if not colors and str(seed.get("color") or "").strip():
+        colors = [str(seed["color"]).strip()]
+    size_inventory = [{"size": size, "stock": 0, "enabled": True} for size in sizes]
+    size_configured = bool(size_inventory)
+    stock = max(0, int(seed.get("stock") or 0))
+    tax_inclusive = bool(seed.get("taxInclusive") or seed.get("mrpIncludesGst"))
+    document = {
+        "name": seed["name"],
+        "sku": seed["sku"],
+        "price": seed["price"],
+        "currency": "INR",
+        "stock": sum(item["stock"] for item in size_inventory) if size_configured else stock,
+        "unallocatedStock": 0 if size_configured else stock,
+        "sizeInventoryConfigured": size_configured,
+        "sizeSystemEnabled": size_configured,
+        "sizeInventory": size_inventory,
+        "availability": str(seed.get("availability") or "custom_order"),
+        "status": "active",
+        "description": str(seed.get("description") or ""),
+        "category": str(seed.get("category") or ""),
+        "media": list(seed.get("media") or []),
+        "attributes": {
+            "sizes": sizes,
+            "colors": colors,
+            "fabric": "",
+            "occasion": "",
+            "gender": "",
+            "material": "",
+            "customizationInformation": "",
+        },
+        "seedKey": seed["seedKey"],
+        "taxInclusive": tax_inclusive,
+        "mrpIncludesGst": tax_inclusive,
+        "isDummy": False,
+        "isActive": True,
+        "createdAt": now,
+        "updatedAt": now,
+    }
+    if str(seed.get("slug") or "").strip():
+        document["slug"] = str(seed["slug"]).strip()
+    if isinstance(seed.get("customSizeConfig"), dict):
+        document["customSizeConfig"] = {
+            **seed["customSizeConfig"],
+            "fields": list(seed["customSizeConfig"].get("fields") or []),
+        }
+    if seed.get("collectionSlug") == "collections-of-anamika":
+        document["anamikaSeedVersion"] = 1
+    return document
+
 
 def _json_value(value):
     return serialize_json_value(value)
@@ -165,6 +429,16 @@ def is_excluded_collection(collection: dict | None = None, slug: str = "") -> bo
     candidate_slug = str(slug or collection.get("slug") or "").strip().lower()
     candidate_name = str(collection.get("name") or "").strip().lower()
     return candidate_slug in EXCLUDED_COLLECTION_SLUGS or candidate_name == "aakaar"
+
+
+def is_runway_collection(collection: dict | None) -> bool:
+    """Return whether a collection is explicitly identified as Runway."""
+    collection = collection or {}
+    for value in (collection.get("collectionType"), collection.get("name"), collection.get("slug"), collection.get("status")):
+        tokens = str(value or "").strip().lower().replace("_", "-").replace(" ", "-").split("-")
+        if "runway" in tokens:
+            return True
+    return False
 
 
 def collection_hero(collection: dict) -> dict:
@@ -272,6 +546,7 @@ def ensure_catalog_seed(db) -> None:
                 "name": seed["name"],
                 "slug": seed["slug"],
                 "status": "collection",
+                "taxInclusive": bool(seed.get("taxInclusive")),
                 "description": seed["description"],
                 "heroImage": seed["heroImage"],
                 "hero": hero,
@@ -287,6 +562,8 @@ def ensure_catalog_seed(db) -> None:
             collection_updates = {}
             if collection.get("displayOrder") != position:
                 collection_updates["displayOrder"] = position
+            if "taxInclusive" in seed and collection.get("taxInclusive") != bool(seed["taxInclusive"]):
+                collection_updates["taxInclusive"] = bool(seed["taxInclusive"])
             if not isinstance(collection.get("hero"), dict):
                 collection_updates["hero"] = {
                     "type": "image",
@@ -348,49 +625,32 @@ def ensure_catalog_seed(db) -> None:
             db.collections.update_one({"_id": collection["_id"]}, update)
 
     for seed in PRODUCT_SEEDS:
+        is_anamika_seed = seed.get("collectionSlug") == "collections-of-anamika"
         product = db.products.find_one({"seedKey": seed["seedKey"]})
+        if not product and is_anamika_seed:
+            # Adopt an existing matching SKU instead of creating a duplicate if
+            # this catalogue was entered manually before the seed was deployed.
+            product = db.products.find_one({"sku": seed["sku"]})
         if not product:
-            result = db.products.insert_one({
-                "name": seed["name"],
-                "sku": seed["sku"],
-                "price": seed["price"],
-                "currency": "INR",
-                "stock": 0,
-                "unallocatedStock": 0,
-                "sizeInventoryConfigured": False,
-                "sizeSystemEnabled": False,
-                "sizeInventory": [],
-                "availability": "custom_order",
-                "status": "active",
-                "description": "",
-                "category": "",
-                "media": seed["media"],
-                "attributes": {
-                    "sizes": [],
-                    "colors": [seed["color"]],
-                    "fabric": "",
-                    "occasion": "",
-                    "gender": "",
-                    "material": "",
-                    "customizationInformation": "",
-                },
-                "seedKey": seed["seedKey"],
-                "isDummy": False,
-                "isActive": True,
-                "createdAt": now,
-                "updatedAt": now,
-            })
+            result = db.products.insert_one(_product_seed_document(seed, now))
             product = db.products.find_one({"_id": result.inserted_id})
 
-        # Older local databases were seeded before SKU/pricing was requested.
-        # Backfill only blank values so later staff/admin edits remain intact.
         seed_updates = {}
-        if not str(product.get("sku") or "").strip():
-            seed_updates["sku"] = seed["sku"]
-        if product.get("price") in (None, 0):
-            seed_updates["price"] = seed["price"]
-        if product.get("stock") is None and product.get("availability") in {"custom_order", "sold_out"}:
-            seed_updates["stock"] = 0
+        if is_anamika_seed and int(product.get("anamikaSeedVersion") or 0) < 1:
+            # Apply the source-of-truth data once. The version guard preserves
+            # later edits made through Admin/Staff, including the temporary
+            # CK-56 A description supplied by the owner.
+            seeded_document = _product_seed_document(seed, now)
+            seed_updates = {key: value for key, value in seeded_document.items() if key != "createdAt"}
+        else:
+            # Older local databases were seeded before SKU/pricing was
+            # requested. Backfill only blank values so staff edits survive.
+            if not str(product.get("sku") or "").strip():
+                seed_updates["sku"] = seed["sku"]
+            if product.get("price") in (None, 0):
+                seed_updates["price"] = seed["price"]
+            if product.get("stock") is None and product.get("availability") in {"custom_order", "sold_out"}:
+                seed_updates["stock"] = 0
         if seed_updates:
             seed_updates["updatedAt"] = now
             db.products.update_one({"_id": product["_id"]}, {"$set": seed_updates})
@@ -402,10 +662,29 @@ def ensure_catalog_seed(db) -> None:
         refs = collection.get("productRefs") or []
         if not any(ref.get("productId") == product["_id"] for ref in refs if isinstance(ref, dict)):
             next_order = max([int(ref.get("displayOrder", 0)) for ref in refs if isinstance(ref, dict)] or [0]) + 1
+            display_order = int(seed.get("displayOrder") or next_order)
             db.collections.update_one(
                 {"_id": collection["_id"]},
-                {"$push": {"productRefs": {"productId": product["_id"], "displayOrder": next_order}}, "$set": {"updatedAt": now}},
+                {"$push": {"productRefs": {"productId": product["_id"], "displayOrder": display_order}}, "$set": {"updatedAt": now}},
             )
+
+    # Once the real Anamika catalogue exists, retire only its seeded dummy and
+    # remove that one relationship. Other products and collection edits remain
+    # untouched.
+    anamika_collection = db.collections.find_one({"slug": "collections-of-anamika"})
+    anamika_dummy = db.products.find_one({"seedKey": "dummy:collections-of-anamika", "isDummy": True})
+    if anamika_collection and anamika_dummy:
+        db.collections.update_one(
+            {"_id": anamika_collection["_id"]},
+            {
+                "$pull": {"productRefs": {"productId": anamika_dummy["_id"]}},
+                "$set": {"anamikaProductSeedVersion": 1, "updatedAt": now},
+            },
+        )
+        db.products.update_one(
+            {"_id": anamika_dummy["_id"]},
+            {"$set": {"status": "archived", "isActive": False, "updatedAt": now}},
+        )
 
 
 def ensure_catalog_seed_once(db) -> None:
@@ -441,6 +720,15 @@ def product_document(db, identifier: str) -> dict | None:
     return db.products.find_one({"slug": str(identifier).strip(), **filters})
 
 
+def product_is_runway(db, product_id: ObjectId) -> bool:
+    """Resolve Runway eligibility from collection membership, never product copy."""
+    collections = db.collections.find(
+        {"productRefs.productId": product_id},
+        {"collectionType": 1, "name": 1, "slug": 1, "status": 1},
+    )
+    return any(is_runway_collection(collection) for collection in collections)
+
+
 def collection_product_documents(db, collection: dict, projection: dict | None = None) -> list[tuple[dict, int]]:
     refs = [ref for ref in (collection.get("productRefs") or []) if isinstance(ref, dict) and isinstance(ref.get("productId"), ObjectId)]
     refs.sort(key=lambda ref: (int(ref.get("displayOrder", 0)), str(ref["productId"])))
@@ -462,6 +750,7 @@ def product_view(product: dict, *, display_order: int | None = None, media_limit
     # A zero legacy stock is genuinely sold out; the regression was treating
     # *missing size data* as zero. Legacy products with stock remain in stock.
     public_availability = "sold_out" if stored_availability == "in_stock" and int(public_stock or 0) <= 0 else stored_availability
+    tax_inclusive = bool(product.get("taxInclusive") or product.get("mrpIncludesGst"))
     result = {
         "id": str(product["_id"]),
         "publicId": str(product["_id"]),
@@ -471,6 +760,8 @@ def product_view(product: dict, *, display_order: int | None = None, media_limit
         "status": product.get("status", "draft"),
         "availability": public_availability,
         "price": product.get("price"),
+        "taxInclusive": tax_inclusive,
+        "mrpIncludesGst": tax_inclusive,
         "currency": "INR",
         "stock": public_stock,
         "sizeSystemEnabled": configured,
@@ -529,6 +820,8 @@ def collection_view(
         "name": collection.get("name"),
         "slug": collection.get("slug"),
         "status": collection.get("status", "collection"),
+        "collectionType": collection.get("collectionType", "standard"),
+        "taxInclusive": bool(collection.get("taxInclusive")),
         "description": collection.get("description"),
         "heroImage": collection.get("heroImage"),
         "hero": collection_hero(collection),
@@ -549,6 +842,10 @@ def collection_view(
             view(product, display_order=order, media_limit=media_limit)
             for product, order in product_pairs
         ]
+        if result["taxInclusive"]:
+            for product in result["products"]:
+                product["taxInclusive"] = True
+                product["mrpIncludesGst"] = True
     return result
 
 

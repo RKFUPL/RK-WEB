@@ -34,6 +34,13 @@ const defaultCustomSizeFields = [
   'Inseam',
 ];
 
+const standardSizes = ['XS', 'S', 'M', 'L', 'XL'];
+
+function belongsToCollection(collection: ManagedCollection, collectionName: string) {
+  const matcher = new RegExp(`(^|[\\s_-])${collectionName.toLowerCase()}($|[\\s_-])`);
+  return [collection.collectionType, collection.name, collection.slug, collection.status].some((value) => matcher.test(String(value || '').trim().toLowerCase()));
+}
+
 export function ProductDetailPage({ productId }: { productId: string }) {
   const [product, setProduct] = useState<CatalogProduct | null>(null);
   const [collections, setCollections] = useState<ManagedCollection[]>([]);
@@ -203,21 +210,24 @@ export function ProductDetailPage({ productId }: { productId: string }) {
   const media = product.media ?? [];
   const sizeInventory = product.sizeInventory ?? [];
   const sizeConfigured = product.sizeInventoryConfigured === true;
-  const sizes = sizeConfigured ? sizeInventory.map((item) => item.size) : [];
+  const isAnamikaProduct = collections.some((collection) => belongsToCollection(collection, 'anamika'));
+  const isRunwayProduct = collections.some((collection) => belongsToCollection(collection, 'runway'));
+  const attributeSizes = Array.isArray(product.attributes?.sizes) ? product.attributes.sizes.map((size) => String(size).trim().toUpperCase()).filter(Boolean) : [];
+  const sizes = isAnamikaProduct ? standardSizes : sizeConfigured ? sizeInventory.map((item) => item.size) : attributeSizes;
+  const showSizeSelector = sizes.length > 0;
   const selectedSizeEntry = sizeInventory.find((item) => item.size === selectedSize);
-  const hasCustomSizeConfiguration = Array.isArray(product.customSizeConfig?.fields);
-  const customOrderEnabled = hasCustomSizeConfiguration
-    ? Boolean(product.customSizeConfig?.fields?.length)
-    : sizeConfigured || product.availability === 'custom_order';
-  const customSizeFields = hasCustomSizeConfiguration
-    ? product.customSizeConfig?.fields ?? []
-    : customOrderEnabled ? defaultCustomSizeFields : [];
+  const configuredCustomSizeFields = Array.isArray(product.customSizeConfig?.fields) ? product.customSizeConfig.fields : [];
+  const customSizeExplicitlyEnabled = typeof product.customSizeConfig?.enabled === 'boolean' ? product.customSizeConfig.enabled : undefined;
+  const customSizeEnabled = customSizeExplicitlyEnabled ?? (configuredCustomSizeFields.length > 0 || sizeConfigured || isAnamikaProduct || product.availability === 'custom_order');
+  const customSizeFields = customSizeEnabled ? (configuredCustomSizeFields.length ? configuredCustomSizeFields : defaultCustomSizeFields) : [];
   const backCollection = collections[0];
   const route = `/products/${product.id}`;
   const currentImage = media[activeImage] || media[0];
   const currentMainImage = cloudinaryImageUrl(currentImage, 1600);
   const quantityStockLimit = product.availability === 'in_stock' ? selectedSizeEntry?.stock ?? product.stock : undefined;
   const soldOut = product.availability === 'sold_out';
+  const runwayCustomOrder = isRunwayProduct && product.availability !== 'in_stock';
+  const taxInclusive = product.taxInclusive === true || product.mrpIncludesGst === true || collections.some((collection) => collection.taxInclusive) || isAnamikaProduct;
   const requireSignIn = () => {
     if (window.localStorage.getItem('rk_access_token')) return true;
     window.alert('Please sign in to use your wishlist or shopping bag.');
@@ -237,7 +247,7 @@ export function ProductDetailPage({ productId }: { productId: string }) {
   };
   const addToCart = () => {
     if (!requireSignIn()) return;
-    if (sizeConfigured && !selectedSize && !customMeasurements._customReady) { setMessage('Please select a size.'); return; }
+    if (showSizeSelector && !selectedSize && !customMeasurements._customReady) { setMessage('Please select a size.'); return; }
     const customSize = customMeasurements._customReady ? { unit: customSizeUnit, measurements: Object.fromEntries(Object.entries(customMeasurements).filter(([key]) => key !== '_customReady')) } : undefined;
     addStoredCartItem({ productId: product.id, name: product.name || 'Untitled piece', price: Number(product.price || 0), quantity, image: media[0], stock: selectedSizeEntry?.stock ?? product.stock, availability: availabilityLabels[product.availability], size: selectedSize || undefined, sizeOptions: sizes, sizeStock: Object.fromEntries(sizeInventory.map((entry) => [entry.size, entry.stock])), inventoryMode: sizeConfigured ? 'size' : 'legacy', purchaseMode: customSize ? 'custom_size' : 'standard_size', customSize, variant: selectedSize ? { id: `size:${selectedSize}`, name: 'Size', value: selectedSize } : customSize ? { id: `custom:${JSON.stringify(customSize)}`, name: 'Size', value: 'Custom' } : undefined });
     trackAnalyticsEvent('add_to_bag', { productId: product.id, productName: product.name, currency: 'INR', value: product.price, quantity });
@@ -311,12 +321,23 @@ export function ProductDetailPage({ productId }: { productId: string }) {
   const productDescription = textValue(product.description);
   const summaryDescription = productDescription || 'Product description coming soon.';
   const detailedDescription = textValue(attributes.detailedDescription || attributes.descriptionDetails || attributes.longDescription);
+  const productColours = textValue(attributes.colors || attributes.color);
   const informationSections = [
-    ...(detailedDescription ? [{ id: 'description', label: 'Description', value: detailedDescription }] : []),
-    { id: 'details', label: 'Product Details', value: textValue(attributes.productDetails || attributes.details || attributes.customizationInformation) || 'Contact the RK team for additional product details.' },
-    { id: 'size-fit', label: 'Size & Fit', value: textValue(attributes.sizeFit || attributes.sizing || (sizes.length ? 'Available sizes: ' + sizes.join(', ') : '')) || 'Contact the RK team for personalised sizing guidance.' },
-    { id: 'care', label: 'Care Guide', value: [textValue(attributes.careGuide || attributes.care), [textValue(attributes.fabric), textValue(attributes.material)].filter(Boolean).join(' · ')].filter(Boolean).join(' · ') || 'Contact the RK team for care guidance specific to this piece.' },
-    ...(textValue(attributes.deliveryInformation || attributes.deliveryReturns) ? [{ id: 'delivery', label: 'Delivery & Returns', value: textValue(attributes.deliveryInformation || attributes.deliveryReturns) }] : []),
+    {
+      id: 'details',
+      label: 'Product Details',
+      content: <div className="space-y-4 text-sm leading-7 text-charcoal/65"><p>{productDescription || detailedDescription || textValue(attributes.productDetails || attributes.details || attributes.customizationInformation) || 'Contact the RK team for additional product details.'}</p>{productColours ? <p><span className="mr-2 text-[0.62rem] uppercase tracking-[0.2em] text-charcoal/45">Colour</span>{productColours}</p> : null}</div>,
+    },
+    {
+      id: 'shipping',
+      label: 'Shipping, Packaging & Returns',
+      content: <ul className="space-y-2 text-sm leading-7 text-charcoal/65"><li>Complimentary shipping within India.</li><li>For international deliveries, shipping calculated at the checkout.</li><li>Package Dimensions: 55 cm x 39 cm x 24 cm</li></ul>,
+    },
+    {
+      id: 'disclaimer',
+      label: 'Disclaimer',
+      content: <div className="space-y-3 text-sm leading-7 text-charcoal/65"><p>Please note, subtle variations in product colours may occur due to lighting and screen settings.</p><p>For bespoke customizations or assistance, kindly reach us at:</p><a href="mailto:orders@rashikapoorofficial.com" className="inline-block border-b border-charcoal/35 pb-0.5 text-charcoal transition hover:border-gold hover:text-gold">orders@rashikapoorofficial.com</a></div>,
+    },
   ];
 
   return <main className="bg-ivory text-charcoal"><StickyHeader />
@@ -335,17 +356,20 @@ export function ProductDetailPage({ productId }: { productId: string }) {
           {backCollection ? <p className="mt-4 font-display text-[clamp(1.75rem,2.2vw,2.125rem)] leading-none text-charcoal/85">{backCollection.name}</p> : null}
           <h1 className="mt-4 font-display text-[clamp(2.625rem,4vw,3.25rem)] leading-[0.95]">{product.name || 'Untitled piece'}</h1>
           {product.sku ? <p className="mt-4 text-xs uppercase tracking-[0.24em] text-charcoal/45">SKU: {product.sku}</p> : null}
+          {productColours ? <p className="mt-2 text-xs uppercase tracking-[0.2em] text-charcoal/55"><span className="text-charcoal/40">Colour:</span> {productColours}</p> : null}
           <p className="mt-7 max-w-[34rem] text-[0.95rem] leading-7 text-charcoal/68">{summaryDescription}</p>
           <div className="mt-7 border-t border-black/12 pt-5 dark:border-white/15">
             <p className="text-lg">{product.price === undefined ? 'Price on request' : inr.format(product.price)}</p>
+            {product.price !== undefined && taxInclusive ? <p className="mt-2 text-[0.56rem] uppercase tracking-[0.2em] text-charcoal/45">MRP · Inclusive of GST</p> : null}
             <p className="mt-3 text-[0.58rem] uppercase tracking-[0.25em] text-gold">{availabilityLabels[product.availability]}</p>
           </div>
-          {soldOut ? <div className="mt-6 border border-gold/35 bg-gold/[.06] p-4"><p className="text-[0.58rem] uppercase tracking-[0.25em] text-gold">Custom orders considered</p><p className="mt-3 text-sm leading-6 text-charcoal/65">This piece is currently sold out, but you can send a custom order request. The RK team will review it and get back to you by email.</p></div> : sizeConfigured ? <fieldset className="mt-6"><legend className="sr-only">Choose a size</legend><div className="flex items-center justify-between gap-4"><span className="text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/50">Size</span><SizeChartPopover /></div><div className="mt-3 flex flex-wrap gap-2">{sizes.map((size) => { const item = sizeInventory.find((entry) => entry.size === size); const unavailable = item?.enabled === false || (product.availability === 'in_stock' && (!item || item.stock <= 0)); return <button key={size} type="button" disabled={unavailable} onClick={() => { setSelectedSize(size); setCustomMeasurements({}); setQuantity(1); setMessage(''); }} aria-label={`${size}${unavailable ? ', unavailable' : ''}`} className={`min-w-12 border px-3 py-2.5 text-xs transition ${selectedSize === size ? 'border-gold bg-gold text-ink' : 'border-black/15 hover:border-gold dark:border-white/20'} ${unavailable ? 'cursor-not-allowed opacity-30' : ''}`}>{size}</button>; })}</div>{product.availability === 'in_stock' && selectedSizeEntry ? <p className="mt-2 text-xs text-charcoal/55">{selectedSizeEntry.stock} available in {selectedSize}.</p> : null}{customSizeFields.length ? <button type="button" onClick={() => setCustomSizeOpen(true)} className="mt-3 inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.58rem] uppercase tracking-[0.22em] text-charcoal/70 transition hover:border-gold hover:text-gold"><Ruler size={14} />Want a custom size?</button> : null}</fieldset> : customSizeFields.length ? <button type="button" onClick={() => setCustomSizeOpen(true)} className="mt-6 inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.58rem] uppercase tracking-[0.22em] text-charcoal/70 transition hover:border-gold hover:text-gold"><Ruler size={14} />Want a custom size?</button> : null}
+          {runwayCustomOrder ? <div className="mt-6 border border-gold/35 bg-gold/[.06] p-4"><p className="text-[0.58rem] uppercase tracking-[0.25em] text-gold">Custom orders considered</p><p className="mt-3 text-sm leading-6 text-charcoal/65">This Runway piece is made available by request. The RK team will review your custom order and get back to you by email.</p></div> : null}
+          {showSizeSelector ? <fieldset className="mt-6"><legend className="sr-only">Choose a size</legend><div className="flex items-center justify-between gap-4"><span className="text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/50">Size</span><SizeChartPopover /></div><div className="mt-3 flex flex-wrap gap-2">{sizes.map((size) => { const item = sizeInventory.find((entry) => entry.size === size); const unavailable = soldOut || item?.enabled === false || (sizeConfigured && product.availability === 'in_stock' && (!item || item.stock <= 0)) || (isAnamikaProduct && !sizeConfigured && !item); return <button key={size} type="button" disabled={unavailable} onClick={() => { setSelectedSize(size); setCustomMeasurements({}); setQuantity(1); setMessage(''); }} aria-label={`${size}${unavailable ? ', unavailable' : ''}`} className={`min-w-12 border px-3 py-2.5 text-xs transition ${selectedSize === size ? 'border-gold bg-gold text-ink' : 'border-black/15 hover:border-gold dark:border-white/20'} ${unavailable ? 'cursor-not-allowed opacity-30' : ''}`}>{size}</button>; })}</div>{product.availability === 'in_stock' && selectedSizeEntry ? <p className="mt-2 text-xs text-charcoal/55">{selectedSizeEntry.stock} available in {selectedSize}.</p> : null}{customSizeFields.length ? <button type="button" onClick={() => setCustomSizeOpen(true)} className="mt-3 inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.58rem] uppercase tracking-[0.22em] text-charcoal/70 transition hover:border-gold hover:text-gold"><Ruler size={14} />Want a custom size?</button> : null}</fieldset> : customSizeFields.length ? <button type="button" onClick={() => setCustomSizeOpen(true)} className="mt-6 inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.58rem] uppercase tracking-[0.22em] text-charcoal/70 transition hover:border-gold hover:text-gold"><Ruler size={14} />Want a custom size?</button> : null}
           {customMeasurements._customReady ? <p className="mt-2 text-xs text-gold">Custom measurements added to this piece.</p> : null}
-          {!soldOut ? <div className="mt-6 flex items-center justify-between border-y border-black/12 py-3 dark:border-white/15"><span className="text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/50">Quantity</span><div className="flex items-center gap-4"><button type="button" disabled={quantity <= 1} onClick={() => setQuantity((value) => Math.max(1, value - 1))} aria-label="Decrease quantity" className="grid h-8 w-8 place-items-center border border-black/15 transition hover:border-gold disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/20"><Minus size={13} /></button><span className="min-w-5 text-center text-sm">{quantity}</span><button type="button" disabled={quantityStockLimit !== undefined && quantity >= quantityStockLimit} onClick={() => setQuantity((value) => value + 1)} aria-label="Increase quantity" className="grid h-8 w-8 place-items-center border border-black/15 transition hover:border-gold disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/20"><Plus size={13} /></button></div></div> : null}
-          <div className="mt-6 grid grid-cols-[1fr_auto] gap-3"><button type="button" onClick={soldOut ? requestCustomOrder : addToCart} className="inline-flex items-center justify-center gap-3 bg-ink px-5 py-3.5 text-[0.62rem] uppercase tracking-[0.26em] text-ivory transition hover:bg-gold hover:text-ink">{soldOut ? <Mail size={16} /> : <ShoppingBag size={16} />}{soldOut ? 'Request custom order' : 'Add to cart'}</button><button type="button" onClick={saveProduct} aria-pressed={saved} aria-label={saved ? 'Remove from wishlist' : 'Add to wishlist'} className="grid w-14 place-items-center border border-black/15 transition hover:border-gold hover:text-gold dark:border-white/20"><Heart size={18} className={saved ? 'fill-gold text-gold' : ''} /></button></div>
+          {!soldOut && !runwayCustomOrder ? <div className="mt-6 flex items-center justify-between border-y border-black/12 py-3 dark:border-white/15"><span className="text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/50">Quantity</span><div className="flex items-center gap-4"><button type="button" disabled={quantity <= 1} onClick={() => setQuantity((value) => Math.max(1, value - 1))} aria-label="Decrease quantity" className="grid h-8 w-8 place-items-center border border-black/15 transition hover:border-gold disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/20"><Minus size={13} /></button><span className="min-w-5 text-center text-sm">{quantity}</span><button type="button" disabled={quantityStockLimit !== undefined && quantity >= quantityStockLimit} onClick={() => setQuantity((value) => value + 1)} aria-label="Increase quantity" className="grid h-8 w-8 place-items-center border border-black/15 transition hover:border-gold disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/20"><Plus size={13} /></button></div></div> : null}
+          <div className="mt-6 grid grid-cols-[1fr_auto] gap-3"><button type="button" disabled={soldOut && !runwayCustomOrder} onClick={runwayCustomOrder ? requestCustomOrder : addToCart} className="inline-flex items-center justify-center gap-3 bg-ink px-5 py-3.5 text-[0.62rem] uppercase tracking-[0.26em] text-ivory transition hover:bg-gold hover:text-ink disabled:cursor-not-allowed disabled:opacity-45">{runwayCustomOrder ? <Mail size={16} /> : <ShoppingBag size={16} />}{runwayCustomOrder ? 'Request custom order' : soldOut ? 'Sold out' : 'Add to cart'}</button><button type="button" onClick={saveProduct} aria-pressed={saved} aria-label={saved ? 'Remove from wishlist' : 'Add to wishlist'} className="grid w-14 place-items-center border border-black/15 transition hover:border-gold hover:text-gold dark:border-white/20"><Heart size={18} className={saved ? 'fill-gold text-gold' : ''} /></button></div>
           {message ? <p className="mt-4 text-xs text-gold">{message}</p> : null}
-          {informationSections.length ? <div className="mt-8 border-t border-black/12 dark:border-white/15">{informationSections.map((section) => <div key={section.id} className="border-b border-black/12 dark:border-white/15"><button type="button" onClick={() => setOpenSection((current) => current === section.id ? '' : section.id)} aria-expanded={openSection === section.id} className="flex w-full items-center justify-between py-4 text-left text-[0.6rem] uppercase tracking-[0.28em]"><span>{section.label}</span><Plus size={15} className={`transition-transform ${openSection === section.id ? 'rotate-45' : ''}`} /></button><AnimatePresence initial={false}>{openSection === section.id ? <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden"><p className="pb-5 text-sm leading-7 text-charcoal/65">{section.value}</p></motion.div> : null}</AnimatePresence></div>)}</div> : null}
+          {informationSections.length ? <div className="mt-8 border-t border-black/12 dark:border-white/15">{informationSections.map((section) => <div key={section.id} className="border-b border-black/12 dark:border-white/15"><button type="button" onClick={() => setOpenSection((current) => current === section.id ? '' : section.id)} aria-expanded={openSection === section.id} className="flex w-full items-center justify-between py-4 text-left text-[0.6rem] uppercase tracking-[0.28em]"><span>{section.label}</span><Plus size={15} className={`transition-transform ${openSection === section.id ? 'rotate-45' : ''}`} /></button><AnimatePresence initial={false}>{openSection === section.id ? <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden"><div className="pb-5">{section.content}</div></motion.div> : null}</AnimatePresence></div>)}</div> : null}
         </div>
       </div>
     </section>

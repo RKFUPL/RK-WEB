@@ -10,6 +10,12 @@ import { addStoredCartItem } from '@/lib/storefront-cart';
 import { readWishlist, toggleWishlist, wishlistChangedEvent } from '@/lib/storefront-wishlist';
 import { cloudinaryImageUrl } from '@/lib/utils';
 
+function productColourText(product: CatalogProduct) {
+  const value = product.attributes?.colors?.length ? product.attributes.colors : product.attributes?.color;
+  if (Array.isArray(value)) return value.filter(Boolean).join(', ');
+  return value ? String(value) : '';
+}
+
 export function CollectionProductCard({ product }: { product: CatalogProduct }) {
   const [saved, setSaved] = useState(false);
   const [cartMessage, setCartMessage] = useState('');
@@ -19,6 +25,7 @@ export function CollectionProductCard({ product }: { product: CatalogProduct }) 
   const primaryGridImage = cloudinaryImageUrl(primaryImage, 640);
   const secondaryGridImage = cloudinaryImageUrl(secondaryImage, 640);
   const sizeConfigured = product.sizeInventoryConfigured === true;
+  const productColours = productColourText(product);
 
   useEffect(() => {
     const sync = () => setSaved(readWishlist().some((item) => item.productId === product.id));
@@ -90,11 +97,12 @@ export function CollectionProductCard({ product }: { product: CatalogProduct }) 
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-[0.54rem] uppercase tracking-[0.27em] text-charcoal/45">{product.category || 'Couture'}</p>
-          <Link href={route} className="mt-2 block font-display text-lg leading-tight text-charcoal transition hover:text-gold sm:text-xl">{product.name || 'Untitled piece'}</Link>
+          <Link href={route} className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 leading-tight text-charcoal transition hover:text-gold"><span className="font-display text-lg sm:text-xl">{product.name || 'Untitled piece'}</span>{productColours ? <span className="text-[0.52rem] uppercase tracking-[0.16em] text-charcoal/50">· {productColours}</span> : null}</Link>
         </div>
         {product.availability === 'custom_order' ? <span className="shrink-0 text-[0.5rem] uppercase tracking-[0.18em] text-gold">Custom</span> : null}
       </div>
       <p className="mt-2 text-xs text-charcoal/70 sm:text-sm">{product.price === undefined ? 'Price on request' : inr.format(product.price)}</p>
+      {product.price !== undefined && (product.taxInclusive || product.mrpIncludesGst) ? <p className="mt-1.5 text-[0.5rem] uppercase tracking-[0.18em] text-charcoal/42">MRP · Inclusive of GST</p> : null}
       <button type="button" onClick={addToCart} disabled={product.availability === 'sold_out'} className="mt-4 inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.56rem] uppercase tracking-[0.24em] text-charcoal transition hover:border-gold hover:text-gold disabled:cursor-not-allowed disabled:opacity-40">
         <ShoppingBag size={14} strokeWidth={1.35} />{product.availability === 'sold_out' ? 'Sold out' : sizeConfigured ? 'Choose size' : cartMessage || 'Add to cart'}
       </button>
