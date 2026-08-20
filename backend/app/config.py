@@ -14,6 +14,7 @@ class BaseConfig:
     EMAIL_FROM = os.getenv("EMAIL_FROM", "noreply@rashikapoor.com")
     EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "Rashi Kapoor")
     RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+    ORDER_CONFIRMATION_BCC = os.getenv("ORDER_CONFIRMATION_BCC", "")
     FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
     FRONTEND_URLS = os.getenv("FRONTEND_URLS", "")
     RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "")

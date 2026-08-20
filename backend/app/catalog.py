@@ -11,11 +11,20 @@ from bson import ObjectId
 from pymongo.errors import OperationFailure
 
 from .inventory import DEFAULT_CUSTOM_SIZE_FIELDS, STANDARD_SIZES, has_size_system, product_size_inventory, total_size_stock
+from .product_variants import (
+    VARIANT_SCHEMA_VERSION,
+    build_product_variants,
+    product_has_visible_variants,
+    public_variant_view,
+    sync_product_variants,
+    visible_variants,
+)
 from .time_utils import json_value as serialize_json_value
 
 
 EXCLUDED_COLLECTION_SLUGS = {"aakaar", "aakaar-insights", "collections-of-aakaar"}
 PRODUCT_AVAILABILITY = {"in_stock", "custom_order", "sold_out"}
+VARIANT_STATUS_MIGRATION = "all-current-variants-active-v1"
 COLLECTION_HERO_TYPES = {"image", "video"}
 COLLECTION_HERO_LAYOUTS = {"full_bleed", "editorial_split", "media_dominant"}
 FX_BUFFER_PERCENT = 5
@@ -64,7 +73,12 @@ STOREFRONT_PRODUCT_PROJECTION = {
     "attributes.sizes": 1,
     "attributes.colors": 1,
     "attributes.color": 1,
+    "productCode": 1,
+    "skuPrefix": 1,
+    "variantSchemaVersion": 1,
+    "variants": 1,
     "isDummy": 1,
+    "isActive": 1,
 }
 
 NORMAL_COLLECTION_ORDER = ("Aakaar", "Hastakala", "Inaara", "Anamika", "Naqab", "Sandook")
@@ -417,6 +431,8 @@ def _product_seed_document(seed: dict, now: datetime) -> dict:
         }
     if seed.get("collectionSlug") == "collections-of-anamika":
         document["anamikaSeedVersion"] = 1
+    collection_hint = {"slug": seed.get("collectionSlug"), "name": str(seed.get("collectionSlug") or "").removeprefix("collections-of-")}
+    document.update(build_product_variants(document, [collection_hint]))
     return document
 
 
@@ -465,6 +481,12 @@ def ensure_catalog_seed(db) -> None:
     now = datetime.now(timezone.utc)
     db.collections.create_index("slug")
     db.products.create_index("sku")
+    try:
+        db.products.create_index("variants.sku", unique=True, sparse=True)
+    except OperationFailure:
+        # Existing catalogues are reconciled below. A conflicting historical
+        # index or duplicate should not prevent the storefront from starting.
+        pass
     try:
         db.products.create_index("seedKey", unique=True, sparse=True)
     except OperationFailure as error:
@@ -686,6 +708,48 @@ def ensure_catalog_seed(db) -> None:
             {"$set": {"status": "archived", "isActive": False, "updatedAt": now}},
         )
 
+    # Backfill the nested colour-SKU architecture once for every existing
+    # product. Subsequent Admin/Staff changes reconcile an individual product.
+    for product in db.products.find({
+        "status": {"$ne": "archived"},
+        "$or": [
+            {"variantSchemaVersion": {"$ne": VARIANT_SCHEMA_VERSION}},
+            {"variants": {"$exists": False}},
+        ],
+    }):
+        sync_product_variants(db, product)
+
+    # One-time correction for the current catalogue: legacy zero-inventory
+    # records were previously represented as sold_out. Preserve every stock
+    # quantity, but make the explicit variant status ACTIVE unless an Admin
+    # had already marked that variant REMOVE. The marker prevents this
+    # compatibility migration from undoing future Admin INACTIVE changes.
+    if not db.catalog_migrations.find_one({"_id": VARIANT_STATUS_MIGRATION}):
+        for product in db.products.find({"status": {"$ne": "archived"}}):
+            variants = [dict(item) for item in product.get("variants", []) if isinstance(item, dict)]
+            if not variants:
+                continue
+            changed = False
+            has_visible_variant = False
+            for variant in variants:
+                if str(variant.get("status") or "").lower() != "remove":
+                    has_visible_variant = True
+                    if variant.get("status") != "active":
+                        variant["status"] = "active"
+                        changed = True
+            if has_visible_variant and product.get("availability") != "in_stock":
+                changed = True
+            if changed:
+                db.products.update_one(
+                    {"_id": product["_id"]},
+                    {"$set": {"variants": variants, "availability": "in_stock", "updatedAt": now}},
+                )
+        db.catalog_migrations.update_one(
+            {"_id": VARIANT_STATUS_MIGRATION},
+            {"$set": {"completedAt": now}},
+            upsert=True,
+        )
+
 
 def ensure_catalog_seed_once(db) -> None:
     """Run the compatibility seed at most once for each live DB handle.
@@ -738,28 +802,35 @@ def collection_product_documents(db, collection: dict, projection: dict | None =
 
 
 def product_view(product: dict, *, display_order: int | None = None, media_limit: int | None = None) -> dict:
-    configured = has_size_system(product)
-    size_inventory = product_size_inventory(product) if configured else []
+    public_variants = [public_variant_view(variant, media_limit=media_limit) for variant in visible_variants(product)]
+    selected_variant = next((variant for variant in public_variants if variant["status"] == "active"), None) or (public_variants[0] if public_variants else None)
+    configured = bool(selected_variant) or has_size_system(product)
+    size_inventory = selected_variant["sizeInventory"] if selected_variant else product_size_inventory(product) if configured else []
     public_attributes = _json_value(product.get("attributes") or {})
     if size_inventory and isinstance(public_attributes, dict) and not public_attributes.get("sizes"):
         public_attributes["sizes"] = [item["size"] for item in size_inventory if item.get("enabled", True)]
-    public_stock = total_size_stock(product) if configured else product.get("stock")
-    stored_availability = str(product.get("availability") or "").lower()
-    if stored_availability not in PRODUCT_AVAILABILITY:
-        stored_availability = "in_stock" if int(public_stock or 0) > 0 else "sold_out"
-    # A zero legacy stock is genuinely sold out; the regression was treating
-    # *missing size data* as zero. Legacy products with stock remain in stock.
-    public_availability = "sold_out" if stored_availability == "in_stock" and int(public_stock or 0) <= 0 else stored_availability
+    if public_variants and isinstance(public_attributes, dict):
+        public_attributes["colors"] = [variant["colour"] for variant in public_variants if variant["colour"]]
+    public_stock = selected_variant["stock"] if selected_variant else total_size_stock(product) if configured else product.get("stock")
+    stored_availability = str(product.get("availability") or "in_stock").lower()
+    # Explicit variant status controls merchandising. Inventory never silently
+    # turns an ACTIVE variant into SOLD OUT.
+    public_availability = "in_stock" if any(variant["status"] == "active" for variant in public_variants) else "sold_out" if public_variants else stored_availability if stored_availability in PRODUCT_AVAILABILITY else "in_stock"
     tax_inclusive = bool(product.get("taxInclusive") or product.get("mrpIncludesGst"))
+    selected_price = selected_variant.get("price") if selected_variant else product.get("price")
+    selected_media = selected_variant.get("images") if selected_variant else _json_value(product.get("media") or [])
     result = {
         "id": str(product["_id"]),
         "publicId": str(product["_id"]),
         "name": product.get("name"),
-        "sku": product.get("sku"),
+        "productCode": product.get("productCode") or product.get("sku"),
+        "parentSku": product.get("sku"),
+        "skuPrefix": product.get("skuPrefix"),
+        "sku": selected_variant.get("sku") if selected_variant else product.get("sku"),
         "slug": product.get("slug") or str(product["_id"]),
         "status": product.get("status", "draft"),
         "availability": public_availability,
-        "price": product.get("price"),
+        "price": selected_price,
         "taxInclusive": tax_inclusive,
         "mrpIncludesGst": tax_inclusive,
         "currency": "INR",
@@ -771,7 +842,8 @@ def product_view(product: dict, *, display_order: int | None = None, media_limit
         "customSizeConfig": _json_value(product.get("customSizeConfig") or {}),
         "category": product.get("category"),
         "description": product.get("description"),
-        "media": _json_value(product.get("media") or [])[:media_limit] if media_limit is not None else _json_value(product.get("media") or []),
+        "media": selected_media[:media_limit] if media_limit is not None else selected_media,
+        "variants": public_variants,
         "attributes": public_attributes,
         "isDummy": bool(product.get("isDummy")),
         "createdAt": _json_value(product.get("createdAt")),
@@ -814,7 +886,11 @@ def collection_view(
     product_cards: bool = False,
 ) -> dict:
     product_projection = STOREFRONT_PRODUCT_PROJECTION if product_cards else None
-    product_pairs = collection_product_documents(db, collection, product_projection)
+    product_pairs = [
+        (product, order)
+        for product, order in collection_product_documents(db, collection, product_projection)
+        if product.get("status") != "archived" and product.get("isActive") is not False and product_has_visible_variants(product)
+    ]
     result = {
         "id": str(collection["_id"]),
         "name": collection.get("name"),

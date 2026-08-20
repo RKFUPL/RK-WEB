@@ -21,6 +21,7 @@ from ...order_fulfillment import (
     order_view,
     update_shipment,
 )
+from ...order_confirmation import send_order_confirmation
 from ...returns import create_return_request, return_url, send_return_accepted
 from ...rbac import current_user, database, requireCustomer, requirePermission
 
@@ -225,6 +226,27 @@ def get_staff_order(order_id: str):
         "order": order_view(ensure_order_tracking(db, order), include_private_payment=True),
         "courierOptions": _configured_couriers(db),
     }), 200
+
+
+@staff_orders_bp.post("/<order_id>/confirmation-email")
+@requirePermission("orders:manage")
+def resend_confirmation_email(order_id: str):
+    object_id = _object_id(order_id)
+    if not object_id:
+        return jsonify({"error": "Order not found."}), 404
+    db = database()
+    order = db.orders.find_one({"_id": object_id})
+    if not order:
+        return jsonify({"error": "Order not found."}), 404
+    if canonical_payment_status(order) != "paid":
+        return jsonify({"error": "Confirmation can only be sent after payment is verified."}), 400
+    sent = send_order_confirmation(db, order, current_app.config, current_app.logger, force=True)
+    updated = db.orders.find_one({"_id": object_id}) or order
+    status_code = 200 if sent else 502
+    return jsonify({
+        "order": order_view(updated, include_private_payment=True),
+        "message": "Order confirmation sent." if sent else "The order remains confirmed, but email delivery failed and can be retried.",
+    }), status_code
 
 
 @staff_orders_bp.patch("/<order_id>/fulfillment")

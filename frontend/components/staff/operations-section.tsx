@@ -150,12 +150,13 @@ function ProductVariantGroups({ items, busy, onStatusChange, onSizeChange, onEdi
     {items.map((item) => {
       const variants = variantsFromItem(item).filter((variant) => variant.status !== 'remove');
       return <article key={item.id} className="overflow-visible rounded-xl border border-black/[.08] bg-[#fffdf9] dark:border-white/[.08] dark:bg-white/[.02]">
-        <header className="flex flex-wrap items-baseline justify-between gap-3 border-b border-black/[.07] px-5 py-4 dark:border-white/[.08]">
+        <header className="relative flex flex-wrap items-baseline justify-between gap-3 border-b border-black/[.07] px-5 py-4 pr-16 dark:border-white/[.08]">
           <div className="flex min-w-0 items-center gap-3">
             <ProductThumbnail item={item} />
             <div className="min-w-0"><h3 className="text-lg font-medium text-[#20242b] dark:text-white">{String(item.name ?? 'Unnamed product')}</h3><p className="mt-1 text-[10px] uppercase tracking-[.16em] text-[#858b94]">{String(item.category || 'Couture')} · Parent SKU {String(item.sku || '—')}</p></div>
           </div>
           <p className="text-sm tabular-nums text-[#6e747d]">Base price · {currency(item.price)}</p>
+          <div className="absolute right-5 top-4"><button type="button" title={`Actions for ${String(item.name || 'product')}`} aria-label={`Actions for ${String(item.name || 'product')}`} onClick={() => setOpenAction((current) => current === `${item.id}:parent` ? null : `${item.id}:parent`)} className="grid h-8 w-8 place-items-center rounded-full border border-black/10 text-[#858b94] transition hover:border-[#9a7a4d] hover:text-[#9a7a4d]"><MoreHorizontal size={16} /></button>{openAction === `${item.id}:parent` ? <div className="absolute right-0 top-10 z-30 w-44 rounded-lg border border-black/10 bg-white p-1 text-xs shadow-lg dark:border-white/10 dark:bg-[#191a1f]"><button type="button" onClick={() => { setOpenAction(null); onEdit(item); }} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">Edit product</button><a href={`/products/${item.id}`} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">View product</a><button type="button" onClick={() => { setOpenAction(null); onDelete(item); }} className="block w-full rounded px-3 py-2 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30">Delete product</button></div> : null}</div>
         </header>
         <div className="hidden grid-cols-[minmax(10rem,1fr)_minmax(13rem,1.1fr)_minmax(19rem,1.5fr)_minmax(8rem,.7fr)_3rem] gap-4 px-5 py-3 text-[9px] uppercase tracking-[.16em] text-[#858b94] md:grid"><span>Colour variant</span><span>SKU</span><span>Size inventory · total</span><span>Status</span><span /></div>
         <div className="divide-y divide-black/[.06] dark:divide-white/[.08]">

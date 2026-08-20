@@ -54,6 +54,16 @@ class EndpointAuthorizationTests(unittest.TestCase):
             response = self.client.get("/api/staff/collections", headers=self.headers)
         self.assertEqual(response.status_code, 403)
 
+    def test_staff_without_product_capability_cannot_change_variant_status(self):
+        staff = {"_id": ObjectId(), "role": "staff", "isActive": True, "permissions": ["orders:manage"]}
+        with patch("app.rbac.current_user", return_value=staff), patch("app.blueprints.staff.routes.current_user", return_value=staff):
+            response = self.client.patch(
+                f"/api/staff/products/{ObjectId()}/variants/colour:black",
+                json={"status": "remove"},
+                headers=self.headers,
+            )
+        self.assertEqual(response.status_code, 403)
+
     def test_customer_cannot_call_admin_endpoint(self):
         customer = {"_id": "customer", "role": "customer", "isActive": True}
         with patch("app.rbac.current_user", return_value=customer):

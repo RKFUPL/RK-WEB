@@ -16,6 +16,7 @@ from ...catalog import (
     product_view,
 )
 from ...extensions import limiter
+from ...product_variants import find_variant, product_has_visible_variants, sync_product_variants
 from ...rbac import database
 
 
@@ -112,13 +113,21 @@ def create_custom_order_request():
     product = product_document(db, product_id)
     if not product:
         return jsonify({"error": "Product not found."}), 404
+    product = sync_product_variants(db, product) or product
     if not product_is_runway(db, product["_id"]):
         return jsonify({"error": "Custom order requests are available only for Runway pieces."}), 403
+
+    variant_id = _request_text(payload.get("variantId"), 120)
+    variant = find_variant(product, variant_id) if variant_id else None
+    if variant_id and (not variant or str(variant.get("status") or "").lower() == "remove"):
+        return jsonify({"error": "The selected colour is no longer available."}), 400
 
     record = {
         "productId": str(product["_id"]),
         "productName": _request_text(product.get("name"), 200) or "RK piece",
-        "sku": _request_text(product.get("sku"), 120),
+        "variantId": variant_id or None,
+        "sku": _request_text((variant or {}).get("sku") or product.get("sku"), 120),
+        "colour": _request_text((variant or {}).get("colour"), 120),
         "customerName": customer_name,
         "email": email,
         "phone": phone,
@@ -145,8 +154,8 @@ def storefront_collection(slug: str):
         return jsonify({"error": "Collection not found."}), 404
     response = jsonify({"collection": collection_view(db, collection, product_media_limit=2, product_cards=True)})
     # Collection content is public and mostly editorial. A short edge cache
-    # removes repeat DB work without allowing inventory status to go stale for
-    # more than a few seconds; cart/checkout still revalidates stock.
+    # removes repeat DB work without allowing merchandising status to go stale
+    # for more than a few seconds; checkout revalidates variant status/price.
     response.headers["Cache-Control"] = "public, max-age=0, s-maxage=15, stale-while-revalidate=30"
     return response, 200
 
@@ -156,6 +165,9 @@ def storefront_product(product_id: str):
     db = database()
     product = product_document(db, product_id)
     if not product:
+        return jsonify({"error": "Product not found."}), 404
+    product = sync_product_variants(db, product) or product
+    if not product_has_visible_variants(product):
         return jsonify({"error": "Product not found."}), 404
     object_id = product["_id"]
     collections = [

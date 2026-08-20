@@ -22,6 +22,7 @@ from ...catalog import (
 )
 from ...order_fulfillment import RETURN_FULFILLMENT_STATUSES, actor_view, migrate_legacy_orders, timeline_event
 from ...inventory import default_size_inventory, has_size_system, normalise_size_inventory, total_size_stock
+from ...product_variants import VARIANT_STATUSES, find_variant, sync_product_variants
 from ...rbac import current_user, database, effective_permissions, requireStaff
 from ...time_utils import json_value as serialize_json_value
 
@@ -231,6 +232,7 @@ def assign_collection_product(slug: str):
     if not product_id or not db.products.find_one({"_id": product_id}):
         return jsonify({"error": "Product not found."}), 404
     add_product_reference(db, collection, product_id)
+    sync_product_variants(db, product_id, force=True)
     return jsonify(_management_collection_payload(db, db.collections.find_one({"_id": collection["_id"]}))), 200
 
 
@@ -307,10 +309,15 @@ def list_resources(resource: str):
     if resource in {"products", "inventory"}:
         ensure_catalog_seed(db)
     query = _customer_scope(current_user()) if resource == "customers" else {}
+    # Archived products are the persisted form of a dashboard deletion. They
+    # remain available for historical references, but must not repopulate the
+    # active Products or Inventory workspaces after a reload.
+    if resource in {"products", "inventory"}:
+        query["status"] = {"$ne": "archived"}
     search = str(request.args.get("q") or "").strip()
     if search:
         escaped = re.escape(search[:80])
-        fields = ["displayName", "email", "username"] if resource == "customers" else ["name", "sku", "orderNumber", "quoteNumber", "customerName", "email"]
+        fields = ["displayName", "email", "username"] if resource == "customers" else ["name", "sku", "variants.sku", "variants.colour", "orderNumber", "quoteNumber", "customerName", "email"]
         query = {**query, "$or": [{field: {"$regex": escaped, "$options": "i"}} for field in fields]}
     projection = {"passwordHash": 0, "otpHash": 0, "otpExpiresAt": 0, "otpAttempts": 0}
     documents = db[RESOURCE_COLLECTIONS[resource]].find(query, projection).sort("createdAt", -1).limit(200)
@@ -335,7 +342,9 @@ def create_resource(resource: str):
         price = _number(payload.get("price"))
         stock = _integer(payload.get("stock"), 0)
         status = str(payload.get("status") or "draft").lower()
-        availability = str(payload.get("availability") or ("sold_out" if stock == 0 else "in_stock")).lower()
+        # Selling state is explicit. A zero opening quantity must not silently
+        # create an INACTIVE/SOLD OUT colour variant.
+        availability = str(payload.get("availability") or "in_stock").lower()
         if not name or not sku or price < 0 or stock < 0 or status not in PRODUCT_STATUSES:
             return jsonify({"error": "Product name, unique SKU, non-negative price and stock, and a valid status are required."}), 400
         if availability not in PRODUCT_AVAILABILITY:
@@ -359,8 +368,6 @@ def create_resource(resource: str):
         else:
             total_stock = stock
             unallocated_stock = stock
-        if availability == "in_stock" and total_stock <= 0:
-            return jsonify({"error": "In Stock products must have a quantity greater than zero."}), 400
         if db.products.find_one({"sku": sku}):
             return jsonify({"error": "That SKU already exists."}), 409
         media = payload.get("media") if isinstance(payload.get("media"), list) else []
@@ -425,6 +432,8 @@ def create_resource(resource: str):
 
     result = collection.insert_one(document)
     document["_id"] = result.inserted_id
+    if resource == "products":
+        document = sync_product_variants(db, document) or document
     return jsonify({"item": _document_view(document)}), 201
 
 
@@ -532,12 +541,9 @@ def update_resource(resource: str, resource_id: str):
             stock_changed = stock_changed or after_stock != before_stock
 
         availability_changed = "availability" in updates and updates["availability"] != current.get("availability")
-        effective_availability = updates.get("availability", current.get("availability"))
         # Changing a merchandising state must not erase valid stock. A
         # product can be marked sold out/custom order temporarily and later
         # returned to stock without losing its legacy or size allocation.
-        if effective_availability == "in_stock" and after_stock <= 0:
-            return jsonify({"error": "In Stock products must have a quantity greater than zero."}), 400
         reason = str(payload.get("reason") or payload.get("changeReason") or "").strip()[:240]
         if (stock_changed or availability_changed or size_inventory_changed) and not reason:
             return jsonify({"error": "Enter a reason for changing availability or quantity."}), 400
@@ -578,11 +584,6 @@ def update_resource(resource: str, resource_id: str):
         after = _integer(payload.get("stock")) if "stock" in payload else before + _integer(payload.get("adjustment"), 0)
         if after < 0:
             return jsonify({"error": "Stock cannot be negative."}), 400
-        availability = str(current.get("availability") or "").lower()
-        if availability == "in_stock" and after <= 0:
-            return jsonify({"error": "In Stock products must have a quantity greater than zero."}), 400
-        if availability in {"custom_order", "sold_out"} and after != 0:
-            return jsonify({"error": "Custom Order and Sold Out products must have quantity zero."}), 400
         reason = str(payload.get("reason") or "").strip()[:240]
         if not reason:
             return jsonify({"error": "Enter a reason for the inventory change."}), 400
@@ -653,7 +654,101 @@ def update_resource(resource: str, resource_id: str):
             updates["email"] = email
 
     collection.update_one(query, {"$set": updates})
-    return jsonify({"item": _document_view(collection.find_one({"_id": object_id}, {"passwordHash": 0}))}), 200
+    updated_document = collection.find_one({"_id": object_id}, {"passwordHash": 0})
+    if resource == "products":
+        updated_document = sync_product_variants(db, updated_document, force=any(key in updates for key in {"name", "sku", "attributes", "media", "price"})) or updated_document
+    return jsonify({"item": _document_view(updated_document)}), 200
+
+
+@staff_bp.patch("/products/<product_id>/variants/<path:variant_id>")
+@requireStaff
+def update_product_variant(product_id: str, variant_id: str):
+    denied = _permission_error("products")
+    if denied:
+        return denied
+    object_id = _valid_id(product_id)
+    if not object_id:
+        return jsonify({"error": "Invalid product id."}), 400
+    db = database()
+    product = db.products.find_one({"_id": object_id})
+    if not product:
+        return jsonify({"error": "Product not found."}), 404
+    product = sync_product_variants(db, product) or product
+    selected = find_variant(product, variant_id)
+    if not selected:
+        return jsonify({"error": "Variant not found."}), 404
+
+    payload = request.get_json(silent=True) or {}
+    variants = [dict(item) for item in product.get("variants", []) if isinstance(item, dict)]
+    index = next(index for index, item in enumerate(variants) if str(item.get("id") or "") == str(selected.get("id") or ""))
+    updated_variant = dict(variants[index])
+    if "status" in payload:
+        status = str(payload.get("status") or "").strip().lower()
+        if status not in VARIANT_STATUSES:
+            return jsonify({"error": "Choose ACTIVE, INACTIVE, or REMOVE."}), 400
+        updated_variant["status"] = status
+    if "images" in payload:
+        images = payload.get("images")
+        if not isinstance(images, list) or len(images) > 12 or any(not isinstance(item, str) or len(item) > 2048 for item in images):
+            return jsonify({"error": "Variant images must contain up to 12 valid URLs."}), 400
+        updated_variant["images"] = [item.strip() for item in images if item.strip()]
+    if "price" in payload:
+        price = _number(payload.get("price"))
+        if price < 0:
+            return jsonify({"error": "Variant price cannot be negative."}), 400
+        updated_variant["price"] = price
+    if "sizeInventory" in payload:
+        try:
+            updated_variant["sizeInventory"] = normalise_size_inventory(payload.get("sizeInventory"))
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+
+    if updated_variant == variants[index]:
+        return jsonify({"item": _document_view(product)}), 200
+    variants[index] = updated_variant
+    now = datetime.now(timezone.utc)
+    actor = current_user()
+    db.products.update_one({"_id": object_id}, {"$set": {"variants": variants, "updatedAt": now, "updatedBy": actor["_id"]}})
+    if updated_variant.get("status") != selected.get("status"):
+        db.variant_status_history.insert_one({
+            "productId": object_id,
+            "variantId": str(selected.get("id") or ""),
+            "sku": str(selected.get("sku") or ""),
+            "before": selected.get("status"),
+            "after": updated_variant.get("status"),
+            "createdAt": now,
+            "createdBy": actor["_id"],
+        })
+    current = sync_product_variants(db, db.products.find_one({"_id": object_id}), force=True)
+    return jsonify({"item": _document_view(current)}), 200
+
+
+@staff_bp.delete("/resources/products/<product_id>")
+@requireStaff
+def delete_product(product_id: str):
+    """Permanently remove a product while preserving historical order snapshots."""
+    denied = _permission_error("products")
+    if denied:
+        return denied
+    object_id = _valid_id(product_id)
+    if not object_id:
+        return jsonify({"error": "Invalid product id."}), 400
+    db = database()
+    product = db.products.find_one({"_id": object_id}, {"name": 1, "sku": 1})
+    if not product:
+        return jsonify({"error": "Product not found."}), 404
+
+    db.products.delete_one({"_id": object_id})
+    # Remove catalogue references and product-specific operational history.
+    # Order documents intentionally remain untouched because they contain
+    # immutable product/SKU snapshots for customer and finance records.
+    db.collections.update_many(
+        {"productRefs.productId": object_id},
+        {"$pull": {"productRefs": {"productId": object_id}}},
+    )
+    db.inventory_adjustments.delete_many({"productId": object_id})
+    db.variant_status_history.delete_many({"productId": object_id})
+    return jsonify({"message": "Product permanently deleted.", "productId": str(object_id)}), 200
 
 
 @staff_bp.post("/quotes/<quote_id>/convert")

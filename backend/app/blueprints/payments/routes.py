@@ -1,19 +1,17 @@
 from datetime import datetime, timezone
-import html
 import hashlib
 import json
 import re
 import secrets
 
-import resend
 from bson import ObjectId
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError, OperationFailure
 
-from ...catalog import ensure_catalog_seed
-from ...inventory import has_size_system, stock_for_size, total_size_stock, validate_custom_size
+from ...catalog import ensure_catalog_seed, is_excluded_collection
+from ...inventory import STANDARD_SIZES, has_size_system, validate_custom_size
 from ...order_fulfillment import (
     actor_view,
     ensure_order_tracking,
@@ -22,7 +20,9 @@ from ...order_fulfillment import (
     payment_failure_changes,
     timeline_event,
 )
+from ...order_confirmation import send_order_confirmation
 from ...payments import RazorpayAPIError, is_configured, razorpay_api_request, verify_payment_signature, verify_webhook_signature
+from ...product_variants import find_variant, sync_product_variants
 from ...rbac import current_user, database, requireAuth
 from ...time_utils import json_value as serialize_json_value
 
@@ -109,13 +109,13 @@ def _normalise_shipping(db, user_id: ObjectId, payload: dict) -> dict:
     }
 
 
-def _checkout_items(db, cart: object) -> tuple[list[dict], int]:
+def _checkout_items(db, cart: object) -> tuple[list[dict], float]:
     if not isinstance(cart, list) or not cart or len(cart) > 50:
         raise ValueError("Your shopping bag is empty or contains too many items.")
 
     items = []
     seen = set()
-    subtotal = 0
+    subtotal = 0.0
     for raw_item in cart:
         if not isinstance(raw_item, dict) or not ObjectId.is_valid(str(raw_item.get("productId") or "")):
             raise ValueError("One of the pieces in your bag is no longer available.")
@@ -128,21 +128,27 @@ def _checkout_items(db, cart: object) -> tuple[list[dict], int]:
         if quantity < 1 or quantity > 50:
             raise ValueError("Choose a valid quantity for every piece.")
 
-        variant = raw_item.get("variant") if isinstance(raw_item.get("variant"), dict) else None
-        variant_id = _safe_text((variant or {}).get("id"), 80)
+        legacy_variant = raw_item.get("variant") if isinstance(raw_item.get("variant"), dict) else None
+        variant_id = _safe_text(raw_item.get("variantId") or (legacy_variant or {}).get("id"), 120)
+        requested_sku = _safe_text(raw_item.get("sku"), 120).upper()
 
         product = db.products.find_one({"_id": product_id, "status": {"$ne": "archived"}, "isActive": {"$ne": False}})
         if not product:
             raise ValueError("One of the pieces in your bag is no longer available.")
-        configured = has_size_system(product)
-        available_total = total_size_stock(product) if configured else int(product.get("stock") or 0)
-        availability = str(product.get("availability") or ("sold_out" if available_total <= 0 else "in_stock")).lower()
-        if availability == "sold_out":
-            raise ValueError(f'{product.get("name") or "A selected piece"} is sold out.')
+        product = sync_product_variants(db, product) or product
+        variant = find_variant(product, variant_id)
+        if not variant_id or not variant:
+            raise ValueError(f'Select a valid colour for {product.get("name") or "this piece"}.')
+        variant_status = str(variant.get("status") or "").strip().lower()
+        if variant_status != "active":
+            raise ValueError(f'{product.get("name") or "A selected piece"} in {variant.get("colour") or "the selected colour"} is sold out.')
+        server_sku = _safe_text(variant.get("sku"), 120).upper()
+        if not requested_sku or requested_sku != server_sku:
+            raise ValueError("The selected colour SKU does not match the product variant.")
+
         raw_size = raw_item.get("size")
-        if not raw_size and variant and str(variant.get("name") or "").strip().lower() == "size":
-            raw_size = variant.get("value")
-        size = _safe_text(raw_size, 20).upper() if configured else ""
+        size = _safe_text(raw_size, 20).upper()
+        valid_sizes = [str(item).strip().upper() for item in variant.get("sizes", STANDARD_SIZES) if str(item).strip()]
         custom_size = validate_custom_size(product, raw_item.get("customSize"))
         requested_mode = _safe_text(raw_item.get("purchaseMode"), 30).lower()
         purchase_mode = requested_mode if requested_mode in {"standard_size", "custom_size"} else "custom_size" if custom_size else "standard_size"
@@ -152,48 +158,54 @@ def _checkout_items(db, cart: object) -> tuple[list[dict], int]:
             raise ValueError("Choose either a standard size or custom measurements.")
         if size and custom_size:
             raise ValueError("Choose either a standard size or custom measurements.")
-        if configured and not size and not custom_size:
+        if not size and not custom_size:
             raise ValueError(f'Select a size for {product.get("name") or "this piece"}.')
+        if size and size not in valid_sizes:
+            raise ValueError(f'{size} is not a valid size for {product.get("name") or "this piece"}.')
         key = (str(product_id), variant_id, size, json.dumps(custom_size, sort_keys=True) if custom_size else "")
         if key in seen:
             raise ValueError("A piece appears more than once in your bag.")
         seen.add(key)
-        price = product.get("price")
+        price = variant.get("price", product.get("price"))
         try:
             price = round(float(price), 2)
         except (TypeError, ValueError):
             raise ValueError("A selected piece does not have a valid price.")
         if price < 0:
             raise ValueError("A selected piece does not have a valid price.")
-        if availability == "in_stock":
-            available = stock_for_size(product, size) if configured and size else available_total
-            if available is None:
-                raise ValueError(f'{size or "That size"} is not available for {product.get("name") or "this piece"}.')
-            if quantity > available:
-                raise ValueError(f'There are only {available} of {product.get("name") or "this piece"} available in {size or "the selected option"}.')
-
         line_total = round(price * quantity, 2)
         subtotal += line_total
-        media = product.get("media") if isinstance(product.get("media"), list) else []
+        media = variant.get("images") if isinstance(variant.get("images"), list) else []
+        collection = next((item for item in db.collections.find(
+            {"productRefs.productId": product_id},
+            {"name": 1, "slug": 1, "collectionType": 1},
+        ) if not is_excluded_collection(item)), None)
         items.append({
             "productId": str(product_id),
+            "productCode": _safe_text(product.get("productCode") or product.get("sku") or product.get("name"), 120),
             "name": _safe_text(product.get("name"), 160),
-            "sku": _safe_text(product.get("sku"), 80),
+            "parentSku": _safe_text(product.get("sku"), 120),
+            "variantId": variant_id,
+            "sku": server_sku,
+            "collection": _safe_text((collection or {}).get("name"), 120),
+            "collectionSlug": _safe_text((collection or {}).get("slug"), 160),
+            "colour": _safe_text(variant.get("colour"), 120),
             "quantity": quantity,
             "unitPrice": price,
             "lineTotal": line_total,
             "image": media[0] if media and isinstance(media[0], str) else "",
-            "availability": availability,
-            "inventoryMode": "size" if configured else "legacy",
+            "availability": "in_stock",
+            "variantStatus": variant_status,
+            "inventoryMode": "variant",
             "purchaseMode": purchase_mode,
-            "variant": {"id": variant_id, "name": _safe_text((variant or {}).get("name"), 60), "value": _safe_text((variant or {}).get("value"), 120)} if variant_id else None,
+            "variant": {"id": variant_id, "sku": server_sku, "name": "Colour", "value": _safe_text(variant.get("colour"), 120)},
             "size": size or None,
             "customSize": custom_size,
         })
-    return items, int(round(subtotal))
+    return items, round(subtotal, 2)
 
 
-def _new_order_document(user: dict, shipping: dict, items: list[dict], subtotal: int, attempt_id: str, now: datetime) -> dict:
+def _new_order_document(user: dict, shipping: dict, items: list[dict], subtotal: float, attempt_id: str, now: datetime) -> dict:
     customer_name = " ".join(filter(None, (user.get("firstName"), user.get("lastName")))) or user.get("displayName") or user.get("username") or "RK Customer"
     order = {
         "orderNumber": f"RK-{now:%Y%m%d}-{secrets.token_hex(3).upper()}",
@@ -209,12 +221,13 @@ def _new_order_document(user: dict, shipping: dict, items: list[dict], subtotal:
         "tax": 0,
         "discount": 0,
         "total": subtotal,
-        "amountPaise": subtotal * 100,
+        "amountPaise": int(round(subtotal * 100)),
         "currency": "INR",
         "status": "pending_payment",
         "paymentGateway": "razorpay",
         "paymentStatus": "pending",
         "payment": {"status": "pending", "gateway": "razorpay", "razorpayOrderId": None, "razorpayPaymentId": None, "verifiedAt": None},
+        "confirmationEmail": {"status": "pending", "attempts": 0, "lastAttemptAt": None, "sentAt": None, "providerId": None, "error": None},
         "fulfillmentStatus": "order_placed",
         "fulfillment": {"status": "order_placed", "courier": "", "trackingNumber": "", "trackingUrl": "", "shippedAt": None, "deliveredAt": None},
         "createdAt": now,
@@ -224,26 +237,65 @@ def _new_order_document(user: dict, shipping: dict, items: list[dict], subtotal:
     return order
 
 
-def _send_order_confirmation(order: dict) -> None:
-    api_key = current_app.config.get("RESEND_API_KEY")
-    if not api_key or not order.get("email"):
-        return
-    resend.api_key = api_key
-    customer = html.escape(str(order.get("customerName") or "Customer"))
-    number = html.escape(str(order.get("orderNumber") or ""))
-    total = html.escape(f'{order.get("currency", "INR")} {order.get("total", 0):,.0f}')
-    resend.Emails.send({
-        "from": f'{current_app.config["EMAIL_FROM_NAME"]} <{current_app.config["EMAIL_FROM"]}>',
-        "to": [order["email"]],
-        "subject": f"Rashi Kapoor order confirmed — {number}",
-        "html": f"<p>Dear {customer},</p><p>Your order <strong>{number}</strong> has been confirmed.</p><p>Total: <strong>{total}</strong></p>",
-    })
+def _revalidate_variant_order_item(db, item: dict) -> tuple[dict, dict, str]:
+    product_id = ObjectId(str(item.get("productId") or ""))
+    product = db.products.find_one({"_id": product_id, "status": {"$ne": "archived"}, "isActive": {"$ne": False}})
+    if not product:
+        raise StockUnavailable("A selected product is no longer available.")
+    product = sync_product_variants(db, product) or product
+    variant = find_variant(product, item.get("variantId") or (item.get("variant") or {}).get("id"))
+    if not variant or str(variant.get("status") or "").lower() != "active":
+        raise StockUnavailable("A selected colour is no longer active.")
+    if _safe_text(item.get("sku"), 120).upper() != _safe_text(variant.get("sku"), 120).upper():
+        raise StockUnavailable("A selected colour SKU no longer matches the product.")
+    try:
+        server_price = round(float(variant.get("price", product.get("price"))), 2)
+        order_price = round(float(item.get("unitPrice")), 2)
+    except (TypeError, ValueError):
+        raise StockUnavailable("A selected variant has an invalid price.")
+    if server_price != order_price:
+        raise StockUnavailable("A selected variant price changed before payment confirmation.")
+    size = _safe_text(item.get("size"), 20).upper()
+    valid_sizes = [str(value).strip().upper() for value in variant.get("sizes", STANDARD_SIZES) if str(value).strip()]
+    custom_size = validate_custom_size(product, item.get("customSize"))
+    if item.get("purchaseMode") == "custom_size" and not custom_size:
+        raise StockUnavailable("Custom measurements are missing from a selected item.")
+    if item.get("purchaseMode") != "custom_size" and (not size or size not in valid_sizes):
+        raise StockUnavailable("A selected item has an invalid size.")
+    return product, variant, size
+
+
+def _decrement_tracked_variant_inventory(db, product: dict, variant: dict, size: str, quantity: int, now: datetime) -> tuple[ObjectId, int, str, str] | None:
+    """Decrement known stock when available, without making it a sales gate."""
+    variant_id = str(variant.get("id") or "")
+    if size:
+        entry = next((item for item in variant.get("sizeInventory", []) if str(item.get("size") or "").upper() == size), None)
+        if not entry or int(entry.get("stock") or 0) < quantity:
+            return None
+        result = db.products.update_one(
+            {"_id": product["_id"]},
+            {"$inc": {"variants.$[variant].sizeInventory.$[size].stock": -quantity, "variants.$[variant].stock": -quantity}, "$set": {"updatedAt": now}},
+            array_filters=[
+                {"variant.id": variant_id, "variant.status": "active"},
+                {"size.size": size, "size.stock": {"$gte": quantity}},
+            ],
+        )
+    else:
+        if int(variant.get("stock") or 0) < quantity:
+            return None
+        result = db.products.update_one(
+            {"_id": product["_id"]},
+            {"$inc": {"variants.$[variant].stock": -quantity}, "$set": {"updatedAt": now}},
+            array_filters=[{"variant.id": variant_id, "variant.status": "active", "variant.stock": {"$gte": quantity}}],
+        )
+    return (product["_id"], quantity, size, variant_id) if result.modified_count == 1 else None
 
 
 def _fulfil_paid_order(db, order: dict, payment_id: str, source: str, payment_signature: str = "") -> tuple[dict, bool]:
     now = datetime.now(timezone.utc)
     order = ensure_order_tracking(db, order)
     if order.get("paymentStatus") == "paid":
+        send_order_confirmation(db, order, current_app.config, current_app.logger)
         return order, False
 
     locked = db.orders.find_one_and_update(
@@ -254,31 +306,38 @@ def _fulfil_paid_order(db, order: dict, payment_id: str, source: str, payment_si
     if not locked:
         current = db.orders.find_one({"_id": order["_id"]})
         if current and current.get("paymentStatus") == "paid":
+            send_order_confirmation(db, current, current_app.config, current_app.logger)
             return current, False
         raise ValueError("This payment is already being processed. Please refresh in a moment.")
 
-    decremented: list[tuple[ObjectId, int, str]] = []
+    decremented: list[tuple[ObjectId, int, str, str]] = []
     try:
         for item in locked.get("items", []):
             product_id = ObjectId(str(item["productId"]))
             quantity = int(item.get("quantity") or 0)
-            if str(item.get("availability") or "").lower() != "in_stock":
+            if item.get("variantId") or (isinstance(item.get("variant"), dict) and (item.get("variant") or {}).get("sku")):
+                product, variant, size = _revalidate_variant_order_item(db, item)
+                adjustment = _decrement_tracked_variant_inventory(db, product, variant, size, quantity, now)
+                if adjustment:
+                    decremented.append(adjustment)
                 continue
             size = str(item.get("size") or "").strip().upper()
             product = db.products.find_one({"_id": product_id}, {"sizeInventoryConfigured": 1, "sizeSystemEnabled": 1, "sizeInventory": 1}) or {}
             if size and has_size_system(product):
                 result = db.products.update_one(
-                    {"_id": product_id, "status": {"$ne": "archived"}, "isActive": {"$ne": False}, "availability": "in_stock", "sizeInventory": {"$elemMatch": {"size": size, "enabled": True, "stock": {"$gte": quantity}}}},
+                    {"_id": product_id, "status": {"$ne": "archived"}, "isActive": {"$ne": False}, "sizeInventory": {"$elemMatch": {"size": size, "enabled": True}}},
                     {"$inc": {"sizeInventory.$.stock": -quantity, "stock": -quantity}, "$set": {"updatedAt": now}},
                 )
             else:
                 result = db.products.update_one(
-                    {"_id": product_id, "status": {"$ne": "archived"}, "isActive": {"$ne": False}, "availability": "in_stock", "stock": {"$gte": quantity}},
+                    {"_id": product_id, "status": {"$ne": "archived"}, "isActive": {"$ne": False}},
                     {"$inc": {"stock": -quantity}, "$set": {"updatedAt": now}},
                 )
-            if result.modified_count != 1:
-                raise StockUnavailable("A selected piece is no longer available in the requested quantity.")
-            decremented.append((product_id, quantity, size))
+            # Legacy orders may still carry a parent product snapshot. Keep
+            # their inventory accounting best-effort, but never turn a valid
+            # paid order into a stock failure because the count is zero.
+            if result.modified_count == 1:
+                decremented.append((product_id, quantity, size, ""))
 
         fields, events = payment_confirmation_changes(locked, payment_id, source, payment_signature, now)
         updated = db.orders.find_one_and_update(
@@ -289,8 +348,20 @@ def _fulfil_paid_order(db, order: dict, payment_id: str, source: str, payment_si
         if not updated:
             raise ValueError("The order could not be confirmed safely.")
     except Exception as error:
-        for product_id, quantity, size in decremented:
-            if size:
+        for product_id, quantity, size, variant_id in decremented:
+            if variant_id and size:
+                db.products.update_one(
+                    {"_id": product_id},
+                    {"$inc": {"variants.$[variant].sizeInventory.$[size].stock": quantity, "variants.$[variant].stock": quantity}, "$set": {"updatedAt": now}},
+                    array_filters=[{"variant.id": variant_id}, {"size.size": size}],
+                )
+            elif variant_id:
+                db.products.update_one(
+                    {"_id": product_id},
+                    {"$inc": {"variants.$[variant].stock": quantity}, "$set": {"updatedAt": now}},
+                    array_filters=[{"variant.id": variant_id}],
+                )
+            elif size:
                 db.products.update_one({"_id": product_id, "sizeInventory.size": size}, {"$inc": {"sizeInventory.$.stock": quantity, "stock": quantity}, "$set": {"updatedAt": now}})
             else:
                 db.products.update_one({"_id": product_id}, {"$inc": {"stock": quantity}, "$set": {"updatedAt": now}})
@@ -300,10 +371,9 @@ def _fulfil_paid_order(db, order: dict, payment_id: str, source: str, payment_si
         )
         raise
 
-    try:
-        _send_order_confirmation(updated)
-    except Exception:
-        current_app.logger.exception("Unable to send order confirmation email")
+    # Delivery state is deliberately separate from payment/order state. A
+    # provider outage records a retryable failure but never rolls back payment.
+    send_order_confirmation(db, updated, current_app.config, current_app.logger)
     return updated, True
 
 
@@ -398,6 +468,7 @@ def verify_razorpay_payment():
         return jsonify({"error": "The checkout order could not be found."}), 404
     if order.get("paymentStatus") == "paid":
         if order.get("razorpayPaymentId") == payment_id:
+            send_order_confirmation(db, order, current_app.config, current_app.logger)
             return jsonify({"order": _order_view(order), "alreadyProcessed": True}), 200
         return jsonify({"error": "This order has already been paid with another payment."}), 409
     if not verify_payment_signature(str(order["razorpayOrderId"]), payment_id, signature, current_app.config["RAZORPAY_KEY_SECRET"]):

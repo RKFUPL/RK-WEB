@@ -586,7 +586,7 @@ def order_view(order: dict, include_private_payment: bool = False) -> dict:
         timeline = [{key: value for key, value in event.items() if key not in {"internalNote", "notifyCustomer"}} for event in timeline]
     fields = (
         "orderNumber", "customerName", "email", "phone", "shipping", "items", "subtotal", "shippingCharge",
-        "tax", "discount", "total", "amountPaise", "currency", "createdAt", "updatedAt",
+        "tax", "discount", "total", "amountPaise", "currency", "confirmationEmail", "createdAt", "updatedAt",
     )
     view = {"id": str(order["_id"]), **{key: json_value(order.get(key)) for key in fields if key in order}}
     view.update({
