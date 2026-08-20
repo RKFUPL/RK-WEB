@@ -8,7 +8,7 @@ type Item = Record<string, unknown> & { id: string };
 type Section = 'products' | 'inventory' | 'quotes' | 'orders' | 'customers';
 type SizeEntry = { size: string; stock: number; enabled: boolean };
 type VariantStatus = 'active' | 'inactive' | 'remove';
-type AdminProductVariant = { id: string; sku: string; colour: string; status: VariantStatus; images?: string[]; stock?: number; sizeInventory?: SizeEntry[] };
+type AdminProductVariant = { id: string; sku: string; colour: string; status: VariantStatus; availabilityStatus?: 'IN_STOCK' | 'NO_STOCK'; images?: string[]; stock?: number; sizeInventory?: SizeEntry[] };
 
 const permissions: Record<Section, StaffPermission> = {
   products: 'products:manage', inventory: 'inventory:manage', quotes: 'quotes:manage', orders: 'orders:manage', customers: 'customers:manage',
@@ -113,9 +113,9 @@ function VariantStatusControls({ item, busy, onChange }: { item: Item; busy: boo
 
 function ProductSizeCell({ entries, allocationTarget, onChange }: { entries: SizeEntry[]; allocationTarget: number; onChange: (size: string, value: string) => void }) {
   const allocated = totalStock(entries);
-  return <div className="min-w-[20rem]">
-    <div className="flex items-end gap-1.5">
-      {entries.map((entry) => <label key={entry.size} className="text-center text-[9px] uppercase tracking-[.12em] text-[#858b94]"><span className="block pb-1">{entry.size}</span><input aria-label={`${entry.size} stock`} type="number" min={0} step={1} value={entry.stock} onChange={(event) => onChange(entry.size, event.target.value)} className={compactInputClass} /></label>)}
+  return <div className="w-full min-w-0 max-w-[20rem]">
+    <div className="grid grid-cols-5 gap-1.5">
+      {entries.map((entry) => <label key={entry.size} className="min-w-0 text-center text-[9px] uppercase tracking-[.12em] text-[#858b94]"><span className="block pb-1">{entry.size}</span><input aria-label={`${entry.size} stock`} type="number" min={0} step={1} value={entry.stock} onChange={(event) => onChange(entry.size, event.target.value)} className={`${compactInputClass} w-full`} /></label>)}
     </div>
     <p className={`mt-2 text-[10px] tabular-nums ${allocated === allocationTarget ? 'text-emerald-700' : 'text-[#9a7a4d]'}`}>{allocated} / {allocationTarget} allocated</p>
   </div>;
@@ -123,7 +123,7 @@ function ProductSizeCell({ entries, allocationTarget, onChange }: { entries: Siz
 
 function VariantSizeCells({ variants, busy, onChange }: { variants: AdminProductVariant[]; busy: boolean; onChange: (variantId: string, size: string, value: string) => void }) {
   if (!variants.length) return <span className="text-xs text-[#858b94]">No colour SKUs</span>;
-  return <div className="min-w-[22rem] space-y-4">
+  return <div className="w-full min-w-0 space-y-4">
     {variants.filter((variant) => variant.status !== 'remove').map((variant) => {
       const entries = entriesFromValue(variant.sizeInventory);
       return <div key={variant.id} className="border-b border-black/[.06] pb-3 last:border-b-0 last:pb-0 dark:border-white/[.08]">
@@ -137,38 +137,43 @@ function VariantSizeCells({ variants, busy, onChange }: { variants: AdminProduct
   </div>;
 }
 
-function ProductVariantGroups({ items, busy, onStatusChange, onSizeChange, onEdit, onDelete }: {
+function ProductVariantGroups({ items, busy, onStatusChange, onSizeChange, onEdit, onArchive, onDelete, onImageChange }: {
   items: Item[];
   busy: boolean;
   onStatusChange: (productId: string, variantId: string, status: VariantStatus) => void;
   onSizeChange: (productId: string, variantId: string, size: string, value: string) => void;
   onEdit: (item: Item) => void;
+  onArchive: (item: Item) => void;
   onDelete: (item: Item) => void;
+  onImageChange: (productId: string, variantId: string, images: string[]) => Promise<void>;
 }) {
   const [openAction, setOpenAction] = useState<string | null>(null);
-  return <div className="mt-7 space-y-5">
+  const [imageEditor, setImageEditor] = useState<{ productId: string; variantId: string; sku: string; images: string[] } | null>(null);
+  const [imageDraft, setImageDraft] = useState('');
+  return <div className="mt-7 w-full min-w-0 space-y-5">
     {items.map((item) => {
       const variants = variantsFromItem(item).filter((variant) => variant.status !== 'remove');
-      return <article key={item.id} className="overflow-visible rounded-xl border border-black/[.08] bg-[#fffdf9] dark:border-white/[.08] dark:bg-white/[.02]">
+      return <article key={item.id} className="w-full min-w-0 max-w-full overflow-visible rounded-xl border border-black/[.08] bg-[#fffdf9] dark:border-white/[.08] dark:bg-white/[.02]">
         <header className="relative flex flex-wrap items-baseline justify-between gap-3 border-b border-black/[.07] px-5 py-4 pr-16 dark:border-white/[.08]">
           <div className="flex min-w-0 items-center gap-3">
             <ProductThumbnail item={item} />
             <div className="min-w-0"><h3 className="text-lg font-medium text-[#20242b] dark:text-white">{String(item.name ?? 'Unnamed product')}</h3><p className="mt-1 text-[10px] uppercase tracking-[.16em] text-[#858b94]">{String(item.category || 'Couture')} · Parent SKU {String(item.sku || '—')}</p></div>
           </div>
           <p className="text-sm tabular-nums text-[#6e747d]">Base price · {currency(item.price)}</p>
-          <div className="absolute right-5 top-4"><button type="button" title={`Actions for ${String(item.name || 'product')}`} aria-label={`Actions for ${String(item.name || 'product')}`} onClick={() => setOpenAction((current) => current === `${item.id}:parent` ? null : `${item.id}:parent`)} className="grid h-8 w-8 place-items-center rounded-full border border-black/10 text-[#858b94] transition hover:border-[#9a7a4d] hover:text-[#9a7a4d]"><MoreHorizontal size={16} /></button>{openAction === `${item.id}:parent` ? <div className="absolute right-0 top-10 z-30 w-44 rounded-lg border border-black/10 bg-white p-1 text-xs shadow-lg dark:border-white/10 dark:bg-[#191a1f]"><button type="button" onClick={() => { setOpenAction(null); onEdit(item); }} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">Edit product</button><a href={`/products/${item.id}`} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">View product</a><button type="button" onClick={() => { setOpenAction(null); onDelete(item); }} className="block w-full rounded px-3 py-2 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30">Delete product</button></div> : null}</div>
+          <div className="absolute right-5 top-4"><button type="button" title={`Actions for ${String(item.name || 'product')}`} aria-label={`Actions for ${String(item.name || 'product')}`} onClick={() => setOpenAction((current) => current === `${item.id}:parent` ? null : `${item.id}:parent`)} className="grid h-8 w-8 place-items-center rounded-full border border-black/10 text-[#858b94] transition hover:border-[#9a7a4d] hover:text-[#9a7a4d]"><MoreHorizontal size={16} /></button>{openAction === `${item.id}:parent` ? <div className="absolute right-0 top-10 z-30 w-48 rounded-lg border border-black/10 bg-white p-1 text-xs shadow-lg dark:border-white/10 dark:bg-[#191a1f]"><button type="button" onClick={() => { setOpenAction(null); onEdit(item); }} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">Edit product</button><a href={`/products/${item.id}`} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">View product</a><button type="button" onClick={() => { setOpenAction(null); onArchive(item); }} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">Archive product</button><button type="button" onClick={() => { setOpenAction(null); onDelete(item); }} className="block w-full rounded px-3 py-2 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30">Delete permanently</button></div> : null}</div>
         </header>
-        <div className="hidden grid-cols-[minmax(10rem,1fr)_minmax(13rem,1.1fr)_minmax(19rem,1.5fr)_minmax(8rem,.7fr)_3rem] gap-4 px-5 py-3 text-[9px] uppercase tracking-[.16em] text-[#858b94] md:grid"><span>Colour variant</span><span>SKU</span><span>Size inventory · total</span><span>Status</span><span /></div>
+        <div className="hidden min-w-0 grid-cols-[minmax(8rem,1.2fr)_minmax(9rem,1.2fr)_minmax(14rem,2fr)_minmax(6.5rem,.6fr)_2rem] gap-4 px-5 py-3 text-[9px] uppercase tracking-[.16em] text-[#858b94] md:grid"><span>Colour variant</span><span>SKU</span><span>Size inventory · total</span><span>Status</span><span /></div>
+        {imageEditor?.productId === item.id ? <div className="border-b border-black/[.06] bg-[#faf8f4] px-5 py-4 dark:border-white/[.08] dark:bg-white/[.03]"><p className="text-[9px] uppercase tracking-[.16em] text-[#9a7a4d]">Manage images · {imageEditor.sku}</p><textarea value={imageDraft} onChange={(event) => setImageDraft(event.target.value)} rows={3} placeholder="Paste image URLs, separated by commas" className="mt-3 w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-xs outline-none focus:border-[#9a7a4d] dark:border-white/10 dark:bg-[#121317]" /><div className="mt-3 flex justify-end gap-2"><button type="button" onClick={() => setImageEditor(null)} className="rounded-lg border border-black/10 px-3 py-2 text-[10px] uppercase tracking-[.12em]">Cancel</button><button type="button" disabled={busy} onClick={() => { const editor = imageEditor; if (!editor) return; void onImageChange(editor.productId, editor.variantId, imageDraft.split(',').map((url) => url.trim()).filter(Boolean)).then(() => setImageEditor(null)); }} className="rounded-lg bg-[#24211e] px-3 py-2 text-[10px] uppercase tracking-[.12em] text-white disabled:opacity-40">Save images</button></div></div> : null}
         <div className="divide-y divide-black/[.06] dark:divide-white/[.08]">
           {variants.length ? variants.map((variant) => {
             const entries = entriesFromValue(variant.sizeInventory);
             const actionKey = `${item.id}:${variant.id}`;
-            return <div key={variant.id} className="grid gap-4 px-5 py-4 md:grid-cols-[minmax(10rem,1fr)_minmax(13rem,1.1fr)_minmax(19rem,1.5fr)_minmax(8rem,.7fr)_3rem] md:items-center">
-              <div><p className="font-medium uppercase tracking-[.1em] text-[#9a7a4d]">{variant.colour || 'Default'}</p><p className="mt-1 text-[10px] text-[#858b94] md:hidden">{variant.sku}</p></div>
-              <p className="break-words text-xs text-[#6e747d]">{variant.sku}</p>
+            return <div key={variant.id} className="grid min-w-0 max-w-full gap-4 px-5 py-4 md:grid-cols-[minmax(8rem,1.2fr)_minmax(9rem,1.2fr)_minmax(14rem,2fr)_minmax(6.5rem,.6fr)_2rem] md:items-center">
+              <div className="min-w-0"><p className="break-words font-medium uppercase tracking-[.1em] text-[#9a7a4d]">{variant.colour || 'Default'}</p><p className="mt-1 text-[10px] text-[#858b94] md:hidden">{variant.sku}</p></div>
+              <p className="min-w-0 break-words text-xs text-[#6e747d]">{variant.sku}</p>
               <div><p className="mb-2 text-[9px] uppercase tracking-[.14em] text-[#858b94] md:hidden">Size inventory · total {variant.stock ?? totalStock(entries)}</p><ProductSizeCell entries={entries} allocationTarget={variant.stock ?? totalStock(entries)} onChange={(size, value) => onSizeChange(item.id, variant.id, size, value)} /></div>
-              <select aria-label={`Status for ${variant.sku}`} value={variant.status} disabled={busy} onChange={(event) => onStatusChange(item.id, variant.id, event.target.value as VariantStatus)} className="w-fit rounded border border-black/10 bg-white px-2 py-1.5 text-[9px] uppercase tracking-[.08em] dark:border-white/10 dark:bg-[#121317]"><option value="active">Active</option><option value="inactive">Inactive</option><option value="remove">Remove</option></select>
-              <div className="relative justify-self-start md:justify-self-end"><button type="button" title={`Actions for ${variant.sku}`} aria-label={`Actions for ${variant.sku}`} onClick={() => setOpenAction((current) => current === actionKey ? null : actionKey)} className="grid h-8 w-8 place-items-center rounded-full border border-black/10 text-[#858b94] transition hover:border-[#9a7a4d] hover:text-[#9a7a4d]"><MoreHorizontal size={16} /></button>{openAction === actionKey ? <div className="absolute right-0 top-10 z-20 w-44 rounded-lg border border-black/10 bg-white p-1 text-xs shadow-lg dark:border-white/10 dark:bg-[#191a1f]"><button type="button" onClick={() => { setOpenAction(null); onEdit(item); }} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">Edit product</button><a href={`/products/${item.id}`} className="block rounded px-3 py-2 hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">View {variant.sku}</a><button type="button" onClick={() => { setOpenAction(null); onEdit(item); }} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">Manage images</button><button type="button" onClick={() => { setOpenAction(null); onDelete(item); }} className="block w-full rounded px-3 py-2 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30">Delete product</button></div> : null}</div>
+              <select aria-label={`Status for ${variant.sku}`} value={variant.status} disabled={busy} onChange={(event) => onStatusChange(item.id, variant.id, event.target.value as VariantStatus)} className="w-fit rounded border border-black/10 bg-white px-2 py-1.5 text-[9px] uppercase tracking-[.08em] dark:border-white/10 dark:bg-[#121317]"><option value="active">In Stock</option><option value="inactive">No Stock</option><option value="remove">Remove</option></select>
+              <div className="relative justify-self-start md:justify-self-end"><button type="button" title={`Actions for ${variant.sku}`} aria-label={`Actions for ${variant.sku}`} onClick={() => setOpenAction((current) => current === actionKey ? null : actionKey)} className="grid h-8 w-8 place-items-center rounded-full border border-black/10 text-[#858b94] transition hover:border-[#9a7a4d] hover:text-[#9a7a4d]"><MoreHorizontal size={16} /></button>{openAction === actionKey ? <div className="absolute right-0 top-10 z-20 w-44 rounded-lg border border-black/10 bg-white p-1 text-xs shadow-lg dark:border-white/10 dark:bg-[#191a1f]"><button type="button" onClick={() => { setOpenAction(null); onEdit(item); }} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">Edit product</button><a href={`/products/${item.id}`} className="block rounded px-3 py-2 hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">View {variant.sku}</a><button type="button" onClick={() => { setOpenAction(null); setImageEditor({ productId: item.id, variantId: variant.id, sku: variant.sku, images: variant.images || [] }); setImageDraft((variant.images || []).join(',\n')); }} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">Manage images</button><button type="button" onClick={() => { setOpenAction(null); onDelete(item); }} className="block w-full rounded px-3 py-2 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30">Delete product</button></div> : null}</div>
             </div>;
           }) : <p className="px-5 py-5 text-sm text-[#858b94]">No visible colour variants.</p>}
         </div>
@@ -206,12 +211,13 @@ export function OperationsSection({ section: rawSection }: { section: string }) 
   const [adjustments, setAdjustments] = useState<Record<string, string>>({});
   const [adjustmentReasons, setAdjustmentReasons] = useState<Record<string, string>>({});
   const [search, setSearch] = useState('');
+  const [selectedCollection, setSelectedCollection] = useState('ALL');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const token = () => window.localStorage.getItem('rk_access_token') ?? '';
 
-  const load = async (query = '') => {
-    const response = await fetch(`${apiBaseUrl}/api/staff/resources/${section}${query ? `?q=${encodeURIComponent(query)}` : ''}`, { headers: { Authorization: `Bearer ${token()}` }, cache: 'no-store' });
+  const load = async () => {
+    const response = await fetch(`${apiBaseUrl}/api/staff/resources/${section}`, { headers: { Authorization: `Bearer ${token()}` }, cache: 'no-store' });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error ?? 'Unable to load this workspace.');
     setItems(payload.items as Item[]);
@@ -343,9 +349,38 @@ export function OperationsSection({ section: rawSection }: { section: string }) 
     } finally { setBusy(false); }
   };
 
-  const deleteProduct = (item: Item) => {
-    if (!window.confirm(`Delete ${String(item.name || 'this product')} and hide all of its colour variants?`)) return;
-    void patch(item.id, { status: 'archived', reason: 'Product deleted from the admin dashboard.' }, 'Product deleted.');
+  const patchVariantImages = async (productId: string, variantId: string, images: string[]) => {
+    setBusy(true); setError(''); setMessage('');
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/staff/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}`, {
+        method: 'PATCH', headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ images }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? 'Unable to update variant images.');
+      setItems((currentItems) => currentItems.map((item) => item.id === productId ? payload.item : item));
+      setMessage('Variant images updated.');
+    } catch (requestError) {
+      const status = requestError instanceof Error ? requestError.message : 'Unable to update variant images.';
+      setError(status);
+    } finally { setBusy(false); }
+  };
+
+  const archiveProduct = (item: Item) => {
+    if (!window.confirm(`Archive ${String(item.name || 'this product')}? It will be hidden but kept in the database.`)) return;
+    void patch(item.id, { status: 'archived', reason: 'Product archived from the admin dashboard.' }, 'Product archived.');
+  };
+
+  const deleteProduct = async (item: Item) => {
+    if (!window.confirm(`Permanently delete ${String(item.name || 'this product')} and all colour variants? This cannot be undone.`)) return;
+    setBusy(true); setError(''); setMessage('');
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/staff/resources/products/${encodeURIComponent(item.id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token()}` } });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? 'Unable to permanently delete this product.');
+      setItems((current) => current.filter((entry) => entry.id !== item.id));
+      setMessage('Product permanently deleted.');
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to permanently delete this product.'); }
+    finally { setBusy(false); }
   };
 
   const convertQuote = async (id: string) => {
@@ -374,17 +409,37 @@ export function OperationsSection({ section: rawSection }: { section: string }) 
   const totalFor = (item: Item) => editing === item.id && editForm.sizeInventoryConfigured === 'true' ? totalStock(draftFor(item)) : isSizeConfigured(item) ? totalStock(draftFor(item)) : Number(item.stock ?? 0);
   const allocationTargetFor = (item: Item) => editing === item.id && editForm.sizeInventoryConfigured === 'true' && !isSizeConfigured(item) ? Number(editForm.legacyStock ?? item.stock ?? 0) : totalFor(item);
   const title = section.replaceAll('-', ' ');
+  const collectionOptions = useMemo(() => {
+    if (section !== 'products' && section !== 'inventory') return [];
+    return [...new Set(items.flatMap((item) => {
+      const values = Array.isArray(item.collections) ? item.collections : [item.collection];
+      return values.map((value) => String(value || '').trim()).filter(Boolean);
+    }))].sort((left, right) => left.localeCompare(right));
+  }, [items, section]);
+  const visibleItems = useMemo(() => {
+    if (section !== 'products' && section !== 'inventory') return items;
+    const query = search.trim().toLowerCase();
+    return items.filter((item) => {
+      const collections = Array.isArray(item.collections) ? item.collections.map(String) : [String(item.collection || '')];
+      if (selectedCollection !== 'ALL' && !collections.some((value) => value === selectedCollection)) return false;
+      if (!query) return true;
+      const variants = variantsFromItem(item);
+      const values = [item.name, item.sku, item.collection, ...collections, ...variants.flatMap((variant) => [variant.sku, variant.colour])];
+      return values.some((value) => String(value || '').toLowerCase().includes(query));
+    });
+  }, [items, search, section, selectedCollection]);
 
   if (loading) return <p className="mt-10 text-sm text-[#858b94]">Loading secure workspace…</p>;
   if (!supported) return <section className="mt-10 rounded-2xl border border-black/[.06] bg-white p-8"><h2 className="text-xl font-semibold">Module unavailable</h2></section>;
   if (!allowed) return <section className="mt-10 rounded-2xl border border-black/[.06] bg-white p-8"><h2 className="text-xl font-semibold capitalize">{title}</h2><p className="mt-3 text-sm text-[#858b94]">An administrator has not granted this capability.</p></section>;
 
   return <section className="mt-10 rounded-2xl border border-black/[.06] bg-white p-6 shadow-[0_4px_20px_rgba(25,31,38,.035)] dark:border-white/[.08] dark:bg-[#191a1f] md:p-8">
-    <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-[10px] uppercase tracking-[.2em] text-[#9a7a4d]">Operations</p><h2 className="mt-2 text-2xl font-semibold capitalize">{title}</h2></div><div className="flex gap-2"><form onSubmit={(event) => { event.preventDefault(); setLoading(true); load(search).catch((requestError) => setError(requestError instanceof Error ? requestError.message : 'Search failed.')).finally(() => setLoading(false)); }} className="flex"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={section === 'products' ? 'Search products, SKU…' : 'Search'} className="rounded-l-lg border border-black/10 px-3 py-2 text-xs outline-none" /><button className="rounded-r-lg border border-l-0 border-black/10 px-3 py-2 text-xs">Search</button></form>{section !== 'inventory' ? <button type="button" onClick={() => setCreating((current) => !current)} className="rounded-lg bg-[#24211e] px-4 py-2 text-xs text-white transition hover:bg-[#9a7a4d]">{creating ? 'Close' : `Create ${section.slice(0, -1)}`}</button> : null}</div></div>
+    <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-[10px] uppercase tracking-[.2em] text-[#9a7a4d]">Operations</p><h2 className="mt-2 text-2xl font-semibold capitalize">{title}</h2></div><div className="flex flex-wrap gap-2"><div className="flex"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={section === 'products' || section === 'inventory' ? 'Search products, SKU…' : 'Search'} className="rounded-lg border border-black/10 px-3 py-2 text-xs outline-none" />{search ? <button type="button" aria-label="Clear search" onClick={() => setSearch('')} className="-ml-8 px-2 text-sm text-[#858b94]">×</button> : null}</div>{section === 'products' || section === 'inventory' ? <select value={selectedCollection} onChange={(event) => setSelectedCollection(event.target.value)} aria-label="Filter by collection" className="rounded-lg border border-black/10 bg-white px-3 py-2 text-xs dark:border-white/10 dark:bg-[#121317]"><option value="ALL">All Collections</option>{collectionOptions.map((collection) => <option key={collection} value={collection}>{collection}</option>)}</select> : null}{section !== 'inventory' ? <button type="button" onClick={() => setCreating((current) => !current)} className="rounded-lg bg-[#24211e] px-4 py-2 text-xs text-white transition hover:bg-[#9a7a4d]">{creating ? 'Close' : `Create ${section.slice(0, -1)}`}</button> : null}</div></div>
     {message ? <p className="mt-4 text-sm text-emerald-700">{message}</p> : null}{error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
     {creating && section !== 'inventory' ? <CreateForm section={section as Exclude<Section, 'inventory'>} initial={{ ...emptyForms[section as Exclude<Section, 'inventory'>] }} busy={busy} onCancel={() => setCreating(false)} onSave={create} /> : null}
+    {section === 'products' && editing ? <div className="mt-6 rounded-xl border border-[#9a7a4d]/20 bg-[#faf8f4] p-5 dark:bg-white/[.03]"><p className="text-[10px] uppercase tracking-[.16em] text-[#9a7a4d]">Edit product</p><div className="mt-4 grid gap-4 md:grid-cols-2"><label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Product name<input value={editForm.name ?? ''} onChange={(event) => setEditForm((current) => ({ ...current, name: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`} /></label><label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Parent SKU<input value={editForm.sku ?? ''} onChange={(event) => setEditForm((current) => ({ ...current, sku: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`} /></label><label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Base price<input type="number" min={0} value={editForm.price ?? ''} onChange={(event) => setEditForm((current) => ({ ...current, price: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`} /></label><label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Availability<select value={editForm.availability ?? 'in_stock'} onChange={(event) => setEditForm((current) => ({ ...current, availability: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`}><option value="in_stock">In Stock</option><option value="custom_order">Custom Order</option><option value="sold_out">No Stock</option></select></label><label className="text-[10px] uppercase tracking-[.16em] text-[#858b94] md:col-span-2">Description<textarea value={editForm.description ?? ''} onChange={(event) => setEditForm((current) => ({ ...current, description: event.target.value }))} rows={3} className={`${inputClass} mt-2 normal-case tracking-normal`} /></label></div><div className="mt-5 flex justify-end gap-3"><button type="button" onClick={() => { setEditing(null); setEditForm({}); }} className="rounded-lg border border-black/10 px-4 py-2 text-xs">Cancel</button><button type="button" disabled={busy} onClick={() => void patch(editing, editForm, 'Product updated.')} className="rounded-lg bg-[#24211e] px-4 py-2 text-xs text-white disabled:opacity-40">{busy ? 'Saving…' : 'Save product'}</button></div></div> : null}
     {(section === 'orders' || section === 'quotes') && items.length ? <div className="mt-6 rounded-xl border border-black/[.06] bg-[#faf8f4] p-4 dark:bg-white/[.03]"><div className="flex flex-wrap items-center gap-3"><label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Edit details<select value={editing ?? ''} onChange={(event) => { const item = items.find((entry) => entry.id === event.target.value); if (item) beginEdit(item); else setEditing(null); }} className="ml-3 rounded-lg border border-black/10 bg-white px-3 py-2 text-xs normal-case tracking-normal"><option value="">Choose {section.slice(0, -1)}</option>{items.filter((item) => item.status !== 'converted').map((item) => <option key={item.id} value={item.id}>{String(item[section === 'orders' ? 'orderNumber' : 'quoteNumber'] ?? item.id)}</option>)}</select></label></div>{editing ? <div className="mt-4 grid gap-3 md:grid-cols-4">{editableFields.map((key) => <label key={key} className="text-[10px] uppercase tracking-[.14em] text-[#858b94]">{key.replaceAll(/([A-Z])/g, ' $1')}<input type={key === 'total' ? 'number' : 'text'} min={key === 'total' ? 0 : undefined} value={editForm[key] ?? ''} onChange={(event) => setEditForm((current) => ({ ...current, [key]: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`} /></label>)}<div className="flex items-end gap-2"><button disabled={busy} onClick={() => void patch(editing, editForm)} className="rounded-lg bg-[#24211e] px-4 py-2.5 text-xs text-white disabled:opacity-40">Save details</button><button onClick={() => setEditing(null)} className="rounded-lg border border-black/10 px-4 py-2.5 text-xs">Cancel</button></div></div> : null}</div> : null}
-    {items.length ? section === 'products' ? <ProductVariantGroups items={items} busy={busy} onStatusChange={patchVariantStatus} onSizeChange={patchVariantSize} onEdit={beginEdit} onDelete={deleteProduct} /> : <div className="mt-7 overflow-x-auto"><table className="min-w-[52rem] w-full text-left text-sm"><thead className="border-b border-black/10 text-[10px] uppercase tracking-[.16em] text-[#858b94]"><tr>{columns[section].map(([, label]) => <th key={label} className="pb-4 pr-4">{label}</th>)}<th className="pb-4">Actions</th></tr></thead><tbody>{items.map((item) => {
+    {visibleItems.length ? section === 'products' ? <ProductVariantGroups items={visibleItems} busy={busy} onStatusChange={patchVariantStatus} onSizeChange={patchVariantSize} onEdit={beginEdit} onArchive={archiveProduct} onDelete={deleteProduct} onImageChange={patchVariantImages} /> : <div className="mt-7 w-full min-w-0 overflow-x-auto"><table className="w-full min-w-0 table-fixed text-left text-sm"><thead className="border-b border-black/10 text-[10px] uppercase tracking-[.16em] text-[#858b94]"><tr>{columns[section].map(([, label]) => <th key={label} className="pb-4 pr-4">{label}</th>)}<th className="pb-4">Actions</th></tr></thead><tbody>{visibleItems.map((item) => {
       const product: boolean = false;
       const entries = product ? draftFor(item) : [];
       const total = product ? totalFor(item) : 0;
@@ -402,11 +457,11 @@ export function OperationsSection({ section: rawSection }: { section: string }) 
             : formatValue(key, item[key])}
         </td>)}
         <td className="py-4"><div className="flex min-w-[8rem] flex-wrap items-center gap-2">
-          {section === 'inventory' ? <><input type="number" min={0} value={adjustments[item.id] ?? ''} onChange={(event) => setAdjustments((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="+ / -" className="w-20 rounded border border-black/10 px-2 py-1.5 text-xs" /><input value={adjustmentReasons[item.id] ?? ''} onChange={(event) => setAdjustmentReasons((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="Reason" aria-label="Reason for inventory change" className="w-32 rounded border border-black/10 px-2 py-1.5 text-xs" /><button disabled={busy || !adjustments[item.id] || !adjustmentReasons[item.id]?.trim()} onClick={() => void patch(item.id, { adjustment: Number(adjustments[item.id]), reason: adjustmentReasons[item.id] }, 'Inventory adjusted.')} className="text-[10px] uppercase tracking-[.12em] text-[#9a7a4d] disabled:opacity-30">Adjust</button></>
+          {section === 'inventory' ? <><input type="number" value={adjustments[item.id] ?? ''} onChange={(event) => setAdjustments((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="+ / -" className="w-20 rounded border border-black/10 px-2 py-1.5 text-xs" /><input value={adjustmentReasons[item.id] ?? ''} onChange={(event) => setAdjustmentReasons((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="Reason" aria-label="Reason for inventory change" className="w-32 rounded border border-black/10 px-2 py-1.5 text-xs" /><button type="button" disabled={busy || !adjustments[item.id] || !adjustmentReasons[item.id]?.trim()} onClick={() => void patch(item.id, { adjustment: Number(adjustments[item.id]), reason: adjustmentReasons[item.id] }, 'Inventory adjusted.')} className="text-[10px] uppercase tracking-[.12em] text-[#9a7a4d] disabled:opacity-30">{busy ? 'Saving…' : 'Adjust'}</button></>
             : section === 'orders' || section === 'quotes' ? <><select value={String(item.status ?? '')} disabled={busy || item.status === 'converted'} onChange={(event) => void patch(item.id, { status: event.target.value })} className="rounded border border-black/10 bg-white px-2 py-1.5 text-xs capitalize"><option value="draft">Draft</option>{section === 'quotes' ? <><option value="sent">Sent</option><option value="accepted">Accepted</option><option value="rejected">Rejected</option><option value="converted">Converted</option></> : <><option value="pending">Pending</option><option value="confirmed">Confirmed</option><option value="processing">Processing</option><option value="fulfilled">Fulfilled</option><option value="cancelled">Cancelled</option></>}</select>{section === 'quotes' && item.status !== 'converted' ? <button disabled={busy} onClick={() => void convertQuote(item.id)} className="text-[10px] uppercase tracking-[.12em] text-[#9a7a4d]">Convert</button> : null}</>
              : <button onClick={() => beginEdit(item)} className="text-[10px] uppercase tracking-[.12em] text-[#9a7a4d]">Edit</button>}
         </div></td>
       </tr>;
-    })}</tbody></table></div> : <div className="mt-8 rounded-xl border border-dashed border-black/10 p-10 text-center text-sm text-[#858b94]">No {title} found.</div>}
+    })}</tbody></table></div> : <div className="mt-8 rounded-xl border border-dashed border-black/10 p-10 text-center text-sm text-[#858b94]">{search || selectedCollection !== 'ALL' ? `No ${section === 'inventory' ? 'inventory items' : 'products'} found${search ? ` for “${search}”` : ''}${selectedCollection !== 'ALL' ? ` in “${selectedCollection}”` : ''}.` : `No ${title} found.`}</div>}
   </section>;
 }

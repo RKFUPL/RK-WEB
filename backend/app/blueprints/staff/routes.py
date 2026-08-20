@@ -320,7 +320,25 @@ def list_resources(resource: str):
         fields = ["displayName", "email", "username"] if resource == "customers" else ["name", "sku", "variants.sku", "variants.colour", "orderNumber", "quoteNumber", "customerName", "email"]
         query = {**query, "$or": [{field: {"$regex": escaped, "$options": "i"}} for field in fields]}
     projection = {"passwordHash": 0, "otpHash": 0, "otpExpiresAt": 0, "otpAttempts": 0}
-    documents = db[RESOURCE_COLLECTIONS[resource]].find(query, projection).sort("createdAt", -1).limit(200)
+    documents = list(db[RESOURCE_COLLECTIONS[resource]].find(query, projection).sort("createdAt", -1).limit(200))
+    if resource in {"products", "inventory"} and documents:
+        product_ids = [document["_id"] for document in documents]
+        collection_names: dict[ObjectId, list[str]] = {product_id: [] for product_id in product_ids}
+        for collection in db.collections.find({"productRefs.productId": {"$in": product_ids}}, {"name": 1, "productRefs": 1}):
+            name = str(collection.get("name") or "").strip()
+            if not name:
+                continue
+            for reference in collection.get("productRefs") or []:
+                if isinstance(reference, dict) and reference.get("productId") in collection_names:
+                    collection_names[reference["productId"]].append(name)
+        viewed = []
+        for document in documents:
+            names = sorted(set(collection_names.get(document["_id"], [])), key=str.casefold)
+            item = _document_view(document)
+            item["collections"] = names
+            item["collection"] = ", ".join(names)
+            viewed.append(item)
+        return jsonify({"items": viewed}), 200
     return jsonify({"items": [_document_view(document) for document in documents]}), 200
 
 
@@ -581,9 +599,9 @@ def update_resource(resource: str, resource_id: str):
         if has_size_system(current):
             return jsonify({"error": "This product uses size inventory. Update the XS–XL quantities from the product editor."}), 400
         before = _integer(current.get("stock"), 0)
-        after = _integer(payload.get("stock")) if "stock" in payload else before + _integer(payload.get("adjustment"), 0)
-        if after < 0:
-            return jsonify({"error": "Stock cannot be negative."}), 400
+        if "adjustment" in payload and _integer(payload.get("adjustment"), 0) == 0:
+            return jsonify({"error": "A non-zero inventory adjustment is required."}), 400
+        after = _integer(payload.get("stock")) if "stock" in payload else max(0, before + _integer(payload.get("adjustment"), 0))
         reason = str(payload.get("reason") or "").strip()[:240]
         if not reason:
             return jsonify({"error": "Enter a reason for the inventory change."}), 400
@@ -687,6 +705,11 @@ def update_product_variant(product_id: str, variant_id: str):
         if status not in VARIANT_STATUSES:
             return jsonify({"error": "Choose ACTIVE, INACTIVE, or REMOVE."}), 400
         updated_variant["status"] = status
+    if "availabilityStatus" in payload:
+        availability_status = str(payload.get("availabilityStatus") or "").strip().upper()
+        if availability_status not in {"IN_STOCK", "NO_STOCK"}:
+            return jsonify({"error": "Choose IN_STOCK or NO_STOCK availability."}), 400
+        updated_variant["status"] = "active" if availability_status == "IN_STOCK" else "inactive"
     if "images" in payload:
         images = payload.get("images")
         if not isinstance(images, list) or len(images) > 12 or any(not isinstance(item, str) or len(item) > 2048 for item in images):
@@ -734,10 +757,21 @@ def delete_product(product_id: str):
     if not object_id:
         return jsonify({"error": "Invalid product id."}), 400
     db = database()
-    product = db.products.find_one({"_id": object_id}, {"name": 1, "sku": 1})
+    product = db.products.find_one({"_id": object_id}, {"name": 1, "sku": 1, "seedKey": 1})
     if not product:
         return jsonify({"error": "Product not found."}), 404
 
+    db.catalog_deletions.update_one(
+        {"_id": f"product:{object_id}"},
+        {"$set": {
+            "productId": object_id,
+            "seedKey": product.get("seedKey"),
+            "sku": product.get("sku"),
+            "deletedAt": datetime.now(timezone.utc),
+            "deletedBy": current_user()["_id"],
+        }},
+        upsert=True,
+    )
     db.products.delete_one({"_id": object_id})
     # Remove catalogue references and product-specific operational history.
     # Order documents intentionally remain untouched because they contain

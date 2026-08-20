@@ -101,6 +101,11 @@ def _variant_status(value: object, fallback: str = "active") -> str:
     return status if status in VARIANT_STATUSES else fallback
 
 
+def _availability_status(status: object) -> str:
+    """Expose admin-controlled selling state without reading inventory."""
+    return "NO_STOCK" if _variant_status(status) != "active" else "IN_STOCK"
+
+
 def _legacy_status(product: dict) -> str:
     # Legacy inventory/availability fields are not authoritative for the new
     # variant model. A migrated variant starts ACTIVE; Admin can explicitly
@@ -173,13 +178,16 @@ def build_product_variants(product: dict, collections: list[dict] | tuple[dict, 
             # Legacy common media is migrated to one concrete colour only; it
             # is never copied across every colour variant.
             images = parent_media
+        explicit_availability = str(raw.get("availabilityStatus") or "").strip().upper()
+        variant_status = _variant_status(raw.get("status"), "inactive" if explicit_availability == "NO_STOCK" else default_status)
         variants.append({
             "id": identifier,
             "sku": make_variant_sku(prefix, code, colour),
             "colour": colour,
             "colourSlug": slug.lower(),
             "images": images,
-            "status": _variant_status(raw.get("status"), default_status),
+            "status": variant_status,
+            "availabilityStatus": _availability_status(variant_status),
             "price": price,
             "currency": "INR",
             "stock": sum(int(entry.get("stock") or 0) for entry in size_inventory),
@@ -246,6 +254,7 @@ def public_variant_view(variant: dict, *, media_limit: int | None = None) -> dic
         "colourSlug": str(variant.get("colourSlug") or ""),
         "images": images,
         "status": _variant_status(variant.get("status")),
+        "availabilityStatus": _availability_status(variant.get("status")),
         "price": variant.get("price"),
         "currency": "INR",
         "stock": max(0, int(variant.get("stock") or 0)),

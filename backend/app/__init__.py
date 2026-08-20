@@ -21,6 +21,7 @@ from .blueprints.health.routes import health_bp
 from .blueprints.admin.routes import admin_bp
 from .blueprints.analytics.routes import analytics_bp, storefront_activity_bp
 from .blueprints.catalog.routes import catalog_bp
+from .catalog import ensure_catalog_indexes
 from .blueprints.payments.routes import payments_bp, razorpay_webhook_bp
 from .blueprints.orders.routes import customer_orders_bp, staff_orders_bp
 from .feedback import feedback_bp, ensure_feedback_indexes
@@ -78,6 +79,11 @@ def create_app() -> Flask:
     limiter.init_app(app)
     mail.init_app(app)
     mongo.init_app(app)
+    try:
+        if mongo.db is not None:
+            ensure_catalog_indexes(mongo.db)
+    except Exception:
+        app.logger.exception("Unable to initialize catalog indexes during startup")
 
     @app.before_request
     def handle_api_preflight():

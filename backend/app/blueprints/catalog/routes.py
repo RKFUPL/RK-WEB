@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from time import perf_counter
 import html
 import re
 
@@ -9,7 +10,7 @@ from ...catalog import (
     STOREFRONT_COLLECTION_PROJECTION,
     collection_document,
     collection_view,
-    ensure_catalog_seed_once,
+    ensure_catalog_indexes,
     is_excluded_collection,
     product_document,
     product_is_runway,
@@ -147,16 +148,29 @@ def create_custom_order_request():
 
 @catalog_bp.get("/collections/<slug>")
 def storefront_collection(slug: str):
+    started_at = perf_counter()
     db = database()
-    ensure_catalog_seed_once(db)
+    ensure_catalog_indexes(db)
     collection = collection_document(db, slug, STOREFRONT_COLLECTION_PROJECTION)
+    collection_query_ms = (perf_counter() - started_at) * 1000
     if not collection:
         return jsonify({"error": "Collection not found."}), 404
-    response = jsonify({"collection": collection_view(db, collection, product_media_limit=2, product_cards=True)})
+    view_started_at = perf_counter()
+    payload = collection_view(db, collection, product_media_limit=2, product_cards=True)
+    view_ms = (perf_counter() - view_started_at) * 1000
+    current_app.logger.info(
+        "collection_perf slug=%s collection_query_ms=%.1f transformation_ms=%.1f total_ms=%.1f products=%s",
+        slug,
+        collection_query_ms,
+        view_ms,
+        (perf_counter() - started_at) * 1000,
+        len(payload.get("products") or []),
+    )
+    response = jsonify({"collection": payload})
     # Collection content is public and mostly editorial. A short edge cache
     # removes repeat DB work without allowing merchandising status to go stale
     # for more than a few seconds; checkout revalidates variant status/price.
-    response.headers["Cache-Control"] = "public, max-age=0, s-maxage=15, stale-while-revalidate=30"
+    response.headers["Cache-Control"] = "public, max-age=0, s-maxage=60, stale-while-revalidate=300"
     return response, 200
 
 

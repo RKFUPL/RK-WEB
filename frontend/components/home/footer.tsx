@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Facebook, Instagram, Linkedin, Youtube } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { brandLogoUrl, featuredLooks, storeInteriorVideoUrl } from '@/lib/home-content';
 import { CAREERS_URL } from '@/lib/external-links';
 
@@ -61,6 +61,23 @@ export function Footer() {
   const pathname = usePathname();
   const router = useRouter();
   const [mediaFailed, setMediaFailed] = useState(false);
+  const [videoVisible, setVideoVisible] = useState(false);
+  const videoSectionRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const section = videoSectionRef.current;
+    if (!section || typeof IntersectionObserver === 'undefined') {
+      setVideoVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) return;
+      setVideoVisible(true);
+      observer.disconnect();
+    }, { rootMargin: '600px 0px' });
+    observer.observe(section);
+    return () => observer.disconnect();
+  }, []);
 
   const scrollToAbout = () => {
     const about = document.getElementById('about');
@@ -95,8 +112,8 @@ export function Footer() {
   return (
     <footer id="footer" className="luxury-footer border-t border-gold/20 bg-ink text-ivory">
       {/* Video Section - Store Locator */}
-      <div className="relative w-full overflow-hidden bg-ink">
-        {mediaFailed ? (
+      <div ref={videoSectionRef} className="relative w-full overflow-hidden bg-ink">
+        {mediaFailed || !videoVisible ? (
           <img src={featuredLooks[0].image} alt="Rashi Kapoor couture interior" className="h-[min(52vw,420px)] w-full object-cover object-center" />
         ) : (
           <video

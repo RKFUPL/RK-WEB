@@ -31,6 +31,32 @@ FX_BUFFER_PERCENT = 5
 
 _catalog_seed_lock = Lock()
 _catalog_seeded_database_keys: set[tuple[int, str]] = set()
+_catalog_indexes_lock = Lock()
+_catalog_indexed_database_keys: set[tuple[int, str]] = set()
+
+
+def ensure_catalog_indexes(db) -> None:
+    """Create only indexes used by public catalog and admin catalog lookups."""
+    database_key = (id(db), str(getattr(db, "name", "")))
+    if database_key in _catalog_indexed_database_keys:
+        return
+    with _catalog_indexes_lock:
+        if database_key in _catalog_indexed_database_keys:
+            return
+        try:
+            db.collections.create_index("slug", name="catalog_collection_slug")
+            db.collections.create_index("productRefs.productId", name="catalog_collection_product_ref")
+            db.products.create_index([("status", 1), ("isActive", 1)], name="catalog_product_visibility")
+            db.products.create_index("slug", name="catalog_product_slug")
+            db.products.create_index("seedKey", name="catalog_product_seed_key")
+            db.products.create_index("sku", name="catalog_product_sku")
+            db.catalog_deletions.create_index("seedKey", name="catalog_deletion_seed_key")
+            db.catalog_deletions.create_index("sku", name="catalog_deletion_sku")
+        except OperationFailure:
+            # Existing deployments may already have equivalent indexes under
+            # another name; queries remain correct if index creation is denied.
+            pass
+        _catalog_indexed_database_keys.add(database_key)
 
 STOREFRONT_COLLECTION_PROJECTION = {
     "_id": 1,
@@ -604,6 +630,10 @@ def ensure_catalog_seed(db) -> None:
         needs_initial_relationship = not collection.get("catalogSeedVersion")
 
         seed_key = f"dummy:{seed['slug']}"
+        if db.catalog_deletions.find_one({"seedKey": seed_key}, {"_id": 1}):
+            # A staff member explicitly deleted this seeded placeholder. Keep
+            # the deletion authoritative so startup seeding cannot recreate it.
+            continue
         product = db.products.find_one({"seedKey": seed_key})
         if not product:
             sku_root = seed["name"].upper().replace(" ", "-")
@@ -648,6 +678,12 @@ def ensure_catalog_seed(db) -> None:
 
     for seed in PRODUCT_SEEDS:
         is_anamika_seed = seed.get("collectionSlug") == "collections-of-anamika"
+        if db.catalog_deletions.find_one(
+            {"$or": [{"seedKey": seed["seedKey"]}, {"sku": seed.get("sku")}]},
+            {"_id": 1},
+        ):
+            # Explicit permanent deletion wins over the compatibility seed.
+            continue
         product = db.products.find_one({"seedKey": seed["seedKey"]})
         if not product and is_anamika_seed:
             # Adopt an existing matching SKU instead of creating a duplicate if
@@ -864,16 +900,52 @@ def product_view(product: dict, *, display_order: int | None = None, media_limit
 
 def product_card_view(product: dict, *, display_order: int | None = None, media_limit: int = 2) -> dict:
     """Return only the fields needed by the public collection product grid."""
-    result = product_view(product, display_order=display_order, media_limit=media_limit)
-    for key in ("publicId", "customSizeConfig", "description", "createdAt", "updatedAt", "pricing"):
-        result.pop(key, None)
-    attributes = result.get("attributes")
-    if isinstance(attributes, dict):
-        result["attributes"] = {
-            key: attributes[key]
-            for key in ("sizes", "colors", "color")
-            if key in attributes
+    variants = [public_variant_view(variant, media_limit=media_limit) for variant in visible_variants(product)]
+    selected_variant = next((variant for variant in variants if variant["status"] == "active"), None) or (variants[0] if variants else None)
+    card_variants = []
+    for variant in variants:
+        card_variant = {
+            key: variant[key]
+            for key in ("id", "sku", "colour", "colourSlug", "images", "status", "availabilityStatus", "price", "currency", "stock")
+            if key in variant
         }
+        if variant is selected_variant:
+            card_variant["sizes"] = variant.get("sizes") or []
+            card_variant["sizeInventory"] = variant.get("sizeInventory") or []
+        card_variants.append(card_variant)
+    attributes = product.get("attributes") if isinstance(product.get("attributes"), dict) else {}
+    colors = [variant["colour"] for variant in variants if variant.get("colour")]
+    size_inventory = selected_variant.get("sizeInventory", []) if selected_variant else []
+    configured = bool(selected_variant) or has_size_system(product)
+    stored_availability = str(product.get("availability") or "in_stock").lower()
+    availability = "in_stock" if any(variant["status"] == "active" for variant in variants) else "sold_out" if variants else stored_availability if stored_availability in PRODUCT_AVAILABILITY else "in_stock"
+    result = {
+        "id": str(product["_id"]),
+        "name": product.get("name"),
+        "productCode": product.get("productCode") or product.get("sku"),
+        "parentSku": product.get("sku"),
+        "sku": selected_variant.get("sku") if selected_variant else product.get("sku"),
+        "slug": product.get("slug") or str(product["_id"]),
+        "status": product.get("status", "draft"),
+        "availability": availability,
+        "price": selected_variant.get("price") if selected_variant else product.get("price"),
+        "taxInclusive": bool(product.get("taxInclusive") or product.get("mrpIncludesGst")),
+        "mrpIncludesGst": bool(product.get("taxInclusive") or product.get("mrpIncludesGst")),
+        "currency": "INR",
+        "stock": selected_variant.get("stock") if selected_variant else product.get("stock"),
+        "sizeSystemEnabled": configured,
+        "sizeInventoryConfigured": configured,
+        "sizeInventory": _json_value(size_inventory),
+        "category": product.get("category"),
+        "media": _json_value(selected_variant.get("images") if selected_variant else product.get("media") or [])[:media_limit],
+        "attributes": {
+            key: _json_value(attributes[key]) for key in ("sizes", "colors", "color") if key in attributes
+        },
+        "variants": card_variants,
+        "isDummy": bool(product.get("isDummy")),
+    }
+    if colors:
+        result["attributes"]["colors"] = colors
     return result
 
 
