@@ -18,7 +18,7 @@ import {
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { brandLogoUrl, collectionGalleryPages, searchItems } from '@/lib/home-content';
 import { apiBaseUrl, logout } from '@/lib/rbac';
-import { addStoredCartItem, cartChangedEvent, readStoredCart, removeStoredCartItem, updateStoredCartQuantity } from '@/lib/storefront-cart';
+import { cartChangedEvent, readStoredCart, removeStoredCartItem, updateStoredCartQuantity } from '@/lib/storefront-cart';
 import { readWishlist, removeFromWishlist, wishlistChangedEvent, type StorefrontWishlistItem } from '@/lib/storefront-wishlist';
 import type { Cart } from '@/lib/store-types';
 import { cn } from '@/lib/utils';
@@ -255,24 +255,9 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
   };
 
   const addWishlistItemToBag = (item: StorefrontWishlistItem) => {
-    const availability = String(item.availability || '').toLowerCase().replaceAll(' ', '_');
-    if (availability === 'sold_out' || item.price === undefined) {
-      setWishlistNotice(`${item.name} is not currently available to add.`);
-      return;
-    }
-    if (item.sizeOptions?.length) {
-      setWishlistNotice('Choose a size from the product page before adding this piece.');
-      setWishlistOpen(false);
-      router.push(item.route);
-      return;
-    }
-    const existing = readStoredCart().items.find((cartItem) => cartItem.productId === item.productId);
-    if (availability === 'in_stock' && item.stock !== undefined && (existing?.quantity ?? 0) >= item.stock) {
-      setWishlistNotice(`Only ${item.stock} available for ${item.name}.`);
-      return;
-    }
-    addStoredCartItem({ productId: item.productId, name: item.name, price: item.price, quantity: 1, image: item.image, stock: item.stock, availability: item.availability });
-    setWishlistNotice(`${item.name} added to your bag.`);
+    setWishlistNotice('Choose the colour and size from the product page.');
+    setWishlistOpen(false);
+    router.push(item.route);
   };
 
   const searchResults = useMemo(() => {
@@ -689,10 +674,10 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
               role="dialog"
               aria-modal="true"
               aria-labelledby="wishlist-dialog-title"
-              className="fixed inset-y-0 right-0 isolate flex h-[100dvh] min-h-[100dvh] w-full max-w-md flex-col overflow-hidden bg-[#fffdf9] text-charcoal shadow-2xl dark:bg-[#121212] dark:text-white"
-              initial={{ opacity: 0, x: '100%', scale: 1 }}
-              animate={{ opacity: 1, x: 0, scale: 1 }}
-              exit={{ opacity: 0, x: '100%', scale: 1 }}
+              className="fixed left-1/2 top-24 isolate flex max-h-[calc(100dvh-7rem)] w-[min(92vw,32rem)] -translate-x-1/2 flex-col overflow-hidden rounded-[18px] bg-[#fffdf9] text-charcoal shadow-2xl dark:bg-[#121212] dark:text-white"
+              initial={{ opacity: 0, y: -18, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -18, scale: 0.97 }}
               transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
               onClick={(event) => event.stopPropagation()}
             >
@@ -706,7 +691,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
               </div>
               <div className={`min-h-0 flex-1 overflow-y-auto bg-[#fffdf9] dark:bg-[#121212] ${wishlistItems.length ? 'px-6' : 'flex items-center justify-center px-8 text-center text-sm text-charcoal/55 dark:text-white/60'}`}>
                 {wishlistItems.length ? wishlistItems.map((item) => (
-                  <div key={item.productId} className="flex gap-4 border-b border-black/10 py-5 dark:border-white/10">
+                  <div key={`${item.productId}:${item.sku || item.variantId || 'default'}`} className="flex gap-4 border-b border-black/10 py-5 dark:border-white/10">
                     <Link href={item.route} onClick={() => setWishlistOpen(false)} className="h-24 w-20 shrink-0 overflow-hidden rounded-[12px] bg-sand">
                       {item.image ? <img src={item.image} alt={item.name} className="h-full w-full object-cover" /> : null}
                     </Link>
@@ -717,7 +702,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
                         </Link>
                         <button
                           type="button"
-                          onClick={() => removeFromWishlist(item.productId)}
+                          onClick={() => removeFromWishlist(item.productId, item.sku)}
                           className="shrink-0 text-sm text-charcoal/65 transition hover:text-gold"
                           aria-label={`Remove ${item.name} from wishlist`}
                         >
@@ -725,8 +710,10 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
                         </button>
                       </div>
                       <p className="mt-1 text-[0.68rem] text-charcoal/55 dark:text-white/55">{item.category || 'Couture'}</p>
+                      {item.colour || item.sku ? <p className="mt-1 text-[0.62rem] uppercase tracking-[0.14em] text-charcoal/55 dark:text-white/55">{item.colour || 'Colour'}{item.sku ? ` · ${item.sku}` : ''}</p> : null}
                       <p className="mt-1 text-xs text-charcoal/70 dark:text-white/70">{item.price === undefined ? 'Price on request' : inr.format(item.price)}</p>
                       <p className="mt-1 text-[0.62rem] text-charcoal/55 dark:text-white/55">{item.availability || 'Available on request'}</p>
+                      {item.sizeOptions?.length ? <p className="mt-2 text-[0.62rem] uppercase tracking-[0.14em] text-charcoal/55 dark:text-white/55">Sizes: {item.sizeOptions.join(' · ')}</p> : null}
                       <div className="mt-3 flex flex-wrap gap-3">
                         <button type="button" disabled={String(item.availability || '').toLowerCase().replaceAll(' ', '_') === 'sold_out'} onClick={() => addWishlistItemToBag(item)} className="rounded-full bg-ink px-3 py-1.5 text-[0.62rem] text-white transition hover:bg-gold disabled:cursor-not-allowed disabled:opacity-45">Add to Bag</button>
                         <Link href={item.route} onClick={() => setWishlistOpen(false)} className="inline-flex items-center text-[0.62rem] uppercase tracking-[0.16em] text-gold">View Piece</Link>
@@ -780,7 +767,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
                 </button>
               </div>
               <div className={`min-h-0 flex-1 overflow-y-auto bg-[#fffdf9] dark:bg-[#121212] ${shoppingBag.items.length ? 'px-6' : 'flex items-center justify-center px-8 text-center text-sm text-charcoal/55 dark:text-white/60'}`}>
-                {shoppingBag.items.length ? shoppingBag.items.map((item) => { const lineKey = cartLineKey(item); return <div key={lineKey} className="flex gap-4 border-b border-black/10 py-5 dark:border-white/10"><div className="h-24 w-20 shrink-0 overflow-hidden rounded-[12px] bg-sand">{item.image ? <img src={item.image} alt={item.name} className="h-full w-full object-cover" /> : null}</div><div className="min-w-0 flex-1"><p className="font-display text-lg">{item.name}</p>{item.variant ? <p className="mt-1 text-[0.6rem] uppercase tracking-[0.18em] text-charcoal/50 dark:text-white/50">{item.variant.name}: {item.variant.value}</p> : null}{item.customSize ? <p className="mt-1 text-[0.6rem] uppercase tracking-[0.18em] text-charcoal/50 dark:text-white/50">Custom size · {item.customSize.unit}</p> : null}<p className="mt-2 text-xs text-charcoal/70 dark:text-white/70">Unit price: {inr.format(item.price)}</p><p className="mt-1 text-xs text-charcoal/70 dark:text-white/70">Subtotal: {inr.format(item.price * item.quantity)}</p><div className="mt-3 flex items-center gap-2"><button type="button" onClick={() => updateStoredCartQuantity(item.productId, item.quantity - 1, item.variant?.id, lineKey)} aria-label={`Decrease quantity of ${item.name}`} className="grid h-8 w-8 place-items-center border border-black/15 transition hover:text-gold dark:border-white/20"><Minus size={13} /></button><span className="min-w-6 text-center text-xs">{item.quantity}</span><button type="button" disabled={item.availability?.toLowerCase().replaceAll(' ', '_') === 'in_stock' && item.stock !== undefined && item.quantity >= item.stock} onClick={() => updateStoredCartQuantity(item.productId, item.quantity + 1, item.variant?.id, lineKey)} aria-label={`Increase quantity of ${item.name}`} className="grid h-8 w-8 place-items-center border border-black/15 transition hover:text-gold disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/20"><Plus size={13} /></button></div><button type="button" onClick={() => removeStoredCartItem(item.productId, item.variant?.id, lineKey)} className="mt-3 text-[0.55rem] uppercase tracking-[0.2em] text-gold">Remove</button></div></div>; }) : <div className="flex min-h-full flex-col items-center justify-center gap-4 text-center"><ShoppingBag className="h-7 w-7 text-gold" strokeWidth={1.25} /><p>Your bag is empty.</p><Link href="/collections" onClick={() => setBagOpen(false)} className="border-b border-charcoal/40 pb-2 text-[0.6rem] uppercase tracking-[0.25em] dark:border-white/40">Explore Collections</Link></div>}
+                {shoppingBag.items.length ? shoppingBag.items.map((item) => { const lineKey = cartLineKey(item); return <div key={lineKey} className="flex gap-4 border-b border-black/10 py-5 dark:border-white/10"><div className="h-24 w-20 shrink-0 overflow-hidden rounded-[12px] bg-sand">{item.image ? <img src={item.image} alt={item.name} className="h-full w-full object-cover" /> : null}</div><div className="min-w-0 flex-1"><p className="font-display text-lg">{item.name}</p>{item.variant ? <p className="mt-1 text-[0.6rem] uppercase tracking-[0.18em] text-charcoal/50 dark:text-white/50">{item.variant.name}: {item.variant.value}</p> : null}{item.customSize ? <p className="mt-1 text-[0.6rem] uppercase tracking-[0.18em] text-charcoal/50 dark:text-white/50">Custom size · {item.customSize.unit}</p> : null}<p className="mt-2 text-xs text-charcoal/70 dark:text-white/70">Unit price: {inr.format(item.price)}</p><p className="mt-1 text-xs text-charcoal/70 dark:text-white/70">Subtotal: {inr.format(item.price * item.quantity)}</p><div className="mt-3 flex items-center gap-2"><button type="button" onClick={() => updateStoredCartQuantity(item.productId, item.quantity - 1, item.variant?.id, lineKey)} aria-label={`Decrease quantity of ${item.name}`} className="grid h-8 w-8 place-items-center border border-black/15 transition hover:text-gold dark:border-white/20"><Minus size={13} /></button><span className="min-w-6 text-center text-xs">{item.quantity}</span><button type="button" disabled={item.quantity >= 50} onClick={() => updateStoredCartQuantity(item.productId, item.quantity + 1, item.variant?.id, lineKey)} aria-label={`Increase quantity of ${item.name}`} className="grid h-8 w-8 place-items-center border border-black/15 transition hover:text-gold disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/20"><Plus size={13} /></button></div><button type="button" onClick={() => removeStoredCartItem(item.productId, item.variant?.id, lineKey)} className="mt-3 text-[0.55rem] uppercase tracking-[0.2em] text-gold">Remove</button></div></div>; }) : <div className="flex min-h-full flex-col items-center justify-center gap-4 text-center"><ShoppingBag className="h-7 w-7 text-gold" strokeWidth={1.25} /><p>Your bag is empty.</p><Link href="/collections" onClick={() => setBagOpen(false)} className="border-b border-charcoal/40 pb-2 text-[0.6rem] uppercase tracking-[0.25em] dark:border-white/40">Explore Collections</Link></div>}
               </div>
               <div className="border-t border-black/10 bg-[#fffdf9] px-6 py-5 dark:border-white/10 dark:bg-[#121212]">
                 {shoppingBag.items.length ? <div className="mb-4 flex items-center justify-between text-sm"><span>Subtotal</span><span>{inr.format(getCartSubtotal(shoppingBag))}</span></div> : null}

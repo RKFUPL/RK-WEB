@@ -6,7 +6,6 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { trackAnalyticsEvent } from '@/lib/analytics';
 import { availabilityLabels, inr, type CatalogProduct } from '@/lib/catalog';
-import { addStoredCartItem } from '@/lib/storefront-cart';
 import { readWishlist, toggleWishlist, wishlistChangedEvent } from '@/lib/storefront-wishlist';
 import { cloudinaryImageUrl } from '@/lib/utils';
 
@@ -18,7 +17,6 @@ function productColourText(product: CatalogProduct) {
 
 export function CollectionProductCard({ product }: { product: CatalogProduct }) {
   const [saved, setSaved] = useState(false);
-  const [cartMessage, setCartMessage] = useState('');
   const route = `/products/${product.id}`;
   const primaryImage = product.media?.[0];
   const secondaryImage = product.media?.[1];
@@ -26,14 +24,16 @@ export function CollectionProductCard({ product }: { product: CatalogProduct }) 
   const secondaryGridImage = cloudinaryImageUrl(secondaryImage, 640);
   const sizeConfigured = product.sizeInventoryConfigured === true;
   const productColours = productColourText(product);
+  const defaultVariant = product.variants?.find((variant) => variant.status !== 'remove') || product.variants?.[0];
+  const wishlistSku = defaultVariant?.sku || product.sku;
 
   useEffect(() => {
-    const sync = () => setSaved(readWishlist().some((item) => item.productId === product.id));
+    const sync = () => setSaved(readWishlist().some((item) => item.productId === product.id && (item.sku || '') === (wishlistSku || '')));
     sync();
     window.addEventListener(wishlistChangedEvent, sync);
     window.addEventListener('storage', sync);
     return () => { window.removeEventListener(wishlistChangedEvent, sync); window.removeEventListener('storage', sync); };
-  }, [product.id]);
+  }, [product.id, wishlistSku]);
 
   const toggleSaved = () => {
     if (!window.localStorage.getItem('rk_access_token')) {
@@ -42,14 +42,17 @@ export function CollectionProductCard({ product }: { product: CatalogProduct }) 
     }
     const added = toggleWishlist({
       productId: product.id,
+      variantId: defaultVariant?.id,
+      sku: wishlistSku,
+      colour: defaultVariant?.colour || productColours,
       name: product.name || 'Untitled piece',
       price: product.price,
-      image: primaryImage,
+      image: defaultVariant?.images?.[0] || primaryImage,
       category: product.category || 'Couture',
       availability: availabilityLabels[product.availability],
       stock: product.stock,
-      sizeOptions: sizeConfigured ? product.sizeInventory?.filter((entry) => entry.enabled !== false).map((entry) => entry.size) : undefined,
-      sizeStock: Object.fromEntries((product.sizeInventory ?? []).map((entry) => [entry.size, entry.stock])),
+      sizeOptions: defaultVariant?.sizes || (sizeConfigured ? product.sizeInventory?.filter((entry) => entry.enabled !== false).map((entry) => entry.size) : undefined),
+      sizeStock: Object.fromEntries((defaultVariant?.sizeInventory || product.sizeInventory || []).map((entry) => [entry.size, entry.stock])),
       route,
     });
     setSaved(added);
@@ -57,27 +60,7 @@ export function CollectionProductCard({ product }: { product: CatalogProduct }) 
   };
 
   const addToCart = () => {
-    if (!window.localStorage.getItem('rk_access_token')) {
-      window.alert('Please sign in to add pieces to your shopping bag.');
-      return;
-    }
-    if (sizeConfigured) {
-      window.location.assign(route);
-      return;
-    }
-    addStoredCartItem({
-      productId: product.id,
-      name: product.name || 'Untitled piece',
-      price: Number(product.price || 0),
-      quantity: 1,
-      image: primaryImage,
-      stock: product.stock,
-      availability: availabilityLabels[product.availability],
-      inventoryMode: 'legacy',
-    });
-    trackAnalyticsEvent('add_to_bag', { productId: product.id, productName: product.name, currency: 'INR', value: product.price, quantity: 1 });
-    setCartMessage('Added to bag');
-    window.setTimeout(() => setCartMessage(''), 2200);
+    window.location.assign(route);
   };
 
   return <article className="collection-product-card group min-w-0">
@@ -104,7 +87,7 @@ export function CollectionProductCard({ product }: { product: CatalogProduct }) 
       <p className="mt-2 text-xs text-charcoal/70 sm:text-sm">{product.price === undefined ? 'Price on request' : inr.format(product.price)}</p>
       {product.price !== undefined && (product.taxInclusive || product.mrpIncludesGst) ? <p className="mt-1.5 text-[0.5rem] uppercase tracking-[0.18em] text-charcoal/42">MRP · Inclusive of GST</p> : null}
       <button type="button" onClick={addToCart} disabled={product.availability === 'sold_out'} className="mt-4 inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.56rem] uppercase tracking-[0.24em] text-charcoal transition hover:border-gold hover:text-gold disabled:cursor-not-allowed disabled:opacity-40">
-        <ShoppingBag size={14} strokeWidth={1.35} />{product.availability === 'sold_out' ? 'Sold out' : sizeConfigured ? 'Choose size' : cartMessage || 'Add to cart'}
+        <ShoppingBag size={14} strokeWidth={1.35} />{product.availability === 'sold_out' ? 'Sold out' : sizeConfigured || product.variants?.length ? 'Choose options' : 'View product'}
       </button>
     </div>
   </article>;

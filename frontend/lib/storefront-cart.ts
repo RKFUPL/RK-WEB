@@ -8,7 +8,9 @@ export function readStoredCart(): Cart {
   if (typeof window === 'undefined') return emptyCart;
   try {
     const value = JSON.parse(window.localStorage.getItem(cartStorageKey) || 'null');
-    return value && Array.isArray(value.items) ? { items: value.items, currency: 'INR' } : emptyCart;
+    return value && Array.isArray(value.items)
+      ? { items: value.items.map((item: CartItem) => item?.inventoryMode === 'variant' ? { ...item, stock: undefined } : item), currency: 'INR' }
+      : emptyCart;
   } catch {
     return emptyCart;
   }
@@ -33,14 +35,12 @@ export function removeStoredCartItem(productId: string, variantId?: string, line
 
 export function updateStoredCartQuantity(productId: string, quantity: number, variantId?: string, lineKey?: string) {
   const cart = readStoredCart();
-  const current = cart.items.find((item) => lineKey ? cartLineKey(item) === lineKey : item.productId === productId && item.variant?.id === variantId);
-  const limited = current?.availability?.toLowerCase().replaceAll(' ', '_') === 'in_stock' && current.stock !== undefined;
-  const nextQuantity = limited ? Math.min(quantity, current?.stock ?? quantity) : quantity;
+  const nextQuantity = Math.min(50, quantity);
   const next = quantity <= 0
     ? removeFromCart(cart, productId, variantId, lineKey)
     : {
         ...cart,
-        items: cart.items.map((item) => (lineKey ? cartLineKey(item) === lineKey : item.productId === productId && item.variant?.id === variantId) ? { ...item, quantity: nextQuantity } : item),
+        items: cart.items.map((item) => (lineKey ? cartLineKey(item) === lineKey : item.productId === productId && (item.variantId || item.variant?.id) === variantId) ? { ...item, quantity: nextQuantity } : item),
       };
   writeStoredCart(next);
   return next;

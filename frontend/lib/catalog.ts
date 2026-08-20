@@ -1,4 +1,20 @@
 export type ProductAvailability = 'in_stock' | 'custom_order' | 'sold_out';
+export type ProductVariantStatus = 'active' | 'inactive' | 'remove';
+
+export type CatalogProductVariant = {
+  id: string;
+  sku: string;
+  colour: string;
+  colourSlug: string;
+  images: string[];
+  status: ProductVariantStatus;
+  price?: number;
+  currency: 'INR';
+  stock?: number;
+  sizes: string[];
+  sizeInventory: Array<{ size: string; stock: number; enabled?: boolean }>;
+  metadata?: Record<string, unknown>;
+};
 export type CollectionHeroType = 'image' | 'video';
 export type CollectionHeroLayout = 'full_bleed' | 'editorial_split' | 'media_dominant';
 export type CollectionHeroTextPosition = 'left' | 'right';
@@ -25,6 +41,9 @@ export type CollectionHeroConfig = {
 export type CatalogProduct = {
   id: string;
   name?: string;
+  productCode?: string;
+  parentSku?: string;
+  skuPrefix?: string;
   sku?: string;
   slug?: string;
   status?: string;
@@ -42,6 +61,7 @@ export type CatalogProduct = {
   category?: string;
   description?: string;
   media: string[];
+  variants?: CatalogProductVariant[];
   attributes: {
     sizes?: string[];
     colors?: string[];
@@ -88,9 +108,9 @@ export type ManagedCollection = {
 };
 
 export const availabilityLabels: Record<ProductAvailability, string> = {
-  in_stock: 'In Stock',
-  custom_order: 'Custom Order',
-  sold_out: 'Sold Out',
+  in_stock: 'IN STOCK',
+  custom_order: 'CUSTOM ORDER',
+  sold_out: 'NO STOCK',
 };
 
 export const inr = new Intl.NumberFormat('en-IN', {

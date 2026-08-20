@@ -4,12 +4,20 @@
  */
 export type ProductVariant = {
   id: string;
+  sku: string;
+  colour: string;
   name: string;
   value: string;
+  status: 'active' | 'inactive';
 };
 
 export type CartItem = {
   productId: string;
+  productCode: string;
+  variantId: string;
+  sku: string;
+  collection: string;
+  colour: string;
   name: string;
   price: number;
   quantity: number;
@@ -17,7 +25,7 @@ export type CartItem = {
   stock?: number;
   availability?: string;
   /** Explicitly distinguishes legacy product stock from size stock. */
-  inventoryMode?: 'legacy' | 'size';
+  inventoryMode?: 'legacy' | 'size' | 'variant';
   /** Distinguishes a standard-size purchase from a submitted custom-size order. */
   purchaseMode?: 'standard_size' | 'custom_size';
   variant?: ProductVariant;

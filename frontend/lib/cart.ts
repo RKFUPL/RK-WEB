@@ -13,10 +13,10 @@ export function getCartSubtotal(cart: Cart) {
   return cart.items.reduce((total, item) => total + item.price * item.quantity, 0);
 }
 
-export function cartLineKey(item: Pick<CartItem, 'productId' | 'variant' | 'size' | 'customSize'>) {
+export function cartLineKey(item: Pick<CartItem, 'productId' | 'variantId' | 'variant' | 'size' | 'customSize'>) {
   return [
     item.productId,
-    item.variant?.id || '',
+    item.variantId || item.variant?.id || '',
     item.size || '',
     item.customSize ? JSON.stringify(item.customSize) : '',
   ].join('::');
@@ -25,12 +25,10 @@ export function cartLineKey(item: Pick<CartItem, 'productId' | 'variant' | 'size
 function sameCartLine(item: CartItem, productId: string, variantId?: string, lineKey?: string) {
   return lineKey
     ? cartLineKey(item) === lineKey
-    : item.productId === productId && item.variant?.id === variantId;
+    : item.productId === productId && (item.variantId || item.variant?.id) === variantId;
 }
 
 export function addToCart(cart: Cart, item: CartItem): Cart {
-  const limited = item.availability?.toLowerCase().replaceAll(' ', '_') === 'in_stock' && item.stock !== undefined;
-  if (limited && (item.stock ?? 0) <= 0) return cart;
   const existingItem = cart.items.find((currentItem) => cartLineKey(currentItem) === cartLineKey(item));
 
   if (!existingItem) {
@@ -41,7 +39,7 @@ export function addToCart(cart: Cart, item: CartItem): Cart {
     ...cart,
     items: cart.items.map((currentItem) =>
       currentItem === existingItem
-        ? { ...currentItem, quantity: limited ? Math.min(currentItem.quantity + item.quantity, item.stock ?? currentItem.quantity + item.quantity) : currentItem.quantity + item.quantity }
+        ? { ...currentItem, quantity: Math.min(50, currentItem.quantity + item.quantity) }
         : currentItem
     ),
   };
@@ -63,9 +61,6 @@ export function updateCartItemSize(cart: Cart, lineKey: string, size: string): C
     ...source,
     size,
     stock: source.sizeStock?.[size] ?? source.stock,
-    variant: source.variant?.name === 'Size'
-      ? { ...source.variant, id: `size:${size}`, value: size }
-      : source.variant,
   };
   const updatedKey = cartLineKey(updated);
   const remaining = cart.items.filter((_, index) => index !== sourceIndex);
@@ -73,10 +68,9 @@ export function updateCartItemSize(cart: Cart, lineKey: string, size: string): C
 
   if (existingIndex >= 0) {
     const existing = remaining[existingIndex];
-    const limited = existing.availability?.toLowerCase().replaceAll(' ', '_') === 'in_stock' && existing.stock !== undefined;
     remaining[existingIndex] = {
       ...existing,
-      quantity: limited ? Math.min(existing.quantity + source.quantity, existing.stock ?? existing.quantity + source.quantity) : existing.quantity + source.quantity,
+      quantity: Math.min(50, existing.quantity + source.quantity),
     };
     return { ...cart, items: remaining };
   }

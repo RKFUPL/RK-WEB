@@ -1,5 +1,8 @@
 export type StorefrontWishlistItem = {
   productId: string;
+  variantId?: string;
+  sku?: string;
+  colour?: string;
   name: string;
   price?: number;
   image?: string;
@@ -32,14 +35,15 @@ export function writeWishlist(items: StorefrontWishlistItem[]) {
 
 export function toggleWishlist(item: Omit<StorefrontWishlistItem, 'addedAt'>) {
   const current = readWishlist();
-  const exists = current.some((entry) => entry.productId === item.productId);
+  const identity = (entry: Pick<StorefrontWishlistItem, 'productId' | 'sku' | 'variantId'>) => `${entry.productId}:${entry.sku || entry.variantId || 'default'}`;
+  const exists = current.some((entry) => identity(entry) === identity(item));
   const next = exists
-    ? current.filter((entry) => entry.productId !== item.productId)
+    ? current.filter((entry) => identity(entry) !== identity(item))
     : [{ ...item, addedAt: new Date().toISOString() }, ...current];
   writeWishlist(next);
   return !exists;
 }
 
-export function removeFromWishlist(productId: string) {
-  writeWishlist(readWishlist().filter((item) => item.productId !== productId));
+export function removeFromWishlist(productId: string, sku?: string) {
+  writeWishlist(readWishlist().filter((item) => !(item.productId === productId && (!sku || item.sku === sku))));
 }
