@@ -13,6 +13,10 @@ const nextConfig = {
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
         ],
       },
+      {
+        source: '/_next/static/css/:path*',
+        headers: [{ key: 'Content-Type', value: 'text/css; charset=utf-8' }],
+      },
     ];
   },
   async rewrites() {

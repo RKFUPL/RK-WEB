@@ -18,10 +18,10 @@ for _proxy_name in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'htt
 
 from .blueprints.auth.routes import auth_bp
 from .blueprints.health.routes import health_bp
-from .blueprints.admin.routes import admin_bp
+from .blueprints.admin.routes import admin_bp, ensure_dashboard_indexes
 from .blueprints.analytics.routes import analytics_bp, storefront_activity_bp
 from .blueprints.catalog.routes import catalog_bp
-from .catalog import ensure_catalog_indexes
+from .catalog import ensure_catalog_indexes, ensure_catalog_seed_once
 from .blueprints.payments.routes import payments_bp, razorpay_webhook_bp
 from .blueprints.orders.routes import customer_orders_bp, staff_orders_bp
 from .feedback import feedback_bp, ensure_feedback_indexes
@@ -82,6 +82,8 @@ def create_app() -> Flask:
     try:
         if mongo.db is not None:
             ensure_catalog_indexes(mongo.db)
+            ensure_catalog_seed_once(mongo.db)
+            ensure_dashboard_indexes(mongo.db)
     except Exception:
         app.logger.exception("Unable to initialize catalog indexes during startup")
 

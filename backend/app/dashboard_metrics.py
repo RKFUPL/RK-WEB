@@ -92,10 +92,15 @@ def build_dashboard(database, period: str, now: datetime | None = None, current_
     visitor_ids = database.analytics_events.distinct("visitorId", page_view_query)
     page_view_count = database.analytics_events.count_documents(page_view_query)
     wishlist_adds = database.analytics_events.count_documents({**public_event_query, "event": "wishlist_add"})
-    fulfillment_counts = {
-        status: database.orders.count_documents({"$or": [{"fulfillment.status": status}, {"fulfillmentStatus": status}]})
-        for status in ("order_placed", "confirmed", "processing", "packed", "shipped", "out_for_delivery", "delivered", "return_requested", "returned", "cancelled", "refunded")
-    }
+    fulfillment_statuses = ("order_placed", "confirmed", "processing", "packed", "shipped", "out_for_delivery", "delivered", "return_requested", "returned", "cancelled", "refunded")
+    fulfillment_counts = {status: 0 for status in fulfillment_statuses}
+    for row in database.orders.aggregate([
+        {"$project": {"status": {"$ifNull": ["$fulfillment.status", "$fulfillmentStatus"]}}},
+        {"$group": {"_id": "$status", "count": {"$sum": 1}}},
+    ]):
+        status = str(row.get("_id") or "")
+        if status in fulfillment_counts:
+            fulfillment_counts[status] = int(row.get("count") or 0)
     fulfillment_counts["returns"] = sum(fulfillment_counts.get(status, 0) for status in RETURN_FULFILLMENT_STATUSES)
 
     order_query = {
@@ -137,7 +142,26 @@ def build_dashboard(database, period: str, now: datetime | None = None, current_
 
     sales_by_day: dict[str, dict[str, float]] = defaultdict(lambda: {"orders": 0, "revenue": 0.0})
     product_sales: dict[str, dict[str, Any]] = {}
-    for order in database.orders.find(order_query):
+    order_projection = {
+        "createdAt": 1,
+        "total": 1,
+        "totalAmount": 1,
+        "grandTotal": 1,
+        "totals.total": 1,
+        "amountPaise": 1,
+        "items.productId": 1,
+        "items.sku": 1,
+        "items.name": 1,
+        "items.productName": 1,
+        "items.quantity": 1,
+        "items.lineTotal": 1,
+        "items.unitPrice": 1,
+        "items.price": 1,
+    }
+    recent_orders = []
+    for order in database.orders.find(order_query, order_projection).sort("createdAt", -1):
+        if len(recent_orders) < 6:
+            recent_orders.append(order)
         order_count += 1
         total = order_total(order)
         revenue += total
@@ -247,7 +271,7 @@ def build_dashboard(database, period: str, now: datetime | None = None, current_
         })
 
     activity = []
-    for order in database.orders.find(order_query).sort("createdAt", -1).limit(6):
+    for order in recent_orders:
         activity.append({
             "id": str(order.get("_id")),
             "type": "order",

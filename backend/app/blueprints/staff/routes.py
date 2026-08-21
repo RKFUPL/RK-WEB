@@ -14,6 +14,7 @@ from ...catalog import (
     collection_hero,
     collection_view,
     ensure_catalog_seed,
+    ensure_catalog_seed_once,
     managed_collections,
     product_collection_ids,
     product_view,
@@ -65,7 +66,53 @@ def _json_value(value):
     return serialize_json_value(value)
 
 
-def _document_view(document: dict) -> dict:
+def _document_view(document: dict, resource: str | None = None) -> dict:
+    if resource == "inventory":
+        return {
+            "id": str(document.get("_id")),
+            "name": _json_value(document.get("name")),
+            "sku": _json_value(document.get("sku")),
+            "stock": _json_value(document.get("stock")),
+            "availability": _json_value(document.get("availability")),
+            "status": _json_value(document.get("status")),
+        }
+    if resource == "products":
+        variants = []
+        for variant in document.get("variants") or []:
+            if not isinstance(variant, dict):
+                continue
+            images = variant.get("images") if isinstance(variant.get("images"), list) else []
+            variants.append({
+                "id": _json_value(variant.get("id")),
+                "sku": _json_value(variant.get("sku")),
+                "colour": _json_value(variant.get("colour")),
+                "status": _json_value(variant.get("status")),
+                "availabilityStatus": _json_value(variant.get("availabilityStatus")),
+                "stock": _json_value(variant.get("stock")),
+                "sizeInventory": _json_value(variant.get("sizeInventory") or []),
+                # The listing only needs a lazy thumbnail. Full image arrays
+                # are fetched by the Manage images action on demand.
+                "images": [_json_value(images[0])] if images else [],
+            })
+        attributes = document.get("attributes") if isinstance(document.get("attributes"), dict) else {}
+        media = document.get("media") if isinstance(document.get("media"), list) else []
+        return {
+            "id": str(document.get("_id")),
+            "name": _json_value(document.get("name")),
+            "sku": _json_value(document.get("sku")),
+            "price": _json_value(document.get("price")),
+            "stock": _json_value(document.get("stock")),
+            "status": _json_value(document.get("status")),
+            "availability": _json_value(document.get("availability")),
+            "category": _json_value(document.get("category")),
+            "description": _json_value(document.get("description")),
+            "sizeInventory": _json_value(document.get("sizeInventory") or []),
+            "sizeInventoryConfigured": bool(document.get("sizeInventoryConfigured")),
+            "sizeSystemEnabled": bool(document.get("sizeSystemEnabled")),
+            "attributes": {key: _json_value(attributes[key]) for key in ("sizes", "colors", "color") if key in attributes},
+            "media": [_json_value(media[0])] if media else [],
+            "variants": variants,
+        }
     hidden = {"passwordHash", "otpHash", "otpExpiresAt", "otpAttempts"}
     return {
         ("id" if key == "_id" else key): _json_value(value)
@@ -307,7 +354,7 @@ def list_resources(resource: str):
         return denied
     db = database()
     if resource in {"products", "inventory"}:
-        ensure_catalog_seed(db)
+        ensure_catalog_seed_once(db)
     query = _customer_scope(current_user()) if resource == "customers" else {}
     # Archived products are the persisted form of a dashboard deletion. They
     # remain available for historical references, but must not repopulate the
@@ -319,8 +366,24 @@ def list_resources(resource: str):
         escaped = re.escape(search[:80])
         fields = ["displayName", "email", "username"] if resource == "customers" else ["name", "sku", "variants.sku", "variants.colour", "orderNumber", "quoteNumber", "customerName", "email"]
         query = {**query, "$or": [{field: {"$regex": escaped, "$options": "i"}} for field in fields]}
-    projection = {"passwordHash": 0, "otpHash": 0, "otpExpiresAt": 0, "otpAttempts": 0}
-    documents = list(db[RESOURCE_COLLECTIONS[resource]].find(query, projection).sort("createdAt", -1).limit(200))
+    page = max(1, _integer(request.args.get("page"), 1))
+    page_size = min(100, max(1, _integer(request.args.get("limit"), 100)))
+    if resource == "inventory":
+        projection = {"_id": 1, "name": 1, "sku": 1, "stock": 1, "availability": 1, "status": 1, "createdAt": 1}
+    elif resource == "products":
+        projection = {
+            "_id": 1, "name": 1, "sku": 1, "price": 1, "stock": 1, "status": 1, "availability": 1,
+            "category": 1, "description": 1, "sizeInventory": 1, "sizeInventoryConfigured": 1,
+            "sizeSystemEnabled": 1, "attributes.sizes": 1, "attributes.colors": 1, "attributes.color": 1,
+            "media": {"$slice": 1}, "variants.id": 1, "variants.sku": 1, "variants.colour": 1,
+            "variants.status": 1, "variants.availabilityStatus": 1, "variants.stock": 1,
+            "variants.sizeInventory": 1, "variants.images": {"$slice": 1}, "createdAt": 1,
+        }
+    else:
+        projection = {"passwordHash": 0, "otpHash": 0, "otpExpiresAt": 0, "otpAttempts": 0}
+    collection = db[RESOURCE_COLLECTIONS[resource]]
+    total = collection.count_documents(query)
+    documents = list(collection.find(query, projection).sort("createdAt", -1).skip((page - 1) * page_size).limit(page_size))
     if resource in {"products", "inventory"} and documents:
         product_ids = [document["_id"] for document in documents]
         collection_names: dict[ObjectId, list[str]] = {product_id: [] for product_id in product_ids}
@@ -334,12 +397,12 @@ def list_resources(resource: str):
         viewed = []
         for document in documents:
             names = sorted(set(collection_names.get(document["_id"], [])), key=str.casefold)
-            item = _document_view(document)
+            item = _document_view(document, resource)
             item["collections"] = names
             item["collection"] = ", ".join(names)
             viewed.append(item)
-        return jsonify({"items": viewed}), 200
-    return jsonify({"items": [_document_view(document) for document in documents]}), 200
+        return jsonify({"items": viewed, "page": page, "pageSize": page_size, "total": total, "hasMore": page * page_size < total}), 200
+    return jsonify({"items": [_document_view(document, resource) for document in documents], "page": page, "pageSize": page_size, "total": total, "hasMore": page * page_size < total}), 200
 
 
 @staff_bp.post("/resources/<resource>")
@@ -452,7 +515,7 @@ def create_resource(resource: str):
     document["_id"] = result.inserted_id
     if resource == "products":
         document = sync_product_variants(db, document) or document
-    return jsonify({"item": _document_view(document)}), 201
+    return jsonify({"item": _document_view(document, "products" if resource == "products" else resource)}), 201
 
 
 @staff_bp.patch("/resources/<resource>/<resource_id>")
@@ -675,7 +738,29 @@ def update_resource(resource: str, resource_id: str):
     updated_document = collection.find_one({"_id": object_id}, {"passwordHash": 0})
     if resource == "products":
         updated_document = sync_product_variants(db, updated_document, force=any(key in updates for key in {"name", "sku", "attributes", "media", "price"})) or updated_document
-    return jsonify({"item": _document_view(updated_document)}), 200
+    return jsonify({"item": _document_view(updated_document, "products" if resource == "products" else resource)}), 200
+
+
+@staff_bp.get("/products/<product_id>/variants/<path:variant_id>")
+@requireStaff
+def get_product_variant(product_id: str, variant_id: str):
+    """Load full image metadata only when an administrator opens Manage images."""
+    denied = _permission_error("products")
+    if denied:
+        return denied
+    object_id = _valid_id(product_id)
+    if not object_id:
+        return jsonify({"error": "Invalid product id."}), 400
+    product = database().products.find_one({"_id": object_id})
+    if not product:
+        return jsonify({"error": "Product not found."}), 404
+    selected = find_variant(product, variant_id)
+    if not selected:
+        product = sync_product_variants(database(), product) or product
+        selected = find_variant(product, variant_id)
+    if not selected:
+        return jsonify({"error": "Variant not found."}), 404
+    return jsonify({"id": str(selected.get("id") or variant_id), "sku": selected.get("sku"), "images": [str(image).strip() for image in (selected.get("images") or []) if str(image).strip()]}), 200
 
 
 @staff_bp.patch("/products/<product_id>/variants/<path:variant_id>")
@@ -727,7 +812,7 @@ def update_product_variant(product_id: str, variant_id: str):
             return jsonify({"error": str(error)}), 400
 
     if updated_variant == variants[index]:
-        return jsonify({"item": _document_view(product)}), 200
+        return jsonify({"item": _document_view(product, "products")}), 200
     variants[index] = updated_variant
     now = datetime.now(timezone.utc)
     actor = current_user()
@@ -743,7 +828,7 @@ def update_product_variant(product_id: str, variant_id: str):
             "createdBy": actor["_id"],
         })
     current = sync_product_variants(db, db.products.find_one({"_id": object_id}), force=True)
-    return jsonify({"item": _document_view(current)}), 200
+    return jsonify({"item": _document_view(current, "products")}), 200
 
 
 @staff_bp.delete("/resources/products/<product_id>")

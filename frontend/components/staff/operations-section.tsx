@@ -1,7 +1,7 @@
 'use client';
 
 import { MoreHorizontal } from 'lucide-react';
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { apiBaseUrl, getCurrentUser, type Role, type StaffPermission } from '@/lib/rbac';
 
 type Item = Record<string, unknown> & { id: string };
@@ -93,7 +93,7 @@ function ProductThumbnail({ item }: { item: Item }) {
   const media = Array.isArray(item.media) ? item.media : [];
   const variantImage = variantsFromItem(item).find((variant) => variant.status !== 'remove' && variant.images?.length)?.images?.[0];
   const image = typeof variantImage === 'string' ? variantImage : typeof media[0] === 'string' ? media[0] : '';
-  return <div className="h-12 w-10 shrink-0 overflow-hidden rounded-[10px] bg-[#eee8de] dark:bg-white/[.06]">{image ? <img src={image} alt="" className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center text-[9px] uppercase tracking-[.12em] text-[#9a7a4d]">RK</div>}</div>;
+  return <div className="h-12 w-10 shrink-0 overflow-hidden rounded-[10px] bg-[#eee8de] dark:bg-white/[.06]">{image ? <img src={image} alt="" loading="lazy" decoding="async" width={40} height={48} className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center text-[9px] uppercase tracking-[.12em] text-[#9a7a4d]">RK</div>}</div>;
 }
 
 function VariantStatusControls({ item, busy, onChange }: { item: Item; busy: boolean; onChange: (variantId: string, status: VariantStatus) => void }) {
@@ -137,8 +137,8 @@ function VariantSizeCells({ variants, busy, onChange }: { variants: AdminProduct
   </div>;
 }
 
-function ProductVariantGroups({ items, busy, onStatusChange, onSizeChange, onEdit, onArchive, onDelete, onImageChange }: {
-  items: Item[];
+const ProductCard = memo(function ProductCard({ item, busy, onStatusChange, onSizeChange, onEdit, onArchive, onDelete, onImageChange, onLoadImages }: {
+  item: Item;
   busy: boolean;
   onStatusChange: (productId: string, variantId: string, status: VariantStatus) => void;
   onSizeChange: (productId: string, variantId: string, size: string, value: string) => void;
@@ -146,14 +146,14 @@ function ProductVariantGroups({ items, busy, onStatusChange, onSizeChange, onEdi
   onArchive: (item: Item) => void;
   onDelete: (item: Item) => void;
   onImageChange: (productId: string, variantId: string, images: string[]) => Promise<void>;
+  onLoadImages: (productId: string, variantId: string) => Promise<string[]>;
 }) {
   const [openAction, setOpenAction] = useState<string | null>(null);
   const [imageEditor, setImageEditor] = useState<{ productId: string; variantId: string; sku: string; images: string[] } | null>(null);
   const [imageDraft, setImageDraft] = useState('');
-  return <div className="mt-7 w-full min-w-0 space-y-5">
-    {items.map((item) => {
-      const variants = variantsFromItem(item).filter((variant) => variant.status !== 'remove');
-      return <article key={item.id} className="w-full min-w-0 max-w-full overflow-visible rounded-xl border border-black/[.08] bg-[#fffdf9] dark:border-white/[.08] dark:bg-white/[.02]">
+  const [imageLoading, setImageLoading] = useState(false);
+  const variants = variantsFromItem(item).filter((variant) => variant.status !== 'remove');
+  return <article className="w-full min-w-0 max-w-full overflow-visible rounded-xl border border-black/[.08] bg-[#fffdf9] dark:border-white/[.08] dark:bg-white/[.02]">
         <header className="relative flex flex-wrap items-baseline justify-between gap-3 border-b border-black/[.07] px-5 py-4 pr-16 dark:border-white/[.08]">
           <div className="flex min-w-0 items-center gap-3">
             <ProductThumbnail item={item} />
@@ -163,7 +163,7 @@ function ProductVariantGroups({ items, busy, onStatusChange, onSizeChange, onEdi
           <div className="absolute right-5 top-4"><button type="button" title={`Actions for ${String(item.name || 'product')}`} aria-label={`Actions for ${String(item.name || 'product')}`} onClick={() => setOpenAction((current) => current === `${item.id}:parent` ? null : `${item.id}:parent`)} className="grid h-8 w-8 place-items-center rounded-full border border-black/10 text-[#858b94] transition hover:border-[#9a7a4d] hover:text-[#9a7a4d]"><MoreHorizontal size={16} /></button>{openAction === `${item.id}:parent` ? <div className="absolute right-0 top-10 z-30 w-48 rounded-lg border border-black/10 bg-white p-1 text-xs shadow-lg dark:border-white/10 dark:bg-[#191a1f]"><button type="button" onClick={() => { setOpenAction(null); onEdit(item); }} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">Edit product</button><a href={`/products/${item.id}`} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">View product</a><button type="button" onClick={() => { setOpenAction(null); onArchive(item); }} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">Archive product</button><button type="button" onClick={() => { setOpenAction(null); onDelete(item); }} className="block w-full rounded px-3 py-2 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30">Delete permanently</button></div> : null}</div>
         </header>
         <div className="hidden min-w-0 grid-cols-[minmax(8rem,1.2fr)_minmax(9rem,1.2fr)_minmax(14rem,2fr)_minmax(6.5rem,.6fr)_2rem] gap-4 px-5 py-3 text-[9px] uppercase tracking-[.16em] text-[#858b94] md:grid"><span>Colour variant</span><span>SKU</span><span>Size inventory · total</span><span>Status</span><span /></div>
-        {imageEditor?.productId === item.id ? <div className="border-b border-black/[.06] bg-[#faf8f4] px-5 py-4 dark:border-white/[.08] dark:bg-white/[.03]"><p className="text-[9px] uppercase tracking-[.16em] text-[#9a7a4d]">Manage images · {imageEditor.sku}</p><textarea value={imageDraft} onChange={(event) => setImageDraft(event.target.value)} rows={3} placeholder="Paste image URLs, separated by commas" className="mt-3 w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-xs outline-none focus:border-[#9a7a4d] dark:border-white/10 dark:bg-[#121317]" /><div className="mt-3 flex justify-end gap-2"><button type="button" onClick={() => setImageEditor(null)} className="rounded-lg border border-black/10 px-3 py-2 text-[10px] uppercase tracking-[.12em]">Cancel</button><button type="button" disabled={busy} onClick={() => { const editor = imageEditor; if (!editor) return; void onImageChange(editor.productId, editor.variantId, imageDraft.split(',').map((url) => url.trim()).filter(Boolean)).then(() => setImageEditor(null)); }} className="rounded-lg bg-[#24211e] px-3 py-2 text-[10px] uppercase tracking-[.12em] text-white disabled:opacity-40">Save images</button></div></div> : null}
+        {imageEditor?.productId === item.id ? <div className="border-b border-black/[.06] bg-[#faf8f4] px-5 py-4 dark:border-white/[.08] dark:bg-white/[.03]"><p className="text-[9px] uppercase tracking-[.16em] text-[#9a7a4d]">Manage images · {imageEditor.sku}</p><textarea value={imageDraft} disabled={imageLoading} onChange={(event) => setImageDraft(event.target.value)} rows={3} placeholder="Paste image URLs, separated by commas" className="mt-3 w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-xs outline-none focus:border-[#9a7a4d] disabled:opacity-60 dark:border-white/10 dark:bg-[#121317]" /><div className="mt-3 flex justify-end gap-2"><button type="button" onClick={() => setImageEditor(null)} className="rounded-lg border border-black/10 px-3 py-2 text-[10px] uppercase tracking-[.12em]">Cancel</button><button type="button" disabled={busy || imageLoading || !imageDraft.trim() || imageDraft.startsWith('Unable to')} onClick={() => { const editor = imageEditor; if (!editor) return; void onImageChange(editor.productId, editor.variantId, imageDraft.split(',').map((url) => url.trim()).filter(Boolean)).then(() => setImageEditor(null)); }} className="rounded-lg bg-[#24211e] px-3 py-2 text-[10px] uppercase tracking-[.12em] text-white disabled:opacity-40">{imageLoading ? 'Loading…' : 'Save images'}</button></div></div> : null}
         <div className="divide-y divide-black/[.06] dark:divide-white/[.08]">
           {variants.length ? variants.map((variant) => {
             const entries = entriesFromValue(variant.sizeInventory);
@@ -173,13 +173,25 @@ function ProductVariantGroups({ items, busy, onStatusChange, onSizeChange, onEdi
               <p className="min-w-0 break-words text-xs text-[#6e747d]">{variant.sku}</p>
               <div><p className="mb-2 text-[9px] uppercase tracking-[.14em] text-[#858b94] md:hidden">Size inventory · total {variant.stock ?? totalStock(entries)}</p><ProductSizeCell entries={entries} allocationTarget={variant.stock ?? totalStock(entries)} onChange={(size, value) => onSizeChange(item.id, variant.id, size, value)} /></div>
               <select aria-label={`Status for ${variant.sku}`} value={variant.status} disabled={busy} onChange={(event) => onStatusChange(item.id, variant.id, event.target.value as VariantStatus)} className="w-fit rounded border border-black/10 bg-white px-2 py-1.5 text-[9px] uppercase tracking-[.08em] dark:border-white/10 dark:bg-[#121317]"><option value="active">In Stock</option><option value="inactive">No Stock</option><option value="remove">Remove</option></select>
-              <div className="relative justify-self-start md:justify-self-end"><button type="button" title={`Actions for ${variant.sku}`} aria-label={`Actions for ${variant.sku}`} onClick={() => setOpenAction((current) => current === actionKey ? null : actionKey)} className="grid h-8 w-8 place-items-center rounded-full border border-black/10 text-[#858b94] transition hover:border-[#9a7a4d] hover:text-[#9a7a4d]"><MoreHorizontal size={16} /></button>{openAction === actionKey ? <div className="absolute right-0 top-10 z-20 w-44 rounded-lg border border-black/10 bg-white p-1 text-xs shadow-lg dark:border-white/10 dark:bg-[#191a1f]"><button type="button" onClick={() => { setOpenAction(null); onEdit(item); }} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">Edit product</button><a href={`/products/${item.id}`} className="block rounded px-3 py-2 hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">View {variant.sku}</a><button type="button" onClick={() => { setOpenAction(null); setImageEditor({ productId: item.id, variantId: variant.id, sku: variant.sku, images: variant.images || [] }); setImageDraft((variant.images || []).join(',\n')); }} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">Manage images</button><button type="button" onClick={() => { setOpenAction(null); onDelete(item); }} className="block w-full rounded px-3 py-2 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30">Delete product</button></div> : null}</div>
+              <div className="relative justify-self-start md:justify-self-end"><button type="button" title={`Actions for ${variant.sku}`} aria-label={`Actions for ${variant.sku}`} onClick={() => setOpenAction((current) => current === actionKey ? null : actionKey)} className="grid h-8 w-8 place-items-center rounded-full border border-black/10 text-[#858b94] transition hover:border-[#9a7a4d] hover:text-[#9a7a4d]"><MoreHorizontal size={16} /></button>{openAction === actionKey ? <div className="absolute right-0 top-10 z-20 w-44 rounded-lg border border-black/10 bg-white p-1 text-xs shadow-lg dark:border-white/10 dark:bg-[#191a1f]"><button type="button" onClick={() => { setOpenAction(null); onEdit(item); }} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">Edit product</button><a href={`/products/${item.id}`} className="block rounded px-3 py-2 hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">View {variant.sku}</a><button type="button" onClick={() => { setOpenAction(null); setImageLoading(true); setImageEditor({ productId: item.id, variantId: variant.id, sku: variant.sku, images: [] }); setImageDraft(''); void onLoadImages(item.id, variant.id).then((images) => { setImageEditor((current) => current ? { ...current, images } : current); setImageDraft(images.join(',\n')); }).catch(() => setImageDraft('Unable to load image URLs.')).finally(() => setImageLoading(false)); }} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">Manage images</button><button type="button" onClick={() => { setOpenAction(null); onDelete(item); }} className="block w-full rounded px-3 py-2 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30">Delete product</button></div> : null}</div>
             </div>;
           }) : <p className="px-5 py-5 text-sm text-[#858b94]">No visible colour variants.</p>}
         </div>
-      </article>;
-    })}
-  </div>;
+  </article>;
+});
+
+function ProductVariantGroups({ items, busy, onStatusChange, onSizeChange, onEdit, onArchive, onDelete, onImageChange, onLoadImages }: {
+  items: Item[];
+  busy: boolean;
+  onStatusChange: (productId: string, variantId: string, status: VariantStatus) => void;
+  onSizeChange: (productId: string, variantId: string, size: string, value: string) => void;
+  onEdit: (item: Item) => void;
+  onArchive: (item: Item) => void;
+  onDelete: (item: Item) => void;
+  onImageChange: (productId: string, variantId: string, images: string[]) => Promise<void>;
+  onLoadImages: (productId: string, variantId: string) => Promise<string[]>;
+}) {
+  return <div className="mt-7 w-full min-w-0 space-y-5">{items.map((item) => <ProductCard key={item.id} item={item} busy={busy} onStatusChange={onStatusChange} onSizeChange={onSizeChange} onEdit={onEdit} onArchive={onArchive} onDelete={onDelete} onImageChange={onImageChange} onLoadImages={onLoadImages} />)}</div>;
 }
 
 function formatValue(key: string, value: unknown) {
@@ -203,6 +215,10 @@ export function OperationsSection({ section: rawSection }: { section: string }) 
   const [userRole, setUserRole] = useState<Role>('staff');
   const [staffUsers, setStaffUsers] = useState<Array<{ id: string; displayName?: string; email?: string }>>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalItems, setTotalItems] = useState(0);
+  const [renderLimit, setRenderLimit] = useState(50);
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
@@ -215,13 +231,19 @@ export function OperationsSection({ section: rawSection }: { section: string }) 
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const token = () => window.localStorage.getItem('rk_access_token') ?? '';
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
 
-  const load = async () => {
-    const response = await fetch(`${apiBaseUrl}/api/staff/resources/${section}`, { headers: { Authorization: `Bearer ${token()}` }, cache: 'no-store' });
+  const load = useCallback(async (page = 1, append = false) => {
+    const response = await fetch(`${apiBaseUrl}/api/staff/resources/${section}?page=${page}&limit=100`, { headers: { Authorization: `Bearer ${token()}` }, cache: 'no-store' });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error ?? 'Unable to load this workspace.');
-    setItems(payload.items as Item[]);
-  };
+    const nextItems = (payload.items as Item[]) || [];
+    setItems((current) => append ? [...current, ...nextItems] : nextItems);
+    setHasMore(Boolean(payload.hasMore));
+    setTotalItems(Number(payload.total ?? nextItems.length));
+    if (!append) setRenderLimit(50);
+  }, [section]);
 
   useEffect(() => {
     if (!supported) { setLoading(false); return; }
@@ -239,7 +261,7 @@ export function OperationsSection({ section: rawSection }: { section: string }) 
       } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to load this workspace.'); }
       setLoading(false);
     });
-  }, [section, supported]);
+  }, [load, section, supported]);
 
   const create = async (form: Record<string, string>) => {
     setBusy(true); setError('');
@@ -247,18 +269,18 @@ export function OperationsSection({ section: rawSection }: { section: string }) 
       const response = await fetch(`${apiBaseUrl}/api/staff/resources/${section}`, { method: 'POST', headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? 'Unable to create this record.');
-      setItems((current) => [payload.item, ...current]); setCreating(false); setMessage('Created successfully.');
+      setItems((current) => [payload.item, ...current]); setTotalItems((current) => current + 1); setCreating(false); setMessage('Created successfully.');
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to create this record.'); }
     finally { setBusy(false); }
   };
 
   const editableFields = useMemo(() => section === 'products' ? ['name', 'sku', 'price', 'stock', 'availability', 'status', 'description'] : section === 'customers' ? ['displayName', 'email', 'phone'] : section === 'orders' ? ['customerName', 'email', 'total'] : section === 'quotes' ? ['customerName', 'email', 'total', 'notes'] : [], [section]);
-  const beginEdit = (item: Item) => {
+  const beginEdit = useCallback((item: Item) => {
     const availability = String(item.availability ?? 'in_stock').toLowerCase();
     const values = Object.fromEntries(editableFields.map((key) => [key, String(item[key] ?? '')]));
     setEditing(item.id);
     setEditForm({ ...values, availability, stock: String(item.stock ?? '0'), legacyStock: String(item.stock ?? 0), sizeInventory: JSON.stringify(item.sizeInventory ?? []), sizeSystemEnabled: String(Boolean(item.sizeSystemEnabled)), sizeInventoryConfigured: String(Boolean(item.sizeInventoryConfigured ?? item.sizeSystemEnabled)), changeReason: '' });
-  };
+  }, [editableFields]);
 
   const updateProductSize = (item: Item, size: string, rawValue: string) => {
     const value = Number(rawValue);
@@ -274,8 +296,8 @@ export function OperationsSection({ section: rawSection }: { section: string }) 
     setError('');
   };
 
-  const patch = async (id: string, updates: Record<string, unknown>, success = 'Updated successfully.') => {
-    const current = items.find((item) => item.id === id);
+  const patch = useCallback(async (id: string, updates: Record<string, unknown>, success = 'Updated successfully.') => {
+    const current = itemsRef.current.find((item) => item.id === id);
     let normalizedUpdates = { ...updates };
     if (section === 'products' && current) {
       const configured = normalizedUpdates.sizeInventoryConfigured !== undefined
@@ -304,12 +326,12 @@ export function OperationsSection({ section: rawSection }: { section: string }) 
       const response = await fetch(`${apiBaseUrl}/api/staff/resources/${section}/${id}`, { method: 'PATCH', headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(requestUpdates) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? 'Unable to update this record.');
-      setItems((currentItems) => section === 'products' && normalizedUpdates.status === 'archived' ? currentItems.filter((item) => item.id !== id) : currentItems.map((item) => item.id === id ? payload.item : item)); setEditing(null); setEditForm({}); setMessage(success);
+      setItems((currentItems) => section === 'products' && normalizedUpdates.status === 'archived' ? currentItems.filter((item) => item.id !== id) : currentItems.map((item) => item.id === id ? { ...item, ...payload.item } : item)); setEditing(null); setEditForm({}); setMessage(success);
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to update this record.'); }
     finally { setBusy(false); }
-  };
+  }, [section]);
 
-  const patchVariantStatus = async (productId: string, variantId: string, status: VariantStatus) => {
+  const patchVariantStatus = useCallback(async (productId: string, variantId: string, status: VariantStatus) => {
     setBusy(true); setError(''); setMessage('');
     try {
       const response = await fetch(`${apiBaseUrl}/api/staff/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}`, {
@@ -319,19 +341,19 @@ export function OperationsSection({ section: rawSection }: { section: string }) 
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? 'Unable to update the variant status.');
-      setItems((current) => current.map((item) => item.id === productId ? payload.item : item));
+      setItems((current) => current.map((item) => item.id === productId ? { ...item, ...payload.item } : item));
       setMessage(`Variant set to ${status.toUpperCase()}.`);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to update the variant status.');
     } finally {
       setBusy(false);
     }
-  };
+  }, []);
 
-  const patchVariantSize = async (productId: string, variantId: string, size: string, rawValue: string) => {
+  const patchVariantSize = useCallback(async (productId: string, variantId: string, size: string, rawValue: string) => {
     const value = Number(rawValue);
     if (!Number.isInteger(value) || value < 0) { setError('Size quantities must be whole numbers greater than or equal to 0.'); return; }
-    const current = items.find((item) => item.id === productId);
+    const current = itemsRef.current.find((item) => item.id === productId);
     const variant = current ? variantsFromItem(current).find((entry) => entry.id === variantId) : undefined;
     if (!current || !variant) return;
     const next = entriesFromValue(variant.sizeInventory).map((entry) => entry.size === size ? { ...entry, stock: value } : entry);
@@ -342,14 +364,14 @@ export function OperationsSection({ section: rawSection }: { section: string }) 
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? 'Unable to update the variant size inventory.');
-      setItems((currentItems) => currentItems.map((item) => item.id === productId ? payload.item : item));
+      setItems((currentItems) => currentItems.map((item) => item.id === productId ? { ...item, ...payload.item } : item));
       setMessage(`${variant.sku} ${size} quantity updated.`);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to update the variant size inventory.');
     } finally { setBusy(false); }
-  };
+  }, []);
 
-  const patchVariantImages = async (productId: string, variantId: string, images: string[]) => {
+  const patchVariantImages = useCallback(async (productId: string, variantId: string, images: string[]) => {
     setBusy(true); setError(''); setMessage('');
     try {
       const response = await fetch(`${apiBaseUrl}/api/staff/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}`, {
@@ -357,31 +379,38 @@ export function OperationsSection({ section: rawSection }: { section: string }) 
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? 'Unable to update variant images.');
-      setItems((currentItems) => currentItems.map((item) => item.id === productId ? payload.item : item));
+      setItems((currentItems) => currentItems.map((item) => item.id === productId ? { ...item, ...payload.item } : item));
       setMessage('Variant images updated.');
     } catch (requestError) {
       const status = requestError instanceof Error ? requestError.message : 'Unable to update variant images.';
       setError(status);
     } finally { setBusy(false); }
-  };
+  }, []);
 
-  const archiveProduct = (item: Item) => {
+  const loadVariantImages = useCallback(async (productId: string, variantId: string) => {
+    const response = await fetch(`${apiBaseUrl}/api/staff/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}`, { headers: { Authorization: `Bearer ${token()}` }, cache: 'no-store' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error ?? 'Unable to load variant images.');
+    return Array.isArray(payload.images) ? payload.images.filter((image: unknown): image is string => typeof image === 'string') : [];
+  }, []);
+
+  const archiveProduct = useCallback((item: Item) => {
     if (!window.confirm(`Archive ${String(item.name || 'this product')}? It will be hidden but kept in the database.`)) return;
     void patch(item.id, { status: 'archived', reason: 'Product archived from the admin dashboard.' }, 'Product archived.');
-  };
+  }, [patch]);
 
-  const deleteProduct = async (item: Item) => {
+  const deleteProduct = useCallback(async (item: Item) => {
     if (!window.confirm(`Permanently delete ${String(item.name || 'this product')} and all colour variants? This cannot be undone.`)) return;
     setBusy(true); setError(''); setMessage('');
     try {
       const response = await fetch(`${apiBaseUrl}/api/staff/resources/products/${encodeURIComponent(item.id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token()}` } });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? 'Unable to permanently delete this product.');
-      setItems((current) => current.filter((entry) => entry.id !== item.id));
+      setItems((current) => current.filter((entry) => entry.id !== item.id)); setTotalItems((current) => Math.max(0, current - 1));
       setMessage('Product permanently deleted.');
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to permanently delete this product.'); }
     finally { setBusy(false); }
-  };
+  }, []);
 
   const convertQuote = async (id: string) => {
     setBusy(true); setError('');
@@ -429,6 +458,24 @@ export function OperationsSection({ section: rawSection }: { section: string }) 
     });
   }, [items, search, section, selectedCollection]);
 
+  const loadMore = useCallback(async () => {
+    if (loadingMore) return;
+    if (renderLimit < visibleItems.length) {
+      setRenderLimit((current) => current + 50);
+      return;
+    }
+    if (!hasMore) return;
+    setLoadingMore(true);
+    try {
+      await load(Math.floor(items.length / 100) + 1, true);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to load more records.');
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [hasMore, items.length, load, loadingMore, renderLimit, visibleItems.length]);
+  const renderedItems = useMemo(() => visibleItems.slice(0, renderLimit), [renderLimit, visibleItems]);
+
   if (loading) return <p className="mt-10 text-sm text-[#858b94]">Loading secure workspace…</p>;
   if (!supported) return <section className="mt-10 rounded-2xl border border-black/[.06] bg-white p-8"><h2 className="text-xl font-semibold">Module unavailable</h2></section>;
   if (!allowed) return <section className="mt-10 rounded-2xl border border-black/[.06] bg-white p-8"><h2 className="text-xl font-semibold capitalize">{title}</h2><p className="mt-3 text-sm text-[#858b94]">An administrator has not granted this capability.</p></section>;
@@ -439,7 +486,7 @@ export function OperationsSection({ section: rawSection }: { section: string }) 
     {creating && section !== 'inventory' ? <CreateForm section={section as Exclude<Section, 'inventory'>} initial={{ ...emptyForms[section as Exclude<Section, 'inventory'>] }} busy={busy} onCancel={() => setCreating(false)} onSave={create} /> : null}
     {section === 'products' && editing ? <div className="mt-6 rounded-xl border border-[#9a7a4d]/20 bg-[#faf8f4] p-5 dark:bg-white/[.03]"><p className="text-[10px] uppercase tracking-[.16em] text-[#9a7a4d]">Edit product</p><div className="mt-4 grid gap-4 md:grid-cols-2"><label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Product name<input value={editForm.name ?? ''} onChange={(event) => setEditForm((current) => ({ ...current, name: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`} /></label><label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Parent SKU<input value={editForm.sku ?? ''} onChange={(event) => setEditForm((current) => ({ ...current, sku: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`} /></label><label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Base price<input type="number" min={0} value={editForm.price ?? ''} onChange={(event) => setEditForm((current) => ({ ...current, price: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`} /></label><label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Availability<select value={editForm.availability ?? 'in_stock'} onChange={(event) => setEditForm((current) => ({ ...current, availability: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`}><option value="in_stock">In Stock</option><option value="custom_order">Custom Order</option><option value="sold_out">No Stock</option></select></label><label className="text-[10px] uppercase tracking-[.16em] text-[#858b94] md:col-span-2">Description<textarea value={editForm.description ?? ''} onChange={(event) => setEditForm((current) => ({ ...current, description: event.target.value }))} rows={3} className={`${inputClass} mt-2 normal-case tracking-normal`} /></label></div><div className="mt-5 flex justify-end gap-3"><button type="button" onClick={() => { setEditing(null); setEditForm({}); }} className="rounded-lg border border-black/10 px-4 py-2 text-xs">Cancel</button><button type="button" disabled={busy} onClick={() => void patch(editing, editForm, 'Product updated.')} className="rounded-lg bg-[#24211e] px-4 py-2 text-xs text-white disabled:opacity-40">{busy ? 'Saving…' : 'Save product'}</button></div></div> : null}
     {(section === 'orders' || section === 'quotes') && items.length ? <div className="mt-6 rounded-xl border border-black/[.06] bg-[#faf8f4] p-4 dark:bg-white/[.03]"><div className="flex flex-wrap items-center gap-3"><label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Edit details<select value={editing ?? ''} onChange={(event) => { const item = items.find((entry) => entry.id === event.target.value); if (item) beginEdit(item); else setEditing(null); }} className="ml-3 rounded-lg border border-black/10 bg-white px-3 py-2 text-xs normal-case tracking-normal"><option value="">Choose {section.slice(0, -1)}</option>{items.filter((item) => item.status !== 'converted').map((item) => <option key={item.id} value={item.id}>{String(item[section === 'orders' ? 'orderNumber' : 'quoteNumber'] ?? item.id)}</option>)}</select></label></div>{editing ? <div className="mt-4 grid gap-3 md:grid-cols-4">{editableFields.map((key) => <label key={key} className="text-[10px] uppercase tracking-[.14em] text-[#858b94]">{key.replaceAll(/([A-Z])/g, ' $1')}<input type={key === 'total' ? 'number' : 'text'} min={key === 'total' ? 0 : undefined} value={editForm[key] ?? ''} onChange={(event) => setEditForm((current) => ({ ...current, [key]: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`} /></label>)}<div className="flex items-end gap-2"><button disabled={busy} onClick={() => void patch(editing, editForm)} className="rounded-lg bg-[#24211e] px-4 py-2.5 text-xs text-white disabled:opacity-40">Save details</button><button onClick={() => setEditing(null)} className="rounded-lg border border-black/10 px-4 py-2.5 text-xs">Cancel</button></div></div> : null}</div> : null}
-    {visibleItems.length ? section === 'products' ? <ProductVariantGroups items={visibleItems} busy={busy} onStatusChange={patchVariantStatus} onSizeChange={patchVariantSize} onEdit={beginEdit} onArchive={archiveProduct} onDelete={deleteProduct} onImageChange={patchVariantImages} /> : <div className="mt-7 w-full min-w-0 overflow-x-auto"><table className="w-full min-w-0 table-fixed text-left text-sm"><thead className="border-b border-black/10 text-[10px] uppercase tracking-[.16em] text-[#858b94]"><tr>{columns[section].map(([, label]) => <th key={label} className="pb-4 pr-4">{label}</th>)}<th className="pb-4">Actions</th></tr></thead><tbody>{visibleItems.map((item) => {
+    {renderedItems.length ? section === 'products' ? <ProductVariantGroups items={renderedItems} busy={busy} onStatusChange={patchVariantStatus} onSizeChange={patchVariantSize} onEdit={beginEdit} onArchive={archiveProduct} onDelete={deleteProduct} onImageChange={patchVariantImages} onLoadImages={loadVariantImages} /> : <div className="mt-7 w-full min-w-0 overflow-x-auto"><table className="w-full min-w-0 table-fixed text-left text-sm"><thead className="border-b border-black/10 text-[10px] uppercase tracking-[.16em] text-[#858b94]"><tr>{columns[section].map(([, label]) => <th key={label} className="pb-4 pr-4">{label}</th>)}<th className="pb-4">Actions</th></tr></thead><tbody>{renderedItems.map((item) => {
       const product: boolean = false;
       const entries = product ? draftFor(item) : [];
       const total = product ? totalFor(item) : 0;
@@ -463,5 +510,6 @@ export function OperationsSection({ section: rawSection }: { section: string }) 
         </div></td>
       </tr>;
     })}</tbody></table></div> : <div className="mt-8 rounded-xl border border-dashed border-black/10 p-10 text-center text-sm text-[#858b94]">{search || selectedCollection !== 'ALL' ? `No ${section === 'inventory' ? 'inventory items' : 'products'} found${search ? ` for “${search}”` : ''}${selectedCollection !== 'ALL' ? ` in “${selectedCollection}”` : ''}.` : `No ${title} found.`}</div>}
+    {(renderedItems.length < visibleItems.length || hasMore) ? <div className="mt-6 flex flex-wrap items-center justify-between gap-3 text-xs text-[#858b94]"><span>Showing {renderedItems.length} of {totalItems || visibleItems.length} loaded records{hasMore ? ' · more available' : ''}</span><button type="button" onClick={() => void loadMore()} disabled={loadingMore} className="rounded-lg border border-black/10 px-3 py-2 text-[10px] uppercase tracking-[.12em] text-[#9a7a4d] disabled:opacity-40">{loadingMore ? 'Loadingâ€¦' : 'Load more'}</button></div> : null}
   </section>;
 }

@@ -18,6 +18,8 @@ export type StaffPermission = 'products:manage' | 'inventory:manage' | 'quotes:m
 export const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || '';
 
 const cachedUserKey = 'rk_auth_user';
+let currentUserRequest: Promise<AuthUser | null> | null = null;
+let currentUserToken = '';
 
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
@@ -41,6 +43,16 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   if (typeof window === 'undefined') return null;
   const token = window.localStorage.getItem('rk_access_token');
   if (!token) return null;
+  if (currentUserRequest && currentUserToken === token) return currentUserRequest;
+  currentUserToken = token;
+  currentUserRequest = getCurrentUserRequest(token).finally(() => {
+    currentUserRequest = null;
+    currentUserToken = '';
+  });
+  return currentUserRequest;
+}
+
+async function getCurrentUserRequest(token: string): Promise<AuthUser | null> {
   try {
     const response = await requestCurrentUser(token);
     if (response.ok) {

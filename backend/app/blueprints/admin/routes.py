@@ -47,15 +47,22 @@ def _ensure_dashboard_indexes(db) -> None:
     global _dashboard_indexes_ready
     if _dashboard_indexes_ready:
         return
-    db.analytics_events.create_index([("event", 1), ("createdAt", -1)])
-    db.analytics_events.create_index([("visitorId", 1), ("createdAt", -1)])
-    db.orders.create_index([("createdAt", -1), ("status", 1)])
-    db.users.create_index([("createdAt", -1), ("role", 1)])
-    db.products.create_index("stock")
-    db.reviews.create_index("createdAt")
-    retention = _integer(_settings(db).get("analyticsRetentionDays"), 365)
-    db.analytics_events.delete_many({"createdAt": {"$lt": datetime.now(timezone.utc) - timedelta(days=retention)}})
+    db.analytics_events.create_index([("event", 1), ("createdAt", -1)], name="admin_analytics_event_created")
+    db.analytics_events.create_index([("visitorId", 1), ("createdAt", -1)], name="admin_analytics_visitor_created")
+    db.analytics_events.create_index([("event", 1), ("visitorId", 1), ("createdAt", -1)], name="admin_analytics_event_visitor_created")
+    db.orders.create_index([("createdAt", -1), ("status", 1)], name="admin_orders_created_status")
+    db.orders.create_index([("payment.status", 1), ("createdAt", -1)], name="admin_orders_payment_created")
+    db.orders.create_index([("fulfillment.status", 1), ("createdAt", -1)], name="admin_orders_fulfillment_created")
+    db.users.create_index([("createdAt", -1), ("role", 1)], name="admin_users_created_role")
+    db.products.create_index("stock", name="admin_products_stock")
+    db.reviews.create_index("createdAt", name="admin_reviews_created")
     _dashboard_indexes_ready = True
+
+
+def ensure_dashboard_indexes(db) -> None:
+    """Prepare dashboard indexes during app startup, not the first page load."""
+    _ensure_dashboard_indexes(db)
+    migrate_legacy_orders(db)
 
 
 def _user_view(user: dict) -> dict:
@@ -115,7 +122,6 @@ def list_users():
 @requireAdmin
 def dashboard_metrics():
     db = database()
-    migrate_legacy_orders(db)
     _ensure_dashboard_indexes(db)
     current_visitor_id = str(request.headers.get("X-RK-Visitor-ID", "")).strip()[:128]
     viewer = current_user() or {}
