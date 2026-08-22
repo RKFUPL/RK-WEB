@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect } from 'react';
 
 type LookbookIntroProps = {
   name: string;
@@ -12,11 +11,6 @@ type LookbookIntroProps = {
 
 
 export function LookbookIntro({ name, number, url, description }: LookbookIntroProps) {
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => window.location.replace(url), 4400);
-    return () => window.clearTimeout(timeoutId);
-  }, [url]);
-
   return (
     <main className="lookbook-intro relative flex min-h-screen items-center justify-center overflow-hidden bg-black px-6 text-center text-white">
       <div className="pointer-events-none absolute inset-8 border border-white/[0.12] md:inset-12" />
@@ -30,7 +24,7 @@ export function LookbookIntro({ name, number, url, description }: LookbookIntroP
         </h1>
         <div style={{ opacity: 0, transform: 'translateY(24px)' }} className="intro-details mt-10 flex flex-col items-center gap-5 md:mt-14">
           <p className="max-w-xl text-sm leading-7 text-white/70">{description}</p>
-          <p className="text-[0.6rem] uppercase tracking-[0.5em] text-white/55">Opening lookbook</p>
+          <a href={url} className="border border-white/45 px-5 py-3 text-[0.58rem] uppercase tracking-[0.32em] text-white transition hover:border-gold hover:bg-gold hover:text-ink">Open lookbook</a>
           <nav aria-label="Lookbook navigation" className="flex items-center gap-6 text-[0.58rem] uppercase tracking-[0.32em] text-white/65">
             <Link href="/" className="transition hover:text-white">Home</Link>
             <span aria-hidden="true" className="h-px w-7 bg-white/25" />

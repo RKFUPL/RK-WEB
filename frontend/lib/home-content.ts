@@ -35,6 +35,17 @@ export function sortByCollectionOrder<T>(items: readonly T[], getName: (item: T)
 
 export const espirituLibreImageUrl = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861902/Espi_bbvgfh.png';
 
+export const homepageHeroVideoUrl = 'https://video.wixstatic.com/video/afed36_dd09f4e15eed449c81c98f3609180b91/1080p/mp4/file.mp4';
+export const runwayHeroVideoUrl = 'https://video.wixstatic.com/video/afed36_2e5b8660523d4d1eaaac8173ecd89d8f/720p/mp4/file.mp4';
+
+export const lookbookUrls = {
+  Anamika: 'https://lookbookmaker.onrender.com/catalog/anamika-lookbook?page=1',
+  Espiritu: 'https://lookbookmaker.onrender.com/catalog/espi?page=1',
+  Sandook: 'https://lookbookmaker.onrender.com/catalog/sandook',
+  Inaara: 'https://lookbookmaker.onrender.com/catalog/inaara',
+  Hastakala: 'https://lookbookmaker.onrender.com/catalog/hastakala',
+} as const;
+
 export const runwayCollections = [
   {
     id: 'espiritu-libre',
@@ -42,12 +53,14 @@ export const runwayCollections = [
     status: 'coming-soon',
     image: espirituLibreImageUrl,
     href: '/runway',
-    editorialHref: '/rk-lookbooks/espiritu-libre',
+    editorialHref: lookbookUrls.Espiritu,
     description: 'A free-spirited runway chapter shaped by movement, fluid drape, and modern Indian couture.',
   },
 ] as const;
 
 export const brandLogoUrl = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305776/RK_LOGOMARK_t6untf.svg';
+export const footerSignatureLightImage = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1787402759/Rashi_Kapoor_Legacy_Crest_Transparent_kbljbo.png';
+export const footerSignatureDarkImage = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1787059406/3c335991-6978-462c-a561-b3d1a23e11a0.png';
 export const aakarBannerBackgroundUrl = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305719/BG_xsyd8f.png';
 // Keep this as a normal HTML5 video URL. Cloudinary handles the delivery
 // format/quality negotiation while the poster in the consuming component
@@ -205,7 +218,7 @@ export const searchItems = [
 export const categoryItems: readonly CategoryItem[] = collectionGalleryPages.map((collection) => ({
   title: collection.name,
   image: collection.image,
-  href: collection.comingSoon ? undefined : collection.route,
+  href: collection.comingSoon ? undefined : lookbookUrls[collection.name as keyof typeof lookbookUrls] ?? collection.route,
   comingSoon: collection.comingSoon,
 }));
 
@@ -254,21 +267,21 @@ export const lookbookCovers = sortByCollectionOrder([
   {
     title: 'Hastakala',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785862112/Hastakala_kcb6la.png',
-    href: '/rk-lookbooks/hasthkala',
+    href: lookbookUrls.Hastakala,
     caption: 'A craft-first visual story.',
     span: 'lg:col-span-3',
   },
   {
     title: 'Inaara',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861901/Inaara_hn30rg.png',
-    href: '/rk-lookbooks/inaara',
+    href: lookbookUrls.Inaara,
     caption: 'A luminous, celebratory edit.',
     span: 'lg:col-span-8',
   },
   {
     title: 'Anamika',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861902/Anamika_ojeh19.png',
-    href: '/rk-lookbooks/anamika',
+    href: lookbookUrls.Anamika,
     caption: 'A softer, movement-led chapter.',
     span: 'lg:col-span-5 lg:row-span-2',
   },
@@ -282,7 +295,7 @@ export const lookbookCovers = sortByCollectionOrder([
   {
     title: 'Sandook',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861901/Sandook_h0rfqg.png',
-    href: '/rk-lookbooks/sandook',
+    href: lookbookUrls.Sandook,
     caption: 'A treasured archive of the house.',
     span: 'lg:col-span-4',
   },

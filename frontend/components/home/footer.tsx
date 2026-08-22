@@ -39,9 +39,6 @@ const socialLinks = {
   x: 'https://x.com/',
 } as const;
 
-const footerSignatureLightImage = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1787059394/9bd32d0d-80c9-4607-8798-bec666a8e3ff.png';
-const footerSignatureDarkImage = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1787059406/3c335991-6978-462c-a561-b3d1a23e11a0.png';
-
 const storeLocations = [
   {
     name: 'Kolkata Flagship Store',
@@ -260,13 +257,9 @@ export function Footer() {
         </div>
       </div>
 
-      <div className="flex flex-col items-center justify-between gap-4 border-t border-white/10 bg-[#0a0908] px-6 py-6 text-center text-ivory/45 sm:flex-row sm:px-10">
+      <div className="flex flex-col items-center justify-between gap-4 border-t border-white/10 bg-ink px-6 py-6 text-center text-ivory/45 sm:flex-row sm:px-10">
         <p className="text-[0.62rem] uppercase tracking-[0.2em]">© 2026 Rashi Kapoor Fashion Unicus Pvt. Ltd.</p>
         <img src={brandLogoUrl} alt="RK Logo" width="48" height="34" className="footer-brand-mark h-8 w-auto opacity-75" />
-      </div>
-      <div className="footer-signature-scene" aria-label="Rashi Kapoor signature artwork">
-        <img src={footerSignatureLightImage} alt="Rashi Kapoor floral monogram" className="footer-signature-art footer-signature-light" />
-        <img src={footerSignatureDarkImage} alt="Rashi Kapoor floral monogram" className="footer-signature-art footer-signature-dark" />
       </div>
     </footer>
   );

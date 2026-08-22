@@ -5,6 +5,7 @@ import { FeaturedLooks } from './featured-looks';
 import { Services } from './services';
 import { Newsletter } from './newsletter';
 import { Footer } from './footer';
+import { footerSignatureDarkImage, footerSignatureLightImage } from '@/lib/home-content';
 
 type HomePageContentProps = {
   ready: boolean;
@@ -24,6 +25,10 @@ export function HomePageContent({ ready }: HomePageContentProps) {
           <FeaturedLooks />
           <div className="testimonials-newsletter-scene">
             <Services />
+            <div className="footer-signature-scene" aria-label="Rashi Kapoor signature artwork">
+              <img src={footerSignatureLightImage} alt="Rashi Kapoor floral monogram" className="footer-signature-art footer-signature-light" />
+              <img src={footerSignatureDarkImage} alt="Rashi Kapoor floral monogram" className="footer-signature-art footer-signature-dark" />
+            </div>
             <Newsletter />
           </div>
           <Footer />

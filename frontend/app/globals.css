@@ -1549,20 +1549,10 @@ body {
 
 .footer-signature-scene {
   display: grid;
-  min-height: clamp(18rem, 30vw, 28rem);
-  padding: 1.5rem;
+  padding: clamp(4rem, 8vw, 7rem) 1.5rem;
   place-items: center;
   overflow: hidden;
-  background-color: #f6f0e7;
-  background-image: url('https://res.cloudinary.com/fm1bwbrd/image/upload/v1786433551/fc0f1482-3c43-4d94-9aa9-7c84e4098d50_rzfx6e.png');
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: cover;
-}
-
-.dark .footer-signature-scene {
-  background-color: #050505;
-  background-image: url('https://res.cloudinary.com/fm1bwbrd/image/upload/v1786433634/4419ac29-afc3-4398-bb87-414250163197_yo1fpw.png');
+  background: transparent;
 }
 
 .footer-signature-art {
@@ -1576,8 +1566,8 @@ body {
   display: none;
 }
 
-.dark .footer-signature-light {
-  display: none;
+.footer-signature-light {
+  display: block;
 }
 
 .dark .footer-signature-dark {
