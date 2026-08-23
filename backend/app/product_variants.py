@@ -26,6 +26,7 @@ COLLECTION_SKU_PREFIXES = {
     "anamika": "AK",
     "runway": "RW",
     "espiritu-libre-lfw": "RW",
+    "lakme": "RW",
     "inaara": "IA",
     "naqab": "NQ",
     "sandook": "SK",
@@ -44,7 +45,8 @@ def _is_runway_collection(collection: dict) -> bool:
         collection.get("slug"),
         collection.get("status"),
     )
-    return any("runway" in _slug(value).split("-") for value in values)
+    tokens = [_slug(value).split("-") for value in values]
+    return any("runway" in value or "lfw" in value for value in tokens) or any("espiritu" in value and "libre" in value for value in tokens)
 
 
 def collection_sku_prefix(collection: dict | None) -> str:

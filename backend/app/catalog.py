@@ -166,6 +166,13 @@ _NORMAL_COLLECTIONS = (
 
 NORMAL_COLLECTIONS = tuple(sorted(_NORMAL_COLLECTIONS, key=lambda collection: _NORMAL_COLLECTION_RANK.get(collection["name"].lower(), len(NORMAL_COLLECTION_ORDER))))
 
+RUNWAY_COLLECTION_SEED = {
+    "name": "Lakme",
+    "slug": "lakme",
+    "description": "The Lakme runway edit from Espiritu Libre, presented through six considered looks.",
+    "heroImage": "https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861902/Espi_bbvgfh.png",
+}
+
 # These are real storefront records, not frontend-only fixtures.  The
 # deliberately blank commercial fields are editable later from Admin/Staff;
 # custom_order keeps an unknown inventory quantity from being presented as
@@ -403,7 +410,106 @@ ANAMIKA_PRODUCT_SEEDS = tuple(
     for seed in ANAMIKA_PRODUCT_SEEDS
 )
 
-PRODUCT_SEEDS = CORE_PRODUCT_SEEDS + ANAMIKA_PRODUCT_SEEDS
+RUNWAY_PRODUCT_SEEDS = (
+    {
+        "seedKey": "rk:runway:lfw:01",
+        "collectionSlug": "lakme",
+        "displayOrder": 1,
+        "name": "Espiritu Libre — Look 01",
+        "sku": "RW-LFW-01",
+        "slug": "espiritu-libre-lfw-01",
+        "price": None,
+        "availability": "custom_order",
+        "category": "Runway",
+        "description": "Espiritu Libre / Lakme runway collection.",
+        "media": [
+            "https://res.cloudinary.com/fm1bwbrd/image/upload/v1786697015/_1S34432_compressed_ulz3dr.jpg",
+            "https://res.cloudinary.com/fm1bwbrd/image/upload/v1786697039/_1S34516_compressed_xskfsm.jpg",
+        ],
+    },
+    {
+        "seedKey": "rk:runway:lfw:02",
+        "collectionSlug": "lakme",
+        "displayOrder": 2,
+        "name": "Espiritu Libre — Look 02",
+        "sku": "RW-LFW-02",
+        "slug": "espiritu-libre-lfw-02",
+        "price": None,
+        "availability": "custom_order",
+        "category": "Runway",
+        "description": "Espiritu Libre / Lakme runway collection.",
+        "media": [
+            "https://res.cloudinary.com/fm1bwbrd/image/upload/v1786697021/_1S33855_compressed_lr3gwx.jpg",
+            "https://res.cloudinary.com/fm1bwbrd/image/upload/v1786697076/_1S33878_compressed_bzddji.jpg",
+        ],
+    },
+    {
+        "seedKey": "rk:runway:lfw:03",
+        "collectionSlug": "lakme",
+        "displayOrder": 3,
+        "name": "Espiritu Libre — Look 03",
+        "sku": "RW-LFW-03",
+        "slug": "espiritu-libre-lfw-03",
+        "price": None,
+        "availability": "custom_order",
+        "category": "Runway",
+        "description": "Espiritu Libre / Lakme runway collection.",
+        "media": [
+            "https://res.cloudinary.com/fm1bwbrd/image/upload/v1786697024/_1S34221_compressed_wvzmtz.jpg",
+            "https://res.cloudinary.com/fm1bwbrd/image/upload/v1786697079/_1S34233_compressed_ukmkk9.jpg",
+        ],
+    },
+    {
+        "seedKey": "rk:runway:lfw:04",
+        "collectionSlug": "lakme",
+        "displayOrder": 4,
+        "name": "Espiritu Libre — Look 04",
+        "sku": "RW-LFW-04",
+        "slug": "espiritu-libre-lfw-04",
+        "price": None,
+        "availability": "custom_order",
+        "category": "Runway",
+        "description": "Espiritu Libre / Lakme runway collection.",
+        "media": [
+            "https://res.cloudinary.com/fm1bwbrd/image/upload/v1786697056/_1S34337_compressed_ajwtau.jpg",
+            "https://res.cloudinary.com/fm1bwbrd/image/upload/v1786697076/_1S34348_compressed_x8pbfd.jpg",
+        ],
+    },
+    {
+        "seedKey": "rk:runway:lfw:05",
+        "collectionSlug": "lakme",
+        "displayOrder": 5,
+        "name": "Espiritu Libre — Look 05",
+        "sku": "RW-LFW-05",
+        "slug": "espiritu-libre-lfw-05",
+        "price": None,
+        "availability": "custom_order",
+        "category": "Runway",
+        "description": "Espiritu Libre / Lakme runway collection.",
+        "media": [
+            "https://res.cloudinary.com/fm1bwbrd/image/upload/v1786697046/_1S33962_compressed_x9grdb.jpg",
+            "https://res.cloudinary.com/fm1bwbrd/image/upload/v1786696579/_1S33936_orsreo.jpg",
+        ],
+    },
+    {
+        "seedKey": "rk:runway:lfw:06",
+        "collectionSlug": "lakme",
+        "displayOrder": 6,
+        "name": "Espiritu Libre — Look 06",
+        "sku": "RW-LFW-06",
+        "slug": "espiritu-libre-lfw-06",
+        "price": None,
+        "availability": "custom_order",
+        "category": "Runway",
+        "description": "Espiritu Libre / Lakme runway collection.",
+        "media": [
+            "https://res.cloudinary.com/fm1bwbrd/image/upload/v1786696587/_1S33978_qiktw7.jpg",
+            "https://res.cloudinary.com/fm1bwbrd/image/upload/v1786696587/_1S33978_qiktw7.jpg",
+        ],
+    },
+)
+
+PRODUCT_SEEDS = CORE_PRODUCT_SEEDS + ANAMIKA_PRODUCT_SEEDS + RUNWAY_PRODUCT_SEEDS
 
 
 def _product_seed_document(seed: dict, now: datetime) -> dict:
@@ -478,8 +584,11 @@ def is_runway_collection(collection: dict | None) -> bool:
     collection = collection or {}
     for value in (collection.get("collectionType"), collection.get("name"), collection.get("slug"), collection.get("status")):
         tokens = str(value or "").strip().lower().replace("_", "-").replace(" ", "-").split("-")
-        if "runway" in tokens:
+        if "runway" in tokens or "lfw" in tokens:
             return True
+    identity = "-".join(str(collection.get(key) or "").strip().lower().replace("_", "-").replace(" ", "-") for key in ("name", "slug"))
+    if "espiritu" in identity.split("-") and "libre" in identity.split("-"):
+        return True
     return False
 
 
@@ -676,8 +785,64 @@ def ensure_catalog_seed(db) -> None:
                 update["$push"] = {"productRefs": {"productId": product["_id"], "displayOrder": 1}}
             db.collections.update_one({"_id": collection["_id"]}, update)
 
+    runway_collection = db.collections.find_one({"slug": RUNWAY_COLLECTION_SEED["slug"]})
+    if not runway_collection:
+        # Migrate databases created before Lakme became the persisted
+        # collection name. Keeping the existing document preserves its
+        # product references and editorial fields.
+        legacy_runway_collection = db.collections.find_one({"slug": "espiritu-libre-lfw"})
+        if legacy_runway_collection:
+            db.collections.update_one(
+                {"_id": legacy_runway_collection["_id"]},
+                {
+                    "$set": {
+                        "name": RUNWAY_COLLECTION_SEED["name"],
+                        "slug": RUNWAY_COLLECTION_SEED["slug"],
+                        "collectionType": "runway",
+                        "updatedAt": now,
+                    }
+                },
+            )
+            runway_collection = db.collections.find_one({"_id": legacy_runway_collection["_id"]})
+    if not runway_collection:
+        runway_hero = {
+            "type": "image",
+            "image": RUNWAY_COLLECTION_SEED["heroImage"],
+            "video": "",
+            "poster": RUNWAY_COLLECTION_SEED["heroImage"],
+            "mobileImage": "",
+            "mobileVideo": "",
+            "layout": "full_bleed",
+            "label": "Runway collection",
+            "ctaLabel": "Explore runway collection",
+        }
+        result = db.collections.insert_one({
+            **RUNWAY_COLLECTION_SEED,
+            "status": "collection",
+            "collectionType": "runway",
+            "hero": runway_hero,
+            "displayOrder": len(NORMAL_COLLECTIONS) + 1,
+            "productRefs": [],
+            "createdAt": now,
+            "updatedAt": now,
+            "isActive": True,
+            "seeded": True,
+        })
+        runway_collection = db.collections.find_one({"_id": result.inserted_id})
+    else:
+        collection_updates = {}
+        if runway_collection.get("name") != RUNWAY_COLLECTION_SEED["name"]:
+            collection_updates["name"] = RUNWAY_COLLECTION_SEED["name"]
+        if runway_collection.get("collectionType") != "runway":
+            collection_updates["collectionType"] = "runway"
+        if collection_updates:
+            collection_updates["updatedAt"] = now
+            db.collections.update_one({"_id": runway_collection["_id"]}, {"$set": collection_updates})
+            runway_collection.update(collection_updates)
+
     for seed in PRODUCT_SEEDS:
         is_anamika_seed = seed.get("collectionSlug") == "collections-of-anamika"
+        is_runway_seed = seed.get("collectionSlug") == RUNWAY_COLLECTION_SEED["slug"]
         if db.catalog_deletions.find_one(
             {"$or": [{"seedKey": seed["seedKey"]}, {"sku": seed.get("sku")}]},
             {"_id": 1},
@@ -709,6 +874,10 @@ def ensure_catalog_seed(db) -> None:
                 seed_updates["price"] = seed["price"]
             if product.get("stock") is None and product.get("availability") in {"custom_order", "sold_out"}:
                 seed_updates["stock"] = 0
+            if is_runway_seed and product.get("media") != seed.get("media"):
+                seed_updates["media"] = list(seed.get("media") or [])
+            if is_runway_seed and not str(product.get("slug") or "").strip() and str(seed.get("slug") or "").strip():
+                seed_updates["slug"] = seed["slug"]
         if seed_updates:
             seed_updates["updatedAt"] = now
             db.products.update_one({"_id": product["_id"]}, {"$set": seed_updates})
@@ -829,9 +998,12 @@ def product_is_runway(db, product_id: ObjectId) -> bool:
     return any(is_runway_collection(collection) for collection in collections)
 
 
-def collection_product_documents(db, collection: dict, projection: dict | None = None) -> list[tuple[dict, int]]:
+def collection_product_documents(db, collection: dict, projection: dict | None = None, limit: int | None = None, offset: int = 0) -> list[tuple[dict, int]]:
     refs = [ref for ref in (collection.get("productRefs") or []) if isinstance(ref, dict) and isinstance(ref.get("productId"), ObjectId)]
     refs.sort(key=lambda ref: (int(ref.get("displayOrder", 0)), str(ref["productId"])))
+    refs = refs[max(0, offset):]
+    if limit is not None:
+        refs = refs[:max(0, limit)]
     product_ids = [ref["productId"] for ref in refs]
     products = {product["_id"]: product for product in db.products.find({"_id": {"$in": product_ids}}, projection)} if product_ids else {}
     return [(products[ref["productId"]], int(ref.get("displayOrder", 0))) for ref in refs if ref["productId"] in products]
@@ -956,11 +1128,13 @@ def collection_view(
     include_products: bool = True,
     product_media_limit: int | None = None,
     product_cards: bool = False,
+    product_limit: int | None = None,
+    product_offset: int = 0,
 ) -> dict:
     product_projection = STOREFRONT_PRODUCT_PROJECTION if product_cards else None
     product_pairs = [
         (product, order)
-        for product, order in collection_product_documents(db, collection, product_projection)
+        for product, order in collection_product_documents(db, collection, product_projection, product_limit, product_offset)
         if product.get("status") != "archived" and product.get("isActive") is not False and product_has_visible_variants(product)
     ]
     result = {

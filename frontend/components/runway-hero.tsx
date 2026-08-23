@@ -69,7 +69,6 @@ export function RunwayHero({ title }: RunwayHeroProps) {
           <div>
             <p className="text-[0.58rem] uppercase tracking-[0.48em] text-gold">Runway collection</p>
             <h1 className="mt-5 max-w-3xl font-display text-[clamp(3.2rem,8vw,8rem)] leading-[0.82] tracking-[-0.03em] text-white">{title}</h1>
-            <p className="mt-5 text-[0.58rem] uppercase tracking-[0.34em] text-white/70">Coming soon · Click the film to play or pause</p>
           </div>
 
           <button

@@ -41,6 +41,11 @@ function belongsToCollection(collection: ManagedCollection, collectionName: stri
   return [collection.collectionType, collection.name, collection.slug, collection.status].some((value) => matcher.test(String(value || '').trim().toLowerCase()));
 }
 
+function isRunwayCollection(collection: ManagedCollection) {
+  const identity = [collection.collectionType, collection.name, collection.slug, collection.status].map((value) => String(value || '').trim().toLowerCase()).join(' ');
+  return /runway|lfw/.test(identity) || /espiritu[\s_-]+libre/.test(identity);
+}
+
 export function ProductDetailPage({ productId }: { productId: string }) {
   const [product, setProduct] = useState<CatalogProduct | null>(null);
   const [collections, setCollections] = useState<ManagedCollection[]>([]);
@@ -229,7 +234,7 @@ export function ProductDetailPage({ productId }: { productId: string }) {
   const sizeInventory = selectedVariant?.sizeInventory ?? product.sizeInventory ?? [];
   const sizeConfigured = Boolean(selectedVariant) || product.sizeInventoryConfigured === true;
   const isAnamikaProduct = collections.some((collection) => belongsToCollection(collection, 'anamika'));
-  const isRunwayProduct = collections.some((collection) => belongsToCollection(collection, 'runway'));
+  const isRunwayProduct = collections.some(isRunwayCollection);
   const attributeSizes = Array.isArray(product.attributes?.sizes) ? product.attributes.sizes.map((size) => String(size).trim().toUpperCase()).filter(Boolean) : [];
   const sizes = selectedVariant?.sizes?.length
     ? selectedVariant.sizes

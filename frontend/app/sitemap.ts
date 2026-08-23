@@ -16,6 +16,8 @@ const staticPaths = [
   '/collections',
   '/rk-lookbooks',
   '/runway',
+  '/runway/LFW',
+  '/collections/lakme',
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {

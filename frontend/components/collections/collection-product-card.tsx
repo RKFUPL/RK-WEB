@@ -15,9 +15,9 @@ function productColourText(product: CatalogProduct) {
   return value ? String(value) : '';
 }
 
-export function CollectionProductCard({ product }: { product: CatalogProduct }) {
+export function CollectionProductCard({ product, href }: { product: CatalogProduct; href?: string }) {
   const [saved, setSaved] = useState(false);
-  const route = `/products/${product.id}`;
+  const route = href || `/products/${product.id}`;
   const primaryImage = product.media?.[0];
   const secondaryImage = product.media?.[1];
   const primaryGridImage = cloudinaryImageUrl(primaryImage, 640);

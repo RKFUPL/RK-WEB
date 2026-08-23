@@ -1548,17 +1548,34 @@ body {
 }
 
 .footer-signature-scene {
+  position: relative;
+  z-index: 3;
   display: grid;
-  padding: clamp(4rem, 8vw, 7rem) 1.5rem;
+  margin-block: clamp(-2.75rem, -3vw, -1.5rem);
+  padding: clamp(0.75rem, 1.5vw, 1.5rem) 1rem;
   place-items: center;
-  overflow: hidden;
+  overflow: visible;
   background: transparent;
+}
+
+.footer-signature-ornament-row {
+  display: grid;
+  width: min(100%, 96rem);
+  grid-template-columns: minmax(3.5rem, 1fr) minmax(12rem, min(40vw, 34rem)) minmax(3.5rem, 1fr);
+  align-items: center;
+  gap: clamp(0.45rem, 1.8vw, 1.5rem);
+}
+
+.footer-signature-art-wrap {
+  display: grid;
+  width: 100%;
+  place-items: center;
 }
 
 .footer-signature-art {
   display: block;
-  width: min(94vw, 64rem);
-  height: min(24rem, 32vw);
+  width: 100%;
+  height: clamp(10rem, 20vw, 18rem);
   object-fit: contain;
 }
 
@@ -1573,6 +1590,19 @@ body {
 .dark .footer-signature-dark {
   display: block;
   mix-blend-mode: screen;
+}
+
+.footer-signature-ornament {
+  display: block;
+  width: 100%;
+  height: auto;
+  color: #b58a4c;
+  opacity: 0.78;
+}
+
+.dark .footer-signature-ornament {
+  color: #d0aa70;
+  opacity: 0.72;
 }
 
 .luxury-footer > * {

@@ -11,7 +11,9 @@ from ...catalog import (
     collection_document,
     collection_view,
     ensure_catalog_indexes,
+    ensure_catalog_seed_once,
     is_excluded_collection,
+    is_runway_collection,
     product_document,
     product_is_runway,
     product_view,
@@ -26,6 +28,44 @@ catalog_bp = Blueprint("catalog", __name__)
 
 def _request_text(value: object, maximum: int) -> str:
     return str(value or "").strip()[:maximum]
+
+
+def _runway_collection(db):
+    projection = {
+        "_id": 1,
+        "name": 1,
+        "slug": 1,
+        "status": 1,
+        "collectionType": 1,
+        "taxInclusive": 1,
+        "description": 1,
+        "heroImage": 1,
+        "hero": 1,
+        "season": 1,
+        "year": 1,
+        "designerNote": 1,
+        "collectionNumber": 1,
+        "location": 1,
+        "campaignInformation": 1,
+        "createdAt": 1,
+        "updatedAt": 1,
+        "productRefs": 1,
+    }
+    collections = [collection for collection in db.collections.find({}, projection) if not is_excluded_collection(collection)]
+    # Prefer the named Lakme/Espiritu chapter if more than one runway record
+    # exists, while retaining collectionType=runway as the canonical signal.
+    named_runway = next(
+        (
+            collection
+            for collection in collections
+            if "lfw" in " ".join(str(collection.get(key) or "").lower() for key in ("name", "slug", "status"))
+            or all(token in " ".join(str(collection.get(key) or "").lower() for key in ("name", "slug")) for token in ("espiritu", "libre"))
+        ),
+        None,
+    )
+    if named_runway:
+        return named_runway
+    return next((collection for collection in collections if is_runway_collection(collection)), None)
 
 
 def _send_custom_order_emails(record: dict) -> None:
@@ -146,17 +186,105 @@ def create_custom_order_request():
     }), 201
 
 
+@catalog_bp.get("/runway")
+def storefront_runway():
+    started_at = perf_counter()
+    db = database()
+    ensure_catalog_indexes(db)
+    ensure_catalog_seed_once(db)
+    collection = _runway_collection(db)
+    if not collection:
+        return jsonify({"error": "Runway collection not found."}), 404
+
+    raw_limit = request.args.get("limit")
+    raw_page = request.args.get("page")
+    product_limit = 3 if raw_limit is None else None
+    page = 1
+    if raw_limit is not None:
+        try:
+            product_limit = min(12, max(1, int(raw_limit)))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Runway product limit must be a positive integer."}), 400
+    else:
+        try:
+            page = max(1, int(raw_page or 1))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Runway page must be a positive integer."}), 400
+
+    payload = collection_view(
+        db,
+        collection,
+        product_media_limit=2,
+        product_cards=True,
+        product_limit=product_limit,
+        product_offset=(page - 1) * product_limit if raw_limit is None else 0,
+    )
+    total_products = len([
+        ref for ref in (collection.get("productRefs") or [])
+        if isinstance(ref, dict) and ref.get("productId")
+    ])
+    payload["productCount"] = total_products
+    payload["pagination"] = {
+        "page": page,
+        "pageSize": product_limit,
+        "totalProducts": total_products,
+        "totalPages": max(1, (total_products + product_limit - 1) // product_limit),
+    }
+    current_app.logger.info(
+        "runway_perf slug=%s limit=%s total_products=%s total_ms=%.1f",
+        collection.get("slug"),
+        product_limit,
+        payload.get("productCount", 0),
+        (perf_counter() - started_at) * 1000,
+    )
+    response = jsonify({"collection": payload})
+    response.headers["Cache-Control"] = "public, max-age=0, s-maxage=60, stale-while-revalidate=300"
+    return response, 200
+
+
 @catalog_bp.get("/collections/<slug>")
 def storefront_collection(slug: str):
     started_at = perf_counter()
     db = database()
     ensure_catalog_indexes(db)
+    ensure_catalog_seed_once(db)
     collection = collection_document(db, slug, STOREFRONT_COLLECTION_PROJECTION)
     collection_query_ms = (perf_counter() - started_at) * 1000
     if not collection:
         return jsonify({"error": "Collection not found."}), 404
     view_started_at = perf_counter()
-    payload = collection_view(db, collection, product_media_limit=2, product_cards=True)
+    raw_page = request.args.get("page")
+    page = 1
+    product_limit = None
+    product_offset = 0
+    if raw_page is not None:
+        try:
+            page = max(1, int(raw_page))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Collection page must be a positive integer."}), 400
+        product_limit = 3
+        product_offset = (page - 1) * product_limit
+
+    payload = collection_view(
+        db,
+        collection,
+        product_media_limit=2,
+        product_cards=True,
+        product_limit=product_limit,
+        product_offset=product_offset,
+    )
+    if raw_page is not None:
+        total_products = len([
+            ref for ref in (collection.get("productRefs") or [])
+            if isinstance(ref, dict) and ref.get("productId")
+        ])
+        payload["productCount"] = total_products
+        payload["pagination"] = {
+            "page": page,
+            "pageSize": product_limit,
+            "totalProducts": total_products,
+            "totalPages": max(1, (total_products + product_limit - 1) // product_limit),
+        }
     view_ms = (perf_counter() - view_started_at) * 1000
     current_app.logger.info(
         "collection_perf slug=%s collection_query_ms=%.1f transformation_ms=%.1f total_ms=%.1f products=%s",

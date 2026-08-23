@@ -15,9 +15,10 @@ function unique(values: Array<string | undefined>) {
   return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))].sort();
 }
 
-export function StorefrontCollectionProducts({ collection, loading = false }: {
+export function StorefrontCollectionProducts({ collection, loading = false, productHref }: {
   collection: (ManagedCollection & { products: CatalogProduct[] }) | null;
   loading?: boolean;
+  productHref?: (product: CatalogProduct) => string;
 }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [category, setCategory] = useState('');
@@ -31,6 +32,7 @@ export function StorefrontCollectionProducts({ collection, loading = false }: {
   const sizes = useMemo(() => unique(products.flatMap((product) => product.sizeInventory?.map((entry) => entry.size) ?? product.attributes?.sizes ?? [])), [products]);
   const colors = useMemo(() => unique(products.flatMap((product) => product.attributes?.colors ?? (product.attributes?.color ? [String(product.attributes.color)] : []))), [products]);
   const activeFilterCount = [category, size, color, availability, maxPrice].filter(Boolean).length;
+  const totalPieces = collection?.productCount ?? products.length;
 
   const visibleProducts = useMemo(() => {
     const maximum = maxPrice ? Number(maxPrice) : null;
@@ -60,7 +62,7 @@ export function StorefrontCollectionProducts({ collection, loading = false }: {
         <div>
           <p className="text-[0.58rem] uppercase tracking-[0.38em] text-gold">The collection</p>
           <h2 className="mt-3 font-display text-4xl leading-none sm:text-5xl">{collection?.name || 'Collection'}</h2>
-          <p className="mt-3 text-[0.58rem] uppercase tracking-[0.3em] text-charcoal/48">{products.length} {products.length === 1 ? 'piece' : 'pieces'}</p>
+          <p className="mt-3 text-[0.58rem] uppercase tracking-[0.3em] text-charcoal/48">{totalPieces} {totalPieces === 1 ? 'piece' : 'pieces'}</p>
         </div>
         <div className="flex items-center gap-6 md:justify-end">
           <button type="button" onClick={() => setFiltersOpen((current) => !current)} className="inline-flex items-center gap-2 text-[0.6rem] uppercase tracking-[0.27em] transition hover:text-gold"><SlidersHorizontal size={14} strokeWidth={1.4} />Filter{activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
@@ -78,7 +80,7 @@ export function StorefrontCollectionProducts({ collection, loading = false }: {
       </div></motion.div> : null}</AnimatePresence>
 
       {loading ? <div className="mt-9 grid grid-cols-2 gap-x-3 gap-y-10 md:grid-cols-3 md:gap-x-6 lg:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <div key={index} className="animate-pulse"><div className="aspect-[3/4] bg-sand" /><div className="mt-4 h-3 w-1/3 bg-sand" /><div className="mt-3 h-5 w-3/4 bg-sand" /></div>)}</div> : visibleProducts.length ? <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.08 }} variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.07 } } }} className="mt-9 grid grid-cols-2 gap-x-3 gap-y-10 md:grid-cols-3 md:gap-x-6 md:gap-y-14 lg:grid-cols-4 lg:gap-x-7">
-        {visibleProducts.map((product) => <motion.div key={product.id} variants={{ hidden: { opacity: 0, y: 18 }, visible: { opacity: 1, y: 0, transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] } } }}><CollectionProductCard product={product} /></motion.div>)}
+        {visibleProducts.map((product) => <motion.div key={product.id} variants={{ hidden: { opacity: 0, y: 18 }, visible: { opacity: 1, y: 0, transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] } } }}><CollectionProductCard product={product} href={productHref?.(product)} /></motion.div>)}
       </motion.div> : <div className="mt-12 border border-black/10 px-6 py-16 text-center dark:border-white/10"><p className="font-display text-2xl">{products.length ? 'No pieces match these filters.' : 'No products in this collection yet.'}</p>{activeFilterCount ? <button type="button" onClick={resetFilters} className="mt-5 text-[0.6rem] uppercase tracking-[0.25em] text-gold">Clear filters</button> : null}</div>}
     </div>
   </section>;
