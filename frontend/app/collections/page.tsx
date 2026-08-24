@@ -50,9 +50,9 @@ function CampaignImage({ collection }: { collection: (typeof collectionGalleryPa
         </div>
       </motion.article>
   );
-  return collection.comingSoon
-    ? <div id="aakaar-coming-soon" className={`collections-gallery-card group block ${cardClassName}`}>{content}</div>
-    : <Link href={collection.route} className={`collections-gallery-card group block ${cardClassName}`}>{content}</Link>;
+  return <Link href={collection.route} className={`collections-gallery-card group block ${cardClassName}`}>
+    {content}
+  </Link>;
 }
 
 export default function CollectionsPage() {

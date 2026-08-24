@@ -1,3 +1,6 @@
+'use client';
+
+import { useEffect, useState } from 'react';
 import { footerSignatureDarkImage, footerSignatureLightImage } from '@/lib/home-content';
 
 function CrestOrnament({ side }: { side: 'left' | 'right' }) {
@@ -21,12 +24,29 @@ function CrestOrnament({ side }: { side: 'left' | 'right' }) {
 }
 
 export function CrestTransition() {
+  const [dark, setDark] = useState(false);
+
+  useEffect(() => {
+    const savedTheme = window.localStorage.getItem('rk-theme');
+    setDark(savedTheme === 'dark' || document.documentElement.classList.contains('dark'));
+
+    const onThemeChange = (event: Event) => {
+      setDark(Boolean((event as CustomEvent<boolean>).detail));
+    };
+
+    window.addEventListener('rk-theme-change', onThemeChange);
+    return () => window.removeEventListener('rk-theme-change', onThemeChange);
+  }, []);
+
   return (
     <div className="footer-signature-ornament-row">
       <CrestOrnament side="left" />
       <div className="footer-signature-art-wrap">
-        <img src={footerSignatureLightImage} alt="Rashi Kapoor floral monogram" className="footer-signature-art footer-signature-light" />
-        <img src={footerSignatureDarkImage} alt="Rashi Kapoor floral monogram" className="footer-signature-art footer-signature-dark" />
+        <img
+          src={dark ? footerSignatureDarkImage : footerSignatureLightImage}
+          alt="Rashi Kapoor floral monogram"
+          className="footer-signature-art"
+        />
       </div>
       <CrestOrnament side="right" />
     </div>

@@ -191,7 +191,7 @@ export const collectionPages: readonly CollectionPage[] = sortByCollectionOrder(
 export const collectionGalleryPages: readonly (CollectionPage & { comingSoon?: boolean })[] = sortByCollectionOrder([
   {
     name: 'Aakaar',
-    route: '/collections#aakaar-coming-soon',
+    route: '/aakaar',
     status: 'Coming Soon',
     summary: featuredCollection.description,
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg',
@@ -218,7 +218,7 @@ export const searchItems = [
 export const categoryItems: readonly CategoryItem[] = collectionGalleryPages.map((collection) => ({
   title: collection.name,
   image: collection.image,
-  href: collection.comingSoon ? undefined : lookbookUrls[collection.name as keyof typeof lookbookUrls] ?? collection.route,
+  href: lookbookUrls[collection.name as keyof typeof lookbookUrls] ?? collection.route,
   comingSoon: collection.comingSoon,
 }));
 

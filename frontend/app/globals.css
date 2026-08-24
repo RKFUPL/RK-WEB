@@ -1591,19 +1591,6 @@ body {
   object-fit: contain;
 }
 
-.footer-signature-dark {
-  display: none;
-}
-
-.footer-signature-light {
-  display: block;
-}
-
-.dark .footer-signature-dark {
-  display: block;
-  mix-blend-mode: screen;
-}
-
 .footer-signature-ornament {
   display: block;
   width: 100%;
@@ -1619,6 +1606,10 @@ body {
 .dark .footer-signature-ornament {
   color: #d0aa70;
   opacity: 0.72;
+}
+
+.dark .footer-signature-art {
+  mix-blend-mode: lighten;
 }
 
 .luxury-footer > * {
