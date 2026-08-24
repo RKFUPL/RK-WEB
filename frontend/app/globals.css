@@ -518,6 +518,14 @@ html.dark {
   background-image: none;
 }
 
+.testimonials-newsletter-scene > #services > div {
+  padding-bottom: 0;
+}
+
+.testimonials-newsletter-scene > #journal > div {
+  padding-top: 0;
+}
+
 .dark .testimonials-newsletter-scene {
   background-color: #090807;
   background-image: linear-gradient(rgba(9, 8, 7, 0.42), rgba(9, 8, 7, 0.52)), url('https://res.cloudinary.com/fm1bwbrd/image/upload/v1785928990/3cb519cb-7b97-4faa-9a00-d696c08f9e9c_d3jnr4.png');
@@ -1548,33 +1556,37 @@ body {
 }
 
 .footer-signature-scene {
+  --crest-vertical-gap: clamp(2rem, 4vw, 3.125rem);
   position: relative;
   z-index: 3;
   display: grid;
-  margin-block: clamp(-2.75rem, -3vw, -1.5rem);
-  padding: clamp(0.75rem, 1.5vw, 1.5rem) 1rem;
+  margin: 0;
+  padding: var(--crest-vertical-gap) 1rem;
   place-items: center;
   overflow: visible;
   background: transparent;
 }
 
 .footer-signature-ornament-row {
+  --crest-ornament-gap: 8px;
   display: grid;
   width: min(100%, 96rem);
-  grid-template-columns: minmax(3.5rem, 1fr) minmax(12rem, min(40vw, 34rem)) minmax(3.5rem, 1fr);
+  grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
   align-items: center;
-  gap: clamp(0.45rem, 1.8vw, 1.5rem);
+  gap: var(--crest-ornament-gap);
 }
 
 .footer-signature-art-wrap {
   display: grid;
-  width: 100%;
+  width: max-content;
+  max-width: 100%;
   place-items: center;
 }
 
 .footer-signature-art {
   display: block;
-  width: 100%;
+  width: auto;
+  max-width: 100%;
   height: clamp(10rem, 20vw, 18rem);
   object-fit: contain;
 }
@@ -1598,6 +1610,10 @@ body {
   height: auto;
   color: #b58a4c;
   opacity: 0.78;
+}
+
+.footer-signature-ornament-right {
+  transform: scaleX(-1);
 }
 
 .dark .footer-signature-ornament {
