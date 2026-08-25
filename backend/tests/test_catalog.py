@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from bson import ObjectId
 
-from app.catalog import ANAMIKA_PRODUCT_SEEDS, NORMAL_COLLECTIONS, PRODUCT_SEEDS, _product_seed_document, collection_hero, is_excluded_collection, is_runway_collection, product_view
+from app.catalog import ANAMIKA_PRODUCT_SEEDS, HASTAKALA_PRODUCT_SEEDS, NORMAL_COLLECTIONS, PRODUCT_SEEDS, _product_seed_document, collection_hero, is_excluded_collection, is_runway_collection, product_view
 from app.inventory import DEFAULT_CUSTOM_SIZE_FIELDS, STANDARD_SIZES, custom_size_fields, validate_custom_size
 
 
@@ -111,6 +111,53 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual([seed["displayOrder"] for seed in ANAMIKA_PRODUCT_SEEDS], list(range(1, 17)))
         self.assertEqual(len({seed["seedKey"] for seed in ANAMIKA_PRODUCT_SEEDS}), 16)
         self.assertEqual(len({seed["slug"] for seed in ANAMIKA_PRODUCT_SEEDS}), 16)
+
+    def test_hastakala_seed_contains_the_seven_requested_products(self):
+        expected_codes = ["CK-155-A", "CK-155", "CK-171", "CK-172", "CK-173", "CK-184", "CK-186"]
+        self.assertEqual([seed["name"] for seed in HASTAKALA_PRODUCT_SEEDS], expected_codes)
+        self.assertEqual([seed["displayOrder"] for seed in HASTAKALA_PRODUCT_SEEDS], list(range(1, 8)))
+        self.assertEqual(len({seed["seedKey"] for seed in HASTAKALA_PRODUCT_SEEDS}), 7)
+        self.assertEqual(len({seed["slug"] for seed in HASTAKALA_PRODUCT_SEEDS}), 7)
+        self.assertEqual(sum(len(seed["colors"]) for seed in HASTAKALA_PRODUCT_SEEDS), 24)
+        self.assertTrue(all(seed["collectionSlug"] == "collections-of-hasthkala" for seed in HASTAKALA_PRODUCT_SEEDS))
+
+    def test_hastakala_seed_prices_and_colours_match_the_brief(self):
+        expected = {
+            "CK-155-A": (135000, ["HOT PINK", "PURPLE", "ROYAL BLUE"]),
+            "CK-155": (135000, ["RED"]),
+            "CK-171": (118684, ["BOTTLE GREEN", "HOT PINK", "PURPLE", "RED", "ROYAL BLUE"]),
+            "CK-172": (161004, ["BOTTLE GREEN", "HOT PINK", "PURPLE", "RED", "ROYAL BLUE"]),
+            "CK-173": (150424, ["HOT PINK", "PURPLE", "RED", "ROYAL BLUE"]),
+            "CK-184": (103684, ["BOTTLE GREEN", "RED"]),
+            "CK-186": (108104, ["BOTTLE GREEN", "HOT PINK", "PURPLE", "ROYAL BLUE"]),
+        }
+        self.assertEqual(
+            {seed["name"]: (seed["price"], seed["colors"]) for seed in HASTAKALA_PRODUCT_SEEDS},
+            expected,
+        )
+
+    def test_hastakala_seed_builds_zero_stock_in_stock_products_without_media(self):
+        now = datetime.now(timezone.utc)
+        for seed in HASTAKALA_PRODUCT_SEEDS:
+            with self.subTest(product=seed["name"]):
+                document = _product_seed_document(seed, now)
+                self.assertEqual(document["name"], seed["name"])
+                self.assertEqual(document["sku"], seed["sku"])
+                self.assertEqual(document["price"], seed["price"])
+                self.assertEqual(document["description"], "")
+                self.assertEqual(document["attributes"]["colors"], seed["colors"])
+                self.assertEqual(document["attributes"]["sizes"], list(STANDARD_SIZES))
+                self.assertEqual(document["media"], [])
+                self.assertEqual(document["stock"], 0)
+                self.assertEqual(document["availability"], "in_stock")
+                self.assertTrue(document["sizeInventoryConfigured"])
+                self.assertTrue(document["taxInclusive"])
+                self.assertTrue(document["mrpIncludesGst"])
+                self.assertEqual(len(document["variants"]), len(seed["colors"]))
+                self.assertTrue(all(item["status"] == "active" for item in document["variants"]))
+                self.assertTrue(all(item["availabilityStatus"] == "IN_STOCK" for item in document["variants"]))
+                self.assertTrue(all(item["images"] == [] for item in document["variants"]))
+                self.assertTrue(all(item["stock"] == 0 for item in document["variants"]))
 
     def test_anamika_seed_prices_and_colours_match_the_line_sheets(self):
         expected = {

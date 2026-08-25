@@ -207,6 +207,102 @@ CORE_PRODUCT_SEEDS = (
     },
 )
 
+# Product data transcribed from the supplied Hastakala line sheet. These
+# products intentionally have no media yet; images are added later through
+# the existing Manage Images workflow.
+HASTAKALA_PRODUCT_SEEDS = (
+    {
+        "seedKey": "rk:hastakala:ck-155-a",
+        "collectionSlug": "collections-of-hasthkala",
+        "displayOrder": 1,
+        "name": "CK-155-A",
+        "sku": "CK-155-A",
+        "slug": "ck-155-a",
+        "colors": ["HOT PINK", "PURPLE", "ROYAL BLUE"],
+        "price": 135000,
+    },
+    {
+        "seedKey": "rk:hastakala:ck-155",
+        "collectionSlug": "collections-of-hasthkala",
+        "displayOrder": 2,
+        "name": "CK-155",
+        "sku": "CK-155",
+        "slug": "ck-155",
+        "colors": ["RED"],
+        "price": 135000,
+    },
+    {
+        "seedKey": "rk:hastakala:ck-171",
+        "collectionSlug": "collections-of-hasthkala",
+        "displayOrder": 3,
+        "name": "CK-171",
+        "sku": "CK-171",
+        "slug": "ck-171",
+        "colors": ["BOTTLE GREEN", "HOT PINK", "PURPLE", "RED", "ROYAL BLUE"],
+        "price": 118684,
+    },
+    {
+        "seedKey": "rk:hastakala:ck-172",
+        "collectionSlug": "collections-of-hasthkala",
+        "displayOrder": 4,
+        "name": "CK-172",
+        "sku": "CK-172",
+        "slug": "ck-172",
+        "colors": ["BOTTLE GREEN", "HOT PINK", "PURPLE", "RED", "ROYAL BLUE"],
+        "price": 161004,
+    },
+    {
+        "seedKey": "rk:hastakala:ck-173",
+        "collectionSlug": "collections-of-hasthkala",
+        "displayOrder": 5,
+        "name": "CK-173",
+        "sku": "CK-173",
+        "slug": "ck-173",
+        "colors": ["HOT PINK", "PURPLE", "RED", "ROYAL BLUE"],
+        "price": 150424,
+    },
+    {
+        "seedKey": "rk:hastakala:ck-184",
+        "collectionSlug": "collections-of-hasthkala",
+        "displayOrder": 6,
+        "name": "CK-184",
+        "sku": "CK-184",
+        "slug": "ck-184",
+        "colors": ["BOTTLE GREEN", "RED"],
+        "price": 103684,
+    },
+    {
+        "seedKey": "rk:hastakala:ck-186",
+        "collectionSlug": "collections-of-hasthkala",
+        "displayOrder": 7,
+        "name": "CK-186",
+        "sku": "CK-186",
+        "slug": "ck-186",
+        "colors": ["BOTTLE GREEN", "HOT PINK", "PURPLE", "ROYAL BLUE"],
+        "price": 108104,
+    },
+)
+
+HASTAKALA_PRODUCT_SEEDS = tuple(
+    {
+        **seed,
+        "sizes": list(STANDARD_SIZES),
+        "stock": 0,
+        "availability": "in_stock",
+        "taxInclusive": True,
+        "mrpIncludesGst": True,
+        "category": "Couture",
+        "media": [],
+        "customSizeConfig": {
+            "enabled": True,
+            "fields": list(DEFAULT_CUSTOM_SIZE_FIELDS),
+            "label": "Want a custom size?",
+            "unit": "in",
+        },
+    }
+    for seed in HASTAKALA_PRODUCT_SEEDS
+)
+
 # Product data transcribed from the supplied Anamika line sheets. CK-42 is
 # intentionally omitted at the owner's request. The CK-56 A description is
 # deliberately the visible source fragment so it can be replaced in the
@@ -509,7 +605,7 @@ RUNWAY_PRODUCT_SEEDS = (
     },
 )
 
-PRODUCT_SEEDS = CORE_PRODUCT_SEEDS + ANAMIKA_PRODUCT_SEEDS + RUNWAY_PRODUCT_SEEDS
+PRODUCT_SEEDS = CORE_PRODUCT_SEEDS + HASTAKALA_PRODUCT_SEEDS + ANAMIKA_PRODUCT_SEEDS + RUNWAY_PRODUCT_SEEDS
 
 
 def _product_seed_document(seed: dict, now: datetime) -> dict:
@@ -563,6 +659,8 @@ def _product_seed_document(seed: dict, now: datetime) -> dict:
         }
     if seed.get("collectionSlug") == "collections-of-anamika":
         document["anamikaSeedVersion"] = 1
+    if seed.get("collectionSlug") == "collections-of-hasthkala":
+        document["hastakalaSeedVersion"] = 1
     collection_hint = {"slug": seed.get("collectionSlug"), "name": str(seed.get("collectionSlug") or "").removeprefix("collections-of-")}
     document.update(build_product_variants(document, [collection_hint]))
     return document
@@ -842,7 +940,9 @@ def ensure_catalog_seed(db) -> None:
 
     for seed in PRODUCT_SEEDS:
         is_anamika_seed = seed.get("collectionSlug") == "collections-of-anamika"
+        is_hastakala_seed = seed.get("collectionSlug") == "collections-of-hasthkala"
         is_runway_seed = seed.get("collectionSlug") == RUNWAY_COLLECTION_SEED["slug"]
+        is_duplicate_protected_seed = is_anamika_seed or is_hastakala_seed
         if db.catalog_deletions.find_one(
             {"$or": [{"seedKey": seed["seedKey"]}, {"sku": seed.get("sku")}]},
             {"_id": 1},
@@ -850,7 +950,7 @@ def ensure_catalog_seed(db) -> None:
             # Explicit permanent deletion wins over the compatibility seed.
             continue
         product = db.products.find_one({"seedKey": seed["seedKey"]})
-        if not product and is_anamika_seed:
+        if not product and is_duplicate_protected_seed:
             # Adopt an existing matching SKU instead of creating a duplicate if
             # this catalogue was entered manually before the seed was deployed.
             product = db.products.find_one({"sku": seed["sku"]})
@@ -864,6 +964,31 @@ def ensure_catalog_seed(db) -> None:
             # later edits made through Admin/Staff, including the temporary
             # CK-56 A description supplied by the owner.
             seeded_document = _product_seed_document(seed, now)
+            seed_updates = {key: value for key, value in seeded_document.items() if key != "createdAt"}
+        elif is_hastakala_seed and int(product.get("hastakalaSeedVersion") or 0) < 1:
+            # Complete a matching manually-created product without erasing any
+            # images that may already have been attached through Manage Images.
+            seeded_document = _product_seed_document(seed, now)
+            existing_media = product.get("media") if isinstance(product.get("media"), list) else []
+            existing_variants = {
+                str(item.get("colour") or item.get("color") or "").strip().casefold(): item
+                for item in product.get("variants", [])
+                if isinstance(item, dict)
+            }
+            seeded_variants = []
+            for variant in seeded_document.get("variants", []):
+                previous = existing_variants.get(str(variant.get("colour") or "").strip().casefold())
+                merged = {**variant}
+                if previous:
+                    if str(previous.get("id") or "").strip():
+                        merged["id"] = previous["id"]
+                    if isinstance(previous.get("images"), list):
+                        merged["images"] = list(previous["images"])
+                    if isinstance(previous.get("metadata"), dict):
+                        merged["metadata"] = dict(previous["metadata"])
+                seeded_variants.append(merged)
+            seeded_document["media"] = existing_media
+            seeded_document["variants"] = seeded_variants
             seed_updates = {key: value for key, value in seeded_document.items() if key != "createdAt"}
         else:
             # Older local databases were seeded before SKU/pricing was
@@ -890,6 +1015,8 @@ def ensure_catalog_seed(db) -> None:
         if not any(ref.get("productId") == product["_id"] for ref in refs if isinstance(ref, dict)):
             next_order = max([int(ref.get("displayOrder", 0)) for ref in refs if isinstance(ref, dict)] or [0]) + 1
             display_order = int(seed.get("displayOrder") or next_order)
+            if display_order < next_order:
+                display_order = next_order
             db.collections.update_one(
                 {"_id": collection["_id"]},
                 {"$push": {"productRefs": {"productId": product["_id"], "displayOrder": display_order}}, "$set": {"updatedAt": now}},

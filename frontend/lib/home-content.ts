@@ -59,8 +59,7 @@ export const runwayCollections = [
 ] as const;
 
 export const brandLogoUrl = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305776/RK_LOGOMARK_t6untf.svg';
-export const footerSignatureLightImage = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1787402759/Rashi_Kapoor_Legacy_Crest_Transparent_kbljbo.png';
-export const footerSignatureDarkImage = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1787059406/3c335991-6978-462c-a561-b3d1a23e11a0.png';
+export const footerSignatureArtwork = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1787659729/image_qh6ft1.png';
 export const aakarBannerBackgroundUrl = 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305719/BG_xsyd8f.png';
 // Keep this as a normal HTML5 video URL. Cloudinary handles the delivery
 // format/quality negotiation while the poster in the consuming component
