@@ -41,6 +41,8 @@ export type CollectionHeroConfig = {
 export type CatalogProduct = {
   id: string;
   name?: string;
+  styleCode?: string;
+  style?: string;
   productCode?: string;
   parentSku?: string;
   skuPrefix?: string;

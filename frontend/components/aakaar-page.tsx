@@ -1,11 +1,13 @@
 'use client';
 
-import { useLayoutEffect } from 'react';
+import Link from 'next/link';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { FeaturedCollection } from '@/components/home/featured-collection';
 import { Footer } from '@/components/home/footer';
 import { SectionShell } from '@/components/home/section-shell';
 import { StickyHeader } from '@/components/home/sticky-header';
 import { featuredCollectionFrames } from '@/lib/home-content';
+import { apiBaseUrl } from '@/lib/rbac';
 
 function AakaarLightModeStart() {
   useLayoutEffect(() => {
@@ -17,13 +19,47 @@ function AakaarLightModeStart() {
   return null;
 }
 
-const previewImages = [
-  featuredCollectionFrames[0],
-  featuredCollectionFrames[1],
-  featuredCollectionFrames[2],
-] as const;
+type AakaarPreviewProduct = {
+  name: string;
+  styleCode: string;
+  image: string;
+};
+
+const previewProducts: AakaarPreviewProduct[] = [
+  { name: 'Aarohi', styleCode: 'IND-01', image: featuredCollectionFrames[0] },
+  { name: 'Ananya', styleCode: 'IND-02', image: featuredCollectionFrames[1] },
+  { name: 'Avani', styleCode: 'IND-03', image: featuredCollectionFrames[2] },
+];
+
+type AakaarApiProduct = {
+  name?: string;
+  styleCode?: string;
+  media?: string[];
+};
 
 export function AakaarPage() {
+  const [featuredProducts, setFeaturedProducts] = useState([...previewProducts]);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`${apiBaseUrl}/api/catalog/collections/aakaar`, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Unable to load AAKAAR products.');
+        const payload = await response.json() as { collection?: { products?: AakaarApiProduct[] } };
+        return payload.collection?.products || [];
+      })
+      .then((products) => {
+        if (!active || products.length < previewProducts.length) return;
+        setFeaturedProducts(previewProducts.map((fallback, index) => ({
+          name: products[index]?.name || fallback.name,
+          styleCode: products[index]?.styleCode || fallback.styleCode,
+          image: products[index]?.media?.[0] || fallback.image,
+        })));
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
   return (
     <main className="aakaar-page min-h-screen bg-ivory text-charcoal">
       <AakaarLightModeStart />
@@ -43,12 +79,12 @@ export function AakaarPage() {
           </header>
 
           <div className="mt-16 grid gap-6 md:grid-cols-3 lg:mt-20 lg:gap-8">
-            {previewImages.map((image, index) => (
-              <article key={image} className="overflow-hidden border border-black/10 bg-[#f8f6f2] dark:border-white/10 dark:bg-[#121212]">
+            {featuredProducts.map((product, index) => (
+              <article key={product.styleCode} className="overflow-hidden border border-black/10 bg-[#f8f6f2] dark:border-white/10 dark:bg-[#121212]">
                 <div className="aspect-[3/4] overflow-hidden bg-sand dark:bg-[#181513]">
                   <img
-                    src={image}
-                    alt={`Aakaar campaign preview ${index + 1}`}
+                    src={product.image}
+                    alt={`${product.name} Aakaar campaign preview`}
                     draggable={false}
                     loading={index === 0 ? 'eager' : 'lazy'}
                     decoding="async"
@@ -56,14 +92,23 @@ export function AakaarPage() {
                   />
                 </div>
                 <div className="flex items-center justify-between gap-4 border-t border-black/10 px-5 py-5 dark:border-white/10 md:px-6">
-                  <p className="text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/65 dark:text-[#f5f2ee]/65">Aakaar / Preview {String(index + 1).padStart(2, '0')}</p>
+                  <div>
+                    <p className="text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/65 dark:text-[#f5f2ee]/65">Aakaar / {product.styleCode}</p>
+                    <h2 className="mt-2 font-display text-2xl leading-none">{product.name}</h2>
+                  </div>
                   <p className="shrink-0 text-[0.52rem] uppercase tracking-[0.25em] text-gold">Coming soon</p>
                 </div>
               </article>
             ))}
           </div>
 
-          <div className="mt-16 border-t border-black/10 pt-10 text-center dark:border-white/10 lg:mt-20">
+          <div className="mt-12 text-center lg:mt-16">
+            <Link href="/aakaar/collection" className="inline-flex items-center gap-3 border-b border-charcoal/35 pb-2 text-[0.6rem] uppercase tracking-[0.28em] text-charcoal transition hover:border-gold hover:text-gold dark:border-white/35 dark:text-[#f5f2ee]">
+              View more <span aria-hidden="true" className="text-base leading-none">→</span>
+            </Link>
+          </div>
+
+          <div className="mt-12 border-t border-black/10 pt-10 text-center dark:border-white/10 lg:mt-16">
             <p className="text-[0.58rem] uppercase tracking-[0.32em] text-charcoal/55 dark:text-[#f5f2ee]/55">For more information, contact</p>
             <a href="mailto:contact@rashikapooroffical.com" className="mt-3 inline-block font-display text-xl text-charcoal transition hover:text-gold dark:text-[#f5f2ee] md:text-2xl">
               contact@rashikapooroffical.com

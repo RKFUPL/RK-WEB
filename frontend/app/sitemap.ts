@@ -15,6 +15,7 @@ const staticPaths = [
   '/careers',
   '/collections',
   '/aakaar',
+  '/aakaar/collection',
   '/rk-lookbooks',
   '/runway',
   '/runway/LFW',

@@ -81,6 +81,7 @@ export function CollectionProductCard({ product, href }: { product: CatalogProdu
         <div className="min-w-0">
           <p className="truncate text-[0.54rem] uppercase tracking-[0.27em] text-charcoal/45">{product.category || 'Couture'}</p>
           <Link href={route} className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 leading-tight text-charcoal transition hover:text-gold"><span className="font-display text-lg sm:text-xl">{product.name || 'Untitled piece'}</span>{productColours ? <span className="text-[0.52rem] uppercase tracking-[0.16em] text-charcoal/50">· {productColours}</span> : null}</Link>
+          {product.styleCode ? <p className="mt-1 text-[0.52rem] uppercase tracking-[0.2em] text-charcoal/45">{product.styleCode}</p> : null}
         </div>
         {product.availability === 'custom_order' ? <span className="shrink-0 text-[0.5rem] uppercase tracking-[0.18em] text-gold">Custom</span> : null}
       </div>

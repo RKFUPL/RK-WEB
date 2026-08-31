@@ -256,6 +256,7 @@ export function ProductDetailPage({ productId }: { productId: string }) {
   const customSizeEnabled = customSizeExplicitlyEnabled ?? (configuredCustomSizeFields.length > 0 || sizeConfigured || isAnamikaProduct || selectedAvailability === 'custom_order');
   const customSizeFields = customSizeEnabled ? (configuredCustomSizeFields.length ? configuredCustomSizeFields : defaultCustomSizeFields) : [];
   const backCollection = collections[0];
+  const backCollectionHref = backCollection?.slug === 'aakaar' ? '/aakaar/collection' : backCollection ? `/collections/${backCollection.slug}` : '';
   const route = `/products/${product.id}`;
   const currentImage = media[activeImage] || media[0];
   const currentMainImage = cloudinaryImageUrl(currentImage, 1600);
@@ -407,7 +408,7 @@ export function ProductDetailPage({ productId }: { productId: string }) {
 
   return <main className="bg-ivory text-charcoal"><StickyHeader />
     <section className="mx-auto max-w-[100rem] px-4 pb-20 pt-28 sm:px-8 lg:px-12 lg:pb-28 lg:pt-32">
-      {backCollection ? <Link href={`/collections/${backCollection.slug}`} className="mb-7 inline-flex items-center gap-2 text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/55 transition hover:text-gold"><ArrowLeft size={14} />{backCollection.name}</Link> : null}
+      {backCollection ? <Link href={backCollectionHref} className="mb-7 inline-flex items-center gap-2 text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/55 transition hover:text-gold"><ArrowLeft size={14} />{backCollection.name}</Link> : null}
       <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,35rem)_5.5rem_minmax(20rem,1fr)] lg:gap-x-3 xl:grid-cols-[minmax(0,35rem)_6.5rem_minmax(22rem,1fr)] xl:gap-x-4">
         <div className="flex justify-center lg:justify-start">
           <div ref={mainImageFrameRef} className="relative aspect-[4/5] h-auto w-full max-w-[35rem] overflow-hidden rounded-[14px] bg-sand">
@@ -421,6 +422,7 @@ export function ProductDetailPage({ productId }: { productId: string }) {
           {backCollection ? <p className="mt-4 font-display text-[clamp(1.75rem,2.2vw,2.125rem)] leading-none text-charcoal/85">{backCollection.name}</p> : null}
           <h1 className="mt-4 font-display text-[clamp(2.625rem,4vw,3.25rem)] leading-[0.95]">{product.name || 'Untitled piece'}</h1>
           {selectedSku ? <p className="mt-4 text-xs uppercase tracking-[0.24em] text-charcoal/45">SKU: {selectedSku}</p> : null}
+          {product.styleCode ? <p className="mt-2 text-xs uppercase tracking-[0.24em] text-charcoal/45">Style Code: {product.styleCode}</p> : null}
           {variantOptions.length > 1 ? <label className="mt-5 block max-w-xs text-[0.58rem] uppercase tracking-[0.24em] text-charcoal/50">Colour<select value={selectedVariant?.id ?? ''} onChange={(event) => chooseVariant(event.target.value)} className="mt-2 w-full border border-black/15 bg-transparent px-3 py-3 text-sm normal-case tracking-normal text-charcoal outline-none transition focus:border-gold dark:border-white/20">{variantOptions.map((variant) => <option key={variant.id} value={variant.id}>{variant.colour || 'Default'}{variant.status === 'inactive' ? ' — Sold out' : ''}</option>)}</select></label> : selectedColour ? <p className="mt-2 text-xs uppercase tracking-[0.2em] text-charcoal/55"><span className="text-charcoal/40">Colour:</span> {selectedColour}</p> : null}
           <p className="mt-7 max-w-[34rem] text-[0.95rem] leading-7 text-charcoal/68">{summaryDescription}</p>
           <div className="mt-7 border-t border-black/12 pt-5 dark:border-white/15">

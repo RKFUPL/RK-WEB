@@ -95,7 +95,7 @@ def _product_colours(product: dict) -> list[str]:
         colour = str(value or "").strip()
         if colour and colour.lower() not in {item.lower() for item in result}:
             result.append(colour)
-    return result or [""]
+    return result
 
 
 def _variant_status(value: object, fallback: str = "active") -> str:

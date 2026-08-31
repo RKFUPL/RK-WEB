@@ -254,6 +254,9 @@ def storefront_collection(slug: str):
         return jsonify({"error": "Collection not found."}), 404
     view_started_at = perf_counter()
     raw_page = request.args.get("page")
+    is_aakaar = slug.strip().casefold() == "aakaar"
+    style_filter = _request_text(request.args.get("style"), 80) if is_aakaar else ""
+    colour_filter = _request_text(request.args.get("colour") or request.args.get("color"), 80) if is_aakaar else ""
     page = 1
     product_limit = None
     product_offset = 0
@@ -272,6 +275,8 @@ def storefront_collection(slug: str):
         product_cards=True,
         product_limit=product_limit,
         product_offset=product_offset,
+        style=style_filter,
+        colour=colour_filter,
     )
     if raw_page is not None:
         total_products = len([

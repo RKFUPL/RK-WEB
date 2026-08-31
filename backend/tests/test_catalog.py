@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from bson import ObjectId
 
-from app.catalog import ANAMIKA_PRODUCT_SEEDS, HASTAKALA_PRODUCT_SEEDS, NORMAL_COLLECTIONS, PRODUCT_SEEDS, _product_seed_document, collection_hero, is_excluded_collection, is_runway_collection, product_view
+from app.catalog import AAKAAR_COLLECTION_SEED, AAKAAR_PRODUCT_SEEDS, ANAMIKA_PRODUCT_SEEDS, HASTAKALA_PRODUCT_SEEDS, NORMAL_COLLECTIONS, PRODUCT_SEEDS, _product_seed_document, collection_hero, is_excluded_collection, is_runway_collection, product_view
 from app.inventory import DEFAULT_CUSTOM_SIZE_FIELDS, STANDARD_SIZES, custom_size_fields, validate_custom_size
 
 
@@ -13,8 +13,10 @@ class CatalogTests(unittest.TestCase):
         anamika = next(collection for collection in NORMAL_COLLECTIONS if collection["name"] == "Anamika")
         self.assertTrue(anamika["taxInclusive"])
 
-    def test_aakaar_is_excluded_without_deleting_its_data(self):
+    def test_aakaar_catalog_is_public_while_legacy_aakaar_pages_remain_excluded(self):
+        self.assertFalse(is_excluded_collection(AAKAAR_COLLECTION_SEED))
         self.assertTrue(is_excluded_collection({"name": "Aakaar", "slug": "aakaar-insights"}))
+        self.assertTrue(is_excluded_collection({"name": "Aakaar", "slug": "collections-of-aakaar"}))
         self.assertFalse(is_excluded_collection({"name": "Anamika", "slug": "collections-of-anamika"}))
 
     def test_runway_identity_is_collection_driven(self):
@@ -120,6 +122,33 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(len({seed["slug"] for seed in HASTAKALA_PRODUCT_SEEDS}), 7)
         self.assertEqual(sum(len(seed["colors"]) for seed in HASTAKALA_PRODUCT_SEEDS), 24)
         self.assertTrue(all(seed["collectionSlug"] == "collections-of-hasthkala" for seed in HASTAKALA_PRODUCT_SEEDS))
+
+    def test_aakaar_seed_contains_the_twenty_requested_indian_products(self):
+        expected_names = [
+            "Aarohi", "Ananya", "Avani", "Charvi", "Devika", "Eshani", "Ira", "Kavya",
+            "Lavanya", "Malvika", "Mrinalini", "Nandini", "Padma", "Rajeshwari", "Ruhika",
+            "Sharanya", "Tarini", "Vaidehi", "Vasanti", "Yamini",
+        ]
+        self.assertEqual([seed["name"] for seed in AAKAAR_PRODUCT_SEEDS], expected_names)
+        self.assertEqual([seed["styleCode"] for seed in AAKAAR_PRODUCT_SEEDS], [f"IND-{index:02d}" for index in range(1, 21)])
+        self.assertTrue(all(seed["collectionSlug"] == "aakaar" for seed in AAKAAR_PRODUCT_SEEDS))
+        self.assertTrue(all(seed["style"] == "Indian" for seed in AAKAAR_PRODUCT_SEEDS))
+        self.assertEqual(sum(bool(seed["media"]) for seed in AAKAAR_PRODUCT_SEEDS), 3)
+        self.assertTrue(all(seed["price"] is None and seed["colors"] == [] and seed["description"] == "" for seed in AAKAAR_PRODUCT_SEEDS))
+
+    def test_aakaar_seed_documents_keep_only_the_supplied_preview_media(self):
+        now = datetime.now(timezone.utc)
+        for index, seed in enumerate(AAKAAR_PRODUCT_SEEDS):
+            with self.subTest(product=seed["name"]):
+                document = _product_seed_document(seed, now)
+                self.assertEqual(document["styleCode"], f"IND-{index + 1:02d}")
+                self.assertEqual(document["style"], "Indian")
+                self.assertEqual(document["price"], None)
+                self.assertEqual(document["stock"], 0)
+                self.assertEqual(document["availability"], "in_stock")
+                self.assertEqual(document["description"], "")
+                self.assertEqual(document["attributes"]["colors"], [])
+                self.assertEqual(document["variants"], [])
 
     def test_hastakala_seed_prices_and_colours_match_the_brief(self):
         expected = {

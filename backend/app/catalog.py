@@ -22,7 +22,7 @@ from .product_variants import (
 from .time_utils import json_value as serialize_json_value
 
 
-EXCLUDED_COLLECTION_SLUGS = {"aakaar", "aakaar-insights", "collections-of-aakaar"}
+EXCLUDED_COLLECTION_SLUGS = {"aakaar-insights", "collections-of-aakaar"}
 PRODUCT_AVAILABILITY = {"in_stock", "custom_order", "sold_out"}
 VARIANT_STATUS_MIGRATION = "all-current-variants-active-v1"
 COLLECTION_HERO_TYPES = {"image", "video"}
@@ -82,6 +82,8 @@ STOREFRONT_COLLECTION_PROJECTION = {
 STOREFRONT_PRODUCT_PROJECTION = {
     "_id": 1,
     "name": 1,
+    "styleCode": 1,
+    "style": 1,
     "sku": 1,
     "slug": 1,
     "status": 1,
@@ -172,6 +174,63 @@ RUNWAY_COLLECTION_SEED = {
     "description": "The Lakme runway edit from Espiritu Libre, presented through six considered looks.",
     "heroImage": "https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861902/Espi_bbvgfh.png",
 }
+
+AAKAAR_COLLECTION_SEED = {
+    "name": "AAKAAR",
+    "slug": "aakaar",
+    "description": "The debut AAKAAR collection by Rashi Kapoor.",
+    "heroImage": "https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305719/BG_xsyd8f.png",
+}
+
+AAKAAR_PRODUCT_NAMES = (
+    "Aarohi",
+    "Ananya",
+    "Avani",
+    "Charvi",
+    "Devika",
+    "Eshani",
+    "Ira",
+    "Kavya",
+    "Lavanya",
+    "Malvika",
+    "Mrinalini",
+    "Nandini",
+    "Padma",
+    "Rajeshwari",
+    "Ruhika",
+    "Sharanya",
+    "Tarini",
+    "Vaidehi",
+    "Vasanti",
+    "Yamini",
+)
+
+AAKAAR_PRODUCT_PREVIEW_MEDIA = (
+    "https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg",
+    "https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg",
+    "https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487994/Rashi_Kapoor2418_compressed_8000kb_qkke56.jpg",
+)
+
+AAKAAR_PRODUCT_SEEDS = tuple(
+    {
+        "seedKey": f"rk:aakaar:ind-{index:02d}",
+        "collectionSlug": "aakaar",
+        "displayOrder": index,
+        "name": name,
+        "styleCode": f"IND-{index:02d}",
+        "style": "Indian",
+        "sku": f"AA-IND-{index:02d}",
+        "slug": name.lower(),
+        "colors": [],
+        "price": None,
+        "stock": 0,
+        "availability": "in_stock",
+        "category": "AAKAAR",
+        "description": "",
+        "media": [AAKAAR_PRODUCT_PREVIEW_MEDIA[index - 1]] if index <= len(AAKAAR_PRODUCT_PREVIEW_MEDIA) else [],
+    }
+    for index, name in enumerate(AAKAAR_PRODUCT_NAMES, start=1)
+)
 
 # These are real storefront records, not frontend-only fixtures.  The
 # deliberately blank commercial fields are editable later from Admin/Staff;
@@ -605,7 +664,7 @@ RUNWAY_PRODUCT_SEEDS = (
     },
 )
 
-PRODUCT_SEEDS = CORE_PRODUCT_SEEDS + HASTAKALA_PRODUCT_SEEDS + ANAMIKA_PRODUCT_SEEDS + RUNWAY_PRODUCT_SEEDS
+PRODUCT_SEEDS = CORE_PRODUCT_SEEDS + HASTAKALA_PRODUCT_SEEDS + ANAMIKA_PRODUCT_SEEDS + RUNWAY_PRODUCT_SEEDS + AAKAAR_PRODUCT_SEEDS
 
 
 def _product_seed_document(seed: dict, now: datetime) -> dict:
@@ -620,6 +679,8 @@ def _product_seed_document(seed: dict, now: datetime) -> dict:
     tax_inclusive = bool(seed.get("taxInclusive") or seed.get("mrpIncludesGst"))
     document = {
         "name": seed["name"],
+        "styleCode": str(seed.get("styleCode") or "").strip(),
+        "style": str(seed.get("style") or "").strip(),
         "sku": seed["sku"],
         "price": seed["price"],
         "currency": "INR",
@@ -661,6 +722,8 @@ def _product_seed_document(seed: dict, now: datetime) -> dict:
         document["anamikaSeedVersion"] = 1
     if seed.get("collectionSlug") == "collections-of-hasthkala":
         document["hastakalaSeedVersion"] = 1
+    if seed.get("collectionSlug") == AAKAAR_COLLECTION_SEED["slug"]:
+        document["aakaarSeedVersion"] = 1
     collection_hint = {"slug": seed.get("collectionSlug"), "name": str(seed.get("collectionSlug") or "").removeprefix("collections-of-")}
     document.update(build_product_variants(document, [collection_hint]))
     return document
@@ -673,8 +736,7 @@ def _json_value(value):
 def is_excluded_collection(collection: dict | None = None, slug: str = "") -> bool:
     collection = collection or {}
     candidate_slug = str(slug or collection.get("slug") or "").strip().lower()
-    candidate_name = str(collection.get("name") or "").strip().lower()
-    return candidate_slug in EXCLUDED_COLLECTION_SLUGS or candidate_name == "aakaar"
+    return candidate_slug in EXCLUDED_COLLECTION_SLUGS
 
 
 def is_runway_collection(collection: dict | None) -> bool:
@@ -883,6 +945,44 @@ def ensure_catalog_seed(db) -> None:
                 update["$push"] = {"productRefs": {"productId": product["_id"], "displayOrder": 1}}
             db.collections.update_one({"_id": collection["_id"]}, update)
 
+    aakaar_collection = db.collections.find_one({"slug": AAKAAR_COLLECTION_SEED["slug"]})
+    if not aakaar_collection:
+        aakaar_hero = {
+            "type": "image",
+            "image": AAKAAR_COLLECTION_SEED["heroImage"],
+            "video": "",
+            "poster": AAKAAR_COLLECTION_SEED["heroImage"],
+            "mobileImage": "",
+            "mobileVideo": "",
+            "layout": "full_bleed",
+            "label": "AAKAAR",
+            "ctaLabel": "View more",
+        }
+        result = db.collections.insert_one({
+            **AAKAAR_COLLECTION_SEED,
+            "status": "collection",
+            "collectionType": "standard",
+            "taxInclusive": False,
+            "hero": aakaar_hero,
+            "displayOrder": 1,
+            "productRefs": [],
+            "createdAt": now,
+            "updatedAt": now,
+            "isActive": True,
+            "seeded": True,
+        })
+        aakaar_collection = db.collections.find_one({"_id": result.inserted_id})
+    else:
+        collection_updates = {}
+        if aakaar_collection.get("name") != AAKAAR_COLLECTION_SEED["name"]:
+            collection_updates["name"] = AAKAAR_COLLECTION_SEED["name"]
+        if aakaar_collection.get("collectionType") != "standard":
+            collection_updates["collectionType"] = "standard"
+        if collection_updates:
+            collection_updates["updatedAt"] = now
+            db.collections.update_one({"_id": aakaar_collection["_id"]}, {"$set": collection_updates})
+            aakaar_collection.update(collection_updates)
+
     runway_collection = db.collections.find_one({"slug": RUNWAY_COLLECTION_SEED["slug"]})
     if not runway_collection:
         # Migrate databases created before Lakme became the persisted
@@ -942,7 +1042,8 @@ def ensure_catalog_seed(db) -> None:
         is_anamika_seed = seed.get("collectionSlug") == "collections-of-anamika"
         is_hastakala_seed = seed.get("collectionSlug") == "collections-of-hasthkala"
         is_runway_seed = seed.get("collectionSlug") == RUNWAY_COLLECTION_SEED["slug"]
-        is_duplicate_protected_seed = is_anamika_seed or is_hastakala_seed
+        is_aakaar_seed = seed.get("collectionSlug") == AAKAAR_COLLECTION_SEED["slug"]
+        is_duplicate_protected_seed = is_anamika_seed or is_hastakala_seed or is_aakaar_seed
         if db.catalog_deletions.find_one(
             {"$or": [{"seedKey": seed["seedKey"]}, {"sku": seed.get("sku")}]},
             {"_id": 1},
@@ -989,6 +1090,13 @@ def ensure_catalog_seed(db) -> None:
                 seeded_variants.append(merged)
             seeded_document["media"] = existing_media
             seeded_document["variants"] = seeded_variants
+            seed_updates = {key: value for key, value in seeded_document.items() if key != "createdAt"}
+        elif is_aakaar_seed and int(product.get("aakaarSeedVersion") or 0) < 1:
+            # Complete a matching manually-created product without erasing
+            # images already attached through the existing image manager.
+            seeded_document = _product_seed_document(seed, now)
+            existing_media = product.get("media") if isinstance(product.get("media"), list) else []
+            seeded_document["media"] = existing_media or list(seeded_document.get("media") or [])
             seed_updates = {key: value for key, value in seeded_document.items() if key != "createdAt"}
         else:
             # Older local databases were seeded before SKU/pricing was
@@ -1125,15 +1233,40 @@ def product_is_runway(db, product_id: ObjectId) -> bool:
     return any(is_runway_collection(collection) for collection in collections)
 
 
-def collection_product_documents(db, collection: dict, projection: dict | None = None, limit: int | None = None, offset: int = 0) -> list[tuple[dict, int]]:
+def _product_matches_collection_filters(product: dict, *, style: str = "", colour: str = "") -> bool:
+    if style and str(product.get("style") or "").strip().casefold() != style.strip().casefold():
+        return False
+    if colour:
+        attributes = product.get("attributes") if isinstance(product.get("attributes"), dict) else {}
+        values = attributes.get("colors") if isinstance(attributes.get("colors"), list) else [attributes.get("color")]
+        if not any(str(value or "").strip().casefold() == colour.strip().casefold() for value in values):
+            return False
+    return True
+
+
+def collection_product_documents(
+    db,
+    collection: dict,
+    projection: dict | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+    *,
+    style: str = "",
+    colour: str = "",
+) -> list[tuple[dict, int]]:
     refs = [ref for ref in (collection.get("productRefs") or []) if isinstance(ref, dict) and isinstance(ref.get("productId"), ObjectId)]
     refs.sort(key=lambda ref: (int(ref.get("displayOrder", 0)), str(ref["productId"])))
-    refs = refs[max(0, offset):]
-    if limit is not None:
-        refs = refs[:max(0, limit)]
     product_ids = [ref["productId"] for ref in refs]
     products = {product["_id"]: product for product in db.products.find({"_id": {"$in": product_ids}}, projection)} if product_ids else {}
-    return [(products[ref["productId"]], int(ref.get("displayOrder", 0))) for ref in refs if ref["productId"] in products]
+    matched = [
+        (products[ref["productId"]], int(ref.get("displayOrder", 0)))
+        for ref in refs
+        if ref["productId"] in products and _product_matches_collection_filters(products[ref["productId"]], style=style, colour=colour)
+    ]
+    matched = matched[max(0, offset):]
+    if limit is not None:
+        matched = matched[:max(0, limit)]
+    return matched
 
 
 def product_view(product: dict, *, display_order: int | None = None, media_limit: int | None = None) -> dict:
@@ -1158,6 +1291,8 @@ def product_view(product: dict, *, display_order: int | None = None, media_limit
         "id": str(product["_id"]),
         "publicId": str(product["_id"]),
         "name": product.get("name"),
+        "styleCode": product.get("styleCode") or None,
+        "style": product.get("style") or None,
         "productCode": product.get("productCode") or product.get("sku"),
         "parentSku": product.get("sku"),
         "skuPrefix": product.get("skuPrefix"),
@@ -1221,6 +1356,8 @@ def product_card_view(product: dict, *, display_order: int | None = None, media_
     result = {
         "id": str(product["_id"]),
         "name": product.get("name"),
+        "styleCode": product.get("styleCode") or None,
+        "style": product.get("style") or None,
         "productCode": product.get("productCode") or product.get("sku"),
         "parentSku": product.get("sku"),
         "sku": selected_variant.get("sku") if selected_variant else product.get("sku"),
@@ -1245,6 +1382,8 @@ def product_card_view(product: dict, *, display_order: int | None = None, media_
     }
     if colors:
         result["attributes"]["colors"] = colors
+    if result["price"] is None:
+        result.pop("price")
     return result
 
 
@@ -1257,11 +1396,13 @@ def collection_view(
     product_cards: bool = False,
     product_limit: int | None = None,
     product_offset: int = 0,
+    style: str = "",
+    colour: str = "",
 ) -> dict:
     product_projection = STOREFRONT_PRODUCT_PROJECTION if product_cards else None
     product_pairs = [
         (product, order)
-        for product, order in collection_product_documents(db, collection, product_projection, product_limit, product_offset)
+        for product, order in collection_product_documents(db, collection, product_projection, product_limit, product_offset, style=style, colour=colour)
         if product.get("status") != "archived" and product.get("isActive") is not False and product_has_visible_variants(product)
     ]
     result = {

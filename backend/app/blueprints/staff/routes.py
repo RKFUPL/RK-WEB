@@ -71,6 +71,8 @@ def _document_view(document: dict, resource: str | None = None) -> dict:
         return {
             "id": str(document.get("_id")),
             "name": _json_value(document.get("name")),
+            "styleCode": _json_value(document.get("styleCode")),
+            "style": _json_value(document.get("style")),
             "sku": _json_value(document.get("sku")),
             "stock": _json_value(document.get("stock")),
             "availability": _json_value(document.get("availability")),
@@ -364,7 +366,7 @@ def list_resources(resource: str):
     search = str(request.args.get("q") or "").strip()
     if search:
         escaped = re.escape(search[:80])
-        fields = ["displayName", "email", "username"] if resource == "customers" else ["name", "sku", "variants.sku", "variants.colour", "orderNumber", "quoteNumber", "customerName", "email"]
+        fields = ["displayName", "email", "username"] if resource == "customers" else ["name", "styleCode", "style", "sku", "variants.sku", "variants.colour", "orderNumber", "quoteNumber", "customerName", "email"]
         query = {**query, "$or": [{field: {"$regex": escaped, "$options": "i"}} for field in fields]}
     page = max(1, _integer(request.args.get("page"), 1))
     page_size = min(100, max(1, _integer(request.args.get("limit"), 100)))
@@ -372,7 +374,7 @@ def list_resources(resource: str):
         projection = {"_id": 1, "name": 1, "sku": 1, "stock": 1, "availability": 1, "status": 1, "createdAt": 1}
     elif resource == "products":
         projection = {
-            "_id": 1, "name": 1, "sku": 1, "price": 1, "stock": 1, "status": 1, "availability": 1,
+            "_id": 1, "name": 1, "styleCode": 1, "style": 1, "sku": 1, "price": 1, "stock": 1, "status": 1, "availability": 1,
             "category": 1, "description": 1, "sizeInventory": 1, "sizeInventoryConfigured": 1,
             "sizeSystemEnabled": 1, "attributes.sizes": 1, "attributes.colors": 1, "attributes.color": 1,
             "media": {"$slice": 1}, "variants.id": 1, "variants.sku": 1, "variants.colour": 1,
@@ -454,7 +456,7 @@ def create_resource(resource: str):
         media = payload.get("media") if isinstance(payload.get("media"), list) else []
         attributes = payload.get("attributes") if isinstance(payload.get("attributes"), dict) else {}
         tax_inclusive = bool(payload.get("taxInclusive") or payload.get("mrpIncludesGst"))
-        document = {**common, "name": name, "sku": sku, "price": price, "taxInclusive": tax_inclusive, "mrpIncludesGst": tax_inclusive, "stock": total_stock, "unallocatedStock": unallocated_stock, "sizeInventoryConfigured": size_enabled, "sizeSystemEnabled": size_enabled, "sizeInventory": size_inventory, "status": status, "availability": availability, "currency": "INR", "category": str(payload.get("category") or "").strip(), "description": str(payload.get("description") or "").strip(), "media": media[:12], "attributes": attributes, "isActive": status != "archived"}
+        document = {**common, "name": name, "styleCode": str(payload.get("styleCode") or "").strip().upper(), "style": str(payload.get("style") or "").strip(), "sku": sku, "price": price, "taxInclusive": tax_inclusive, "mrpIncludesGst": tax_inclusive, "stock": total_stock, "unallocatedStock": unallocated_stock, "sizeInventoryConfigured": size_enabled, "sizeSystemEnabled": size_enabled, "sizeInventory": size_inventory, "status": status, "availability": availability, "currency": "INR", "category": str(payload.get("category") or "").strip(), "description": str(payload.get("description") or "").strip(), "media": media[:12], "attributes": attributes, "isActive": status != "archived"}
         if isinstance(payload.get("customSizeConfig"), dict):
             document["customSizeConfig"] = payload["customSizeConfig"]
         collection = db.products
@@ -542,6 +544,10 @@ def update_resource(resource: str, resource_id: str):
         for key in ("name", "description"):
             if key in payload:
                 updates[key] = str(payload.get(key) or "").strip()
+        if "styleCode" in payload:
+            updates["styleCode"] = str(payload.get("styleCode") or "").strip().upper()
+        if "style" in payload:
+            updates["style"] = str(payload.get("style") or "").strip()
         if "sku" in payload:
             sku = str(payload.get("sku") or "").strip().upper()
             if sku and db.products.find_one({"sku": sku, "_id": {"$ne": object_id}}):
