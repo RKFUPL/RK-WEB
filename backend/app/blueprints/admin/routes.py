@@ -5,6 +5,7 @@ import secrets
 from bcrypt import gensalt, hashpw
 from bson import ObjectId
 from flask import Blueprint, jsonify, request
+from pymongo.errors import OperationFailure
 
 from ...rbac import ROLES, STAFF_PERMISSIONS, current_user, database, effective_permissions, requireAdmin
 from ...dashboard_metrics import build_dashboard
@@ -43,19 +44,50 @@ RESOURCE_COLLECTIONS = {
 }
 
 
+def _index_key_pairs(keys) -> list[tuple[str, int]]:
+    if isinstance(keys, str):
+        return [(keys, 1)]
+    return [(str(field), int(direction)) for field, direction in keys]
+
+
+def _ensure_index(collection, keys, name: str) -> None:
+    """Create an index unless an equivalent key pattern already exists.
+
+    MongoDB rejects creating the same key pattern under a new name. Older
+    deployments used generated names, so dashboard startup must reuse those
+    indexes instead of failing every authenticated dashboard request.
+    """
+    expected_keys = _index_key_pairs(keys)
+    for index in collection.list_indexes():
+        if _index_key_pairs(list(index.get("key", {}).items())) == expected_keys:
+            return
+
+    try:
+        collection.create_index(keys, name=name)
+    except OperationFailure as error:
+        # A concurrent process may have created the equivalent index after the
+        # check above. Re-check only this known duplicate-index condition.
+        if error.code != 85:
+            raise
+        for index in collection.list_indexes():
+            if _index_key_pairs(list(index.get("key", {}).items())) == expected_keys:
+                return
+        raise
+
+
 def _ensure_dashboard_indexes(db) -> None:
     global _dashboard_indexes_ready
     if _dashboard_indexes_ready:
         return
-    db.analytics_events.create_index([("event", 1), ("createdAt", -1)], name="admin_analytics_event_created")
-    db.analytics_events.create_index([("visitorId", 1), ("createdAt", -1)], name="admin_analytics_visitor_created")
-    db.analytics_events.create_index([("event", 1), ("visitorId", 1), ("createdAt", -1)], name="admin_analytics_event_visitor_created")
-    db.orders.create_index([("createdAt", -1), ("status", 1)], name="admin_orders_created_status")
-    db.orders.create_index([("payment.status", 1), ("createdAt", -1)], name="admin_orders_payment_created")
-    db.orders.create_index([("fulfillment.status", 1), ("createdAt", -1)], name="admin_orders_fulfillment_created")
-    db.users.create_index([("createdAt", -1), ("role", 1)], name="admin_users_created_role")
-    db.products.create_index("stock", name="admin_products_stock")
-    db.reviews.create_index("createdAt", name="admin_reviews_created")
+    _ensure_index(db.analytics_events, [("event", 1), ("createdAt", -1)], "admin_analytics_event_created")
+    _ensure_index(db.analytics_events, [("visitorId", 1), ("createdAt", -1)], "admin_analytics_visitor_created")
+    _ensure_index(db.analytics_events, [("event", 1), ("visitorId", 1), ("createdAt", -1)], "admin_analytics_event_visitor_created")
+    _ensure_index(db.orders, [("createdAt", -1), ("status", 1)], "admin_orders_created_status")
+    _ensure_index(db.orders, [("payment.status", 1), ("createdAt", -1)], "admin_orders_payment_created")
+    _ensure_index(db.orders, [("fulfillment.status", 1), ("createdAt", -1)], "admin_orders_fulfillment_created")
+    _ensure_index(db.users, [("createdAt", -1), ("role", 1)], "admin_users_created_role")
+    _ensure_index(db.products, "stock", "admin_products_stock")
+    _ensure_index(db.reviews, "createdAt", "admin_reviews_created")
     _dashboard_indexes_ready = True
 
 
