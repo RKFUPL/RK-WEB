@@ -80,18 +80,18 @@ export function AakaarPage() {
 
           <div className="mt-16 grid gap-6 md:grid-cols-3 lg:mt-20 lg:gap-8">
             {featuredProducts.map((product, index) => (
-              <article key={product.styleCode} className="overflow-hidden border border-black/10 bg-[#f8f6f2] dark:border-white/10 dark:bg-[#121212]">
-                <div className="aspect-[3/4] overflow-hidden bg-sand dark:bg-[#181513]">
+              <article key={product.styleCode} className="group min-w-0">
+                <div className="aspect-[3/4] overflow-hidden rounded-[14px] bg-sand dark:bg-[#181513]">
                   <img
                     src={product.image}
                     alt={`${product.name} Aakaar campaign preview`}
                     draggable={false}
                     loading={index === 0 ? 'eager' : 'lazy'}
                     decoding="async"
-                    className="block h-full w-full object-cover object-center"
+                    className="block h-full w-full rounded-[14px] object-cover object-center"
                   />
                 </div>
-                <div className="flex items-center justify-between gap-4 border-t border-black/10 px-5 py-5 dark:border-white/10 md:px-6">
+                <div className="flex items-center justify-between gap-4 pt-4 sm:pt-5">
                   <div>
                     <p className="text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/65 dark:text-[#f5f2ee]/65">Aakaar / {product.styleCode}</p>
                     <h2 className="mt-2 font-display text-2xl leading-none">{product.name}</h2>
