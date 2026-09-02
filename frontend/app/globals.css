@@ -1577,7 +1577,7 @@ body {
 
 .footer-signature-art {
   display: block;
-  width: min(76.5vw, 1360px);
+  width: min(38.25vw, 680px);
   max-width: 100%;
   height: auto;
   object-fit: contain;
