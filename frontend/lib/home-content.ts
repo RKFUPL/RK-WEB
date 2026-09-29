@@ -41,7 +41,7 @@ export const runwayHeroVideoUrl = 'https://video.wixstatic.com/video/afed36_2e5b
 export const lookbookUrls = {
   Anamika: 'https://lookbookmaker.onrender.com/catalog/anamika-lookbook?page=1',
   Espiritu: 'https://lookbookmaker.onrender.com/catalog/espi?page=1',
-  Sandook: 'https://lookbookmaker.onrender.com/catalog/sandook',
+  Sandook: 'https://lookbook.rashikapoor.co.in/catalog/sandook?page=1',
   Inaara: 'https://lookbookmaker.onrender.com/catalog/inaara',
   Hastakala: 'https://lookbookmaker.onrender.com/catalog/hastakala',
 } as const;
