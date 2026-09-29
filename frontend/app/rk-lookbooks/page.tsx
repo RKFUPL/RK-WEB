@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Footer } from '@/components/home/footer';
 import { StickyHeader } from '@/components/home/sticky-header';
 import { SectionShell } from '@/components/home/section-shell';
-import { aakarBannerBackgroundUrl, collectionPages, lookbookUrls, sortByCollectionOrder } from '@/lib/home-content';
+import { aakarBannerBackgroundUrl, collectionPages, espirituLibreImageUrl, lookbookUrls, sortByCollectionOrder } from '@/lib/home-content';
 
 type Lookbook = {
   title: string;
@@ -22,7 +22,7 @@ const lookbooks: Lookbook[] = sortByCollectionOrder([
   { title: 'Hastakala', subtitle: 'A craft-first presentation.', description: 'Reserved for hand-finished stories, artisan detail, and heirloom-inspired styling.', href: lookbookUrls.Hastakala },
   { title: 'Inaara', subtitle: 'A luminous, celebratory chapter.', description: 'A lookbook shaped by fluid lines, occasion dressing, and a softer sense of radiance.', href: lookbookUrls.Inaara },
   { title: 'Anamika', subtitle: 'A softer, more movement-led chapter.', description: 'An evolving lookbook space for future drops, references, and campaign imagery.', href: lookbookUrls.Anamika },
-  { title: 'Naqab', subtitle: 'A veiled, dramatic visual chapter.', description: 'Layered silhouettes, evening presence, and a cinematic study in concealment and reveal.', href: '/rk-lookbooks/naqab' },
+  { title: 'Espiritu Libre', subtitle: 'An expressive runway chapter.', description: 'A lookbook shaped by liberated movement, fluid drape, and modern Indian couture.', href: lookbookUrls.Espiritu },
   { title: 'Sandook', subtitle: 'A treasured archive of the house.', description: 'A visual story of heirloom moods, considered detail, and timeless occasion dressing.', href: lookbookUrls.Sandook },
 ], (lookbook) => lookbook.title);
 
@@ -31,6 +31,7 @@ const coverByTitle = new Map([
   ['ANAMIKA', 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861902/Anamika_ojeh19.png'],
   ['HASTAKALA', 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785862112/Hastakala_kcb6la.png'],
   ['INAARA', 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861901/Inaara_hn30rg.png'],
+  ['ESPIRITU LIBRE', espirituLibreImageUrl],
   ['SANDOOK', 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861901/Sandook_h0rfqg.png'],
   ['AAKAAR', aakarBannerBackgroundUrl],
 ]);

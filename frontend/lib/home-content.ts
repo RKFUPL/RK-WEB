@@ -39,11 +39,11 @@ export const homepageHeroVideoUrl = 'https://video.wixstatic.com/video/afed36_dd
 export const runwayHeroVideoUrl = 'https://video.wixstatic.com/video/afed36_2e5b8660523d4d1eaaac8173ecd89d8f/720p/mp4/file.mp4';
 
 export const lookbookUrls = {
-  Anamika: 'https://lookbookmaker.onrender.com/catalog/anamika-lookbook?page=1',
-  Espiritu: 'https://lookbookmaker.onrender.com/catalog/espi?page=1',
-  Sandook: 'https://lookbook.rashikapoor.co.in/catalog/sandook?page=1',
-  Inaara: 'https://lookbookmaker.onrender.com/catalog/inaara',
-  Hastakala: 'https://lookbookmaker.onrender.com/catalog/hastakala',
+  Anamika: 'https://lookbook.rashikapoor.co.in/catalog/anamika',
+  Espiritu: 'https://lookbook.rashikapoor.co.in/catalog/espiritu-libre',
+  Sandook: 'https://lookbook.rashikapoor.co.in/catalog/sandook?',
+  Inaara: 'https://lookbook.rashikapoor.co.in/catalog/inaara',
+  Hastakala: 'https://lookbook.rashikapoor.co.in/catalog/hastakala',
 } as const;
 
 export const runwayCollections = [
@@ -285,10 +285,10 @@ export const lookbookCovers = sortByCollectionOrder([
     span: 'lg:col-span-5 lg:row-span-2',
   },
   {
-    title: 'Naqab',
-    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785304902/Naqab_2_re_qdu1xs.jpg',
-    href: '/rk-lookbooks/naqab',
-    caption: 'A veiled, cinematic chapter.',
+    title: 'Espiritu Libre',
+    image: espirituLibreImageUrl,
+    href: lookbookUrls.Espiritu,
+    caption: 'An expressive runway chapter.',
     span: 'lg:col-span-4',
   },
   {
