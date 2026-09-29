@@ -18,7 +18,7 @@ for _proxy_name in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'htt
 
 from .blueprints.auth.routes import auth_bp
 from .blueprints.health.routes import health_bp
-from .blueprints.admin.routes import admin_bp, ensure_dashboard_indexes
+from .blueprints.admin.routes import admin_bp, ensure_dashboard_indexes, storefront_lookbooks_bp
 from .blueprints.analytics.routes import analytics_bp, storefront_activity_bp
 from .blueprints.catalog.routes import catalog_bp
 from .catalog import ensure_catalog_indexes, ensure_catalog_seed_once
@@ -129,6 +129,7 @@ def create_app() -> Flask:
     app.register_blueprint(returns_bp, url_prefix="/api/returns")
     app.register_blueprint(staff_bp, url_prefix="/api/staff")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
+    app.register_blueprint(storefront_lookbooks_bp, url_prefix="/api")
 
     @app.get("/")
     def index() -> tuple[dict[str, str], int]:

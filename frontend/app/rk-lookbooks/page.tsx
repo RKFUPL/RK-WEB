@@ -49,6 +49,9 @@ function titleStyle() {
 }
 
 export default function RkLookbooksPage() {
+  const [managedUrls, setManagedUrls] = useState<Record<string, string>>({});
+  useEffect(() => { fetch('/api/lookbooks', { cache: 'no-store' }).then((response) => response.ok ? response.json() : null).then((payload) => { if (payload?.lookbooks) setManagedUrls(payload.lookbooks); }).catch(() => undefined); }, []);
+  const destinationFor = (lookbook: Lookbook) => managedUrls[lookbook.title] ?? lookbook.href;
   const initialIndex = Math.max(0, featuredLookbooks.findIndex((lookbook) => lookbook.title.toUpperCase() === 'INAARA'));
   const [spotlightIndex, setSpotlightIndex] = useState(initialIndex);
   const [paused, setPaused] = useState(false);
@@ -90,7 +93,7 @@ export default function RkLookbooksPage() {
           </div>
 
           {activeSpotlight ? <div className="relative mx-auto w-full max-w-[31rem]" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
-            <Link href={activeSpotlight.href ?? '/rk-lookbooks'} target={activeSpotlight.href ? '_blank' : undefined} rel={activeSpotlight.href ? 'noopener noreferrer' : undefined} className="group relative block aspect-[3/4] overflow-hidden rounded-[14px] bg-black">
+            <Link href={destinationFor(activeSpotlight) || '/rk-lookbooks'} target={destinationFor(activeSpotlight) ? '_blank' : undefined} rel={destinationFor(activeSpotlight) ? 'noopener noreferrer' : undefined} className="group relative block aspect-[3/4] overflow-hidden rounded-[14px] bg-black">
               <motion.img key={activeSpotlight.title} src={activeCover} alt={`${activeSpotlight.title} lookbook cover`} className="absolute inset-0 h-full w-full object-cover" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7, ease: 'easeOut' }} />
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-black/10 transition duration-500 group-hover:from-black/85" />
               <motion.div key={`${activeSpotlight.title}-copy`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7, delay: 0.1 }} className="absolute inset-x-0 bottom-0 z-30 p-7 text-white md:p-10">
@@ -124,7 +127,8 @@ export default function RkLookbooksPage() {
                 <p className="mt-4 max-w-[16rem] text-sm leading-6 text-charcoal/60 transition-colors duration-150 group-hover:text-gold">{lookbook.description}</p>
                 <span className="mt-6 inline-flex items-center gap-3 text-[0.6rem] uppercase tracking-[0.3em] text-charcoal/65 transition-colors duration-150 group-hover:text-gold md:opacity-0 md:group-hover:opacity-100">{lookbook.comingSoon ? 'Coming soon' : <>Read lookbook <ArrowRight className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-1.5" /></>}</span>
               </div>;
-              return lookbook.comingSoon ? <div key={lookbook.title} aria-label="Aakaar lookbook coming soon">{card}</div> : <Link key={lookbook.title} href={lookbook.href!} target="_blank" rel="noopener noreferrer">{card}</Link>;
+              const destination = destinationFor(lookbook);
+              return lookbook.comingSoon || !destination ? <div key={lookbook.title} aria-label={lookbook.comingSoon ? 'Aakaar lookbook coming soon' : `${lookbook.title} lookbook unavailable`}>{card}</div> : <Link key={lookbook.title} href={destination} target="_blank" rel="noopener noreferrer">{card}</Link>;
             })}
           </div>
           </div>

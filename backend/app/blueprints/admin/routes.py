@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import re
 import secrets
+from urllib.parse import urlparse
 
 from bcrypt import gensalt, hashpw
 from bson import ObjectId
@@ -17,6 +18,7 @@ def _password_hash(password: str) -> str:
     return hashpw(password.encode(), gensalt()).decode()
 
 admin_bp = Blueprint("admin", __name__)
+storefront_lookbooks_bp = Blueprint("storefront_lookbooks", __name__)
 _dashboard_indexes_ready = False
 
 SETTINGS_DEFAULTS = {
@@ -31,6 +33,14 @@ SETTINGS_DEFAULTS = {
     "orderNotifications": True,
     "lowStockNotifications": True,
     "courierOptions": [],
+}
+
+LOOKBOOK_DEFAULTS = {
+    "Anamika": "https://lookbook.rashikapoor.co.in/catalog/anamika",
+    "Espiritu Libre": "https://lookbook.rashikapoor.co.in/catalog/espiritu-libre",
+    "Sandook": "https://lookbook.rashikapoor.co.in/catalog/sandook?page=1",
+    "Inaara": "https://lookbook.rashikapoor.co.in/catalog/inaara",
+    "Hastakala": "https://lookbook.rashikapoor.co.in/catalog/hastakala",
 }
 
 RESOURCE_COLLECTIONS = {
@@ -127,6 +137,19 @@ def _document_view(document: dict) -> dict:
 def _settings(db) -> dict:
     stored = db.admin_settings.find_one({"_id": "store"}) or {}
     return {**SETTINGS_DEFAULTS, **{key: value for key, value in stored.items() if key not in {"_id", "updatedAt", "updatedBy"}}}
+
+
+def _lookbooks(db) -> dict[str, str]:
+    stored = db.admin_settings.find_one({"_id": "store"}) or {}
+    saved = stored.get("lookbookUrls") if isinstance(stored.get("lookbookUrls"), dict) else {}
+    return {name: str(saved.get(name) or default) for name, default in LOOKBOOK_DEFAULTS.items()}
+
+
+def _valid_lookbook_url(value: object) -> bool:
+    if value == "":
+        return True
+    parsed = urlparse(str(value).strip())
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc) and not parsed.username and not parsed.password
 
 
 def _number(value: object, default: float = 0) -> float:
@@ -274,6 +297,38 @@ def quick_create(kind: str):
 @requireAdmin
 def get_settings():
     return jsonify({"settings": _settings(database())}), 200
+
+
+@storefront_lookbooks_bp.get("/lookbooks")
+def get_public_lookbooks():
+    return jsonify({"lookbooks": _lookbooks(database())}), 200
+
+
+@admin_bp.get("/lookbooks")
+@requireAdmin
+def get_lookbooks():
+    return jsonify({"lookbooks": _lookbooks(database())}), 200
+
+
+@admin_bp.put("/lookbooks")
+@requireAdmin
+def update_lookbooks():
+    payload = request.get_json(silent=True) or {}
+    submitted = payload.get("lookbooks")
+    if not isinstance(submitted, dict) or set(submitted) != set(LOOKBOOK_DEFAULTS):
+        return jsonify({"error": "All active lookbook names are required, and unknown names are not allowed."}), 400
+    urls: dict[str, str] = {}
+    for name in LOOKBOOK_DEFAULTS:
+        value = str(submitted.get(name) or "").strip()
+        if not _valid_lookbook_url(value):
+            return jsonify({"error": f"{name} must be a valid HTTP or HTTPS URL, or blank to disable it."}), 400
+        urls[name] = value
+    nonblank = [url for url in urls.values() if url]
+    if len(nonblank) != len(set(nonblank)):
+        return jsonify({"error": "Each enabled lookbook must have a unique destination URL."}), 400
+    actor = current_user()
+    database().admin_settings.update_one({"_id": "store"}, {"$set": {"lookbookUrls": urls, "updatedAt": datetime.now(timezone.utc), "updatedBy": actor["_id"]}}, upsert=True)
+    return jsonify({"lookbooks": _lookbooks(database())}), 200
 
 
 @admin_bp.put("/settings")

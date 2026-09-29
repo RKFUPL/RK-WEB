@@ -41,7 +41,7 @@ export const runwayHeroVideoUrl = 'https://video.wixstatic.com/video/afed36_2e5b
 export const lookbookUrls = {
   Anamika: 'https://lookbook.rashikapoor.co.in/catalog/anamika',
   Espiritu: 'https://lookbook.rashikapoor.co.in/catalog/espiritu-libre',
-  Sandook: 'https://lookbook.rashikapoor.co.in/catalog/sandook?',
+  Sandook: 'https://lookbook.rashikapoor.co.in/catalog/sandook?page=1',
   Inaara: 'https://lookbook.rashikapoor.co.in/catalog/inaara',
   Hastakala: 'https://lookbook.rashikapoor.co.in/catalog/hastakala',
 } as const;
