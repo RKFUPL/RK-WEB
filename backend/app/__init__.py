@@ -27,6 +27,7 @@ from .blueprints.orders.routes import customer_orders_bp, staff_orders_bp
 from .feedback import feedback_bp, ensure_feedback_indexes
 from .returns import returns_bp
 from .blueprints.staff.routes import staff_bp
+from .blueprints.integrations.routes import integrations_bp
 from .config import get_config
 from .extensions import cors, jwt, limiter, mail, mongo
 
@@ -130,6 +131,7 @@ def create_app() -> Flask:
     app.register_blueprint(staff_bp, url_prefix="/api/staff")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
     app.register_blueprint(storefront_lookbooks_bp, url_prefix="/api")
+    app.register_blueprint(integrations_bp, url_prefix="/api/integrations")
 
     @app.get("/")
     def index() -> tuple[dict[str, str], int]:

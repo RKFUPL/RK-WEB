@@ -23,6 +23,8 @@ class BaseConfig:
     RAZORPAY_MODE = os.getenv("RAZORPAY_MODE", "test").strip().lower() or "test"
     RATELIMIT_DEFAULT = "200 per hour"
     RATELIMIT_STORAGE_URI = os.getenv("RATELIMIT_STORAGE_URI", "memory://")
+    STOCK_INTEGRATION_BOOTSTRAP_SECRET = os.getenv("STOCK_INTEGRATION_BOOTSTRAP_SECRET", "")
+    STOCK_INTEGRATION_CLIENT_ID = os.getenv("STOCK_INTEGRATION_CLIENT_ID", "rk-stock-linesheets")
 
 
 class DevelopmentConfig(BaseConfig):
