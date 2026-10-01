@@ -2,6 +2,7 @@ import hashlib
 import unittest
 from unittest.mock import patch
 
+from bson import ObjectId
 from flask import Flask
 
 from app.blueprints.integrations.routes import integrations_bp
@@ -23,10 +24,21 @@ class MemoryCollection:
         document.update(update.get("$set",{}))
         for field in update.get("$unset",{}): document.pop(field,None)
         self.documents[key]=document
+    def find(self, query=None, projection=None):
+        return [dict(document) for document in self.documents.values()]
+    def distinct(self, field):
+        return list({document.get(field) for document in self.documents.values() if document.get(field) is not None})
+    def insert(self, document):
+        key=document.get("_id") or ObjectId()
+        self.documents[key]={**document,"_id":key}
+        return key
 
 
 class Database:
-    def __init__(self): self.service_connections=MemoryCollection()
+    def __init__(self):
+        self.service_connections=MemoryCollection()
+        self.products=MemoryCollection()
+        self.collections=MemoryCollection()
 
 
 class StockIntegrationTests(unittest.TestCase):
@@ -83,6 +95,25 @@ class StockIntegrationTests(unittest.TestCase):
         self.assertEqual(disconnected.status_code,200)
         self.assertEqual(self.client.get("/api/integrations/stock/status",headers={"Authorization":"Bearer bootstrap-test-secret"}).status_code,401)
         self.assertEqual(len(self.database.service_connections.documents),1)
+    def test_catalog_endpoints_require_service_authentication(self):
+        for path in ("products","categories","collections"):
+            self.assertEqual(self.client.get(f"/api/integrations/stock/catalog/{path}").status_code,401)
+            self.assertEqual(self.client.get(f"/api/integrations/stock/catalog/{path}",headers={"Authorization":"Bearer wrong"}).status_code,401)
+    def test_authenticated_catalog_endpoints_return_safe_catalog_fields(self):
+        self.provision()
+        product_id=self.database.products.insert({"sku":"RK-100","name":"Saree","slug":"saree","category":"Saree","price":1000,"currency":"INR","status":"active","isActive":True,"stock":99,"variants":[{"id":"red","sku":"RK-100-RED","colour":"Red","status":"active","sizeInventory":[{"size":"M","stock":7}]}]})
+        collection_id=self.database.collections.insert({"name":"Aakaar","slug":"aakaar","productRefs":[{"productId":product_id}]})
+        headers={"Authorization":"Bearer bootstrap-test-secret"}
+        products=self.client.get("/api/integrations/stock/catalog/products",headers=headers).json["items"]
+        categories=self.client.get("/api/integrations/stock/catalog/categories",headers=headers).json["items"]
+        collections=self.client.get("/api/integrations/stock/catalog/collections",headers=headers).json["items"]
+        self.assertEqual(products[0]["id"],str(product_id))
+        self.assertEqual(products[0]["collection_ids"],[str(collection_id)])
+        self.assertEqual(products[0]["variants"][0]["sizes"],["M"])
+        self.assertNotIn("stock",products[0])
+        self.assertNotIn("stock",products[0]["variants"][0])
+        self.assertEqual(categories,[{"id":"category:saree","name":"Saree","slug":"saree"}])
+        self.assertEqual(collections[0]["id"],str(collection_id))
 
 
 if __name__ == "__main__": unittest.main()
