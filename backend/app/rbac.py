@@ -4,10 +4,12 @@ Roles are intentionally represented as strings so adding a future role does not
 require changing authentication tokens or database documents.
 """
 from functools import wraps
+from datetime import datetime, timezone
+import hashlib
 from typing import Callable
 
 from bson import ObjectId
-from flask import current_app, jsonify
+from flask import current_app, g, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from .extensions import mongo
@@ -27,11 +29,54 @@ def database():
     return mongo.db or mongo.cx[current_app.config["MONGO_DBNAME"]]
 
 
+def _shared_user():
+    token = request.cookies.get(current_app.config.get("SHARED_SESSION_COOKIE_NAME", "rk_shared_session"), "")
+    if not token:
+        return None
+    session = database().auth_sessions.find_one({"tokenHash": hashlib.sha256(token.encode()).hexdigest(), "revokedAt": None})
+    expires_at = session.get("expiresAt") if session else None
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if not session or not expires_at or expires_at <= datetime.now(timezone.utc):
+        return None
+    user = database().users.find_one({"_id": session.get("userId")})
+    if not user or user.get("isActive", True) is False:
+        return None
+    now = datetime.now(timezone.utc)
+    rolling_expiry = now + current_app.config["JWT_ACCESS_TOKEN_EXPIRES"]
+    database().auth_sessions.update_one({"_id": session["_id"], "revokedAt": None}, {"$set": {"lastSeenAt": now, "expiresAt": rolling_expiry}})
+    g.shared_session_refresh = (token, rolling_expiry)
+    return user
+
+
+def authenticated_user_id() -> ObjectId:
+    """Return the identity accepted by the active JWT or shared-session guard."""
+    try:
+        identity = get_jwt_identity()
+    except RuntimeError:
+        identity = None
+    if identity and ObjectId.is_valid(str(identity)):
+        return ObjectId(str(identity))
+    user = _shared_user()
+    if user and user.get("_id"):
+        return ObjectId(user["_id"])
+    raise RuntimeError("Authenticated identity is unavailable.")
+
+
+def _jwt_or_shared(view: Callable) -> Callable:
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if _shared_user():
+            return view(*args, **kwargs)
+        return jwt_required()(view)(*args, **kwargs)
+    return wrapped
+
+
 def current_user():
     try:
         user_id = ObjectId(get_jwt_identity())
     except Exception:
-        return None
+        return _shared_user()
     users = database().users
     user = users.find_one({"_id": user_id})
     if not user:
@@ -78,7 +123,7 @@ def effective_permissions(user: dict | None) -> list[str]:
 def _guard(allowed_roles: set[str]) -> Callable:
     def decorator(view: Callable) -> Callable:
         @wraps(view)
-        @jwt_required()
+        @_jwt_or_shared
         def wrapped(*args, **kwargs):
             user = current_user()
             if not user or user.get("isActive", True) is False:
@@ -114,7 +159,7 @@ def requirePermission(permission: str) -> Callable:
 
     def decorator(view: Callable) -> Callable:
         @wraps(view)
-        @jwt_required()
+        @_jwt_or_shared
         def wrapped(*args, **kwargs):
             user = current_user()
             if not user or user.get("isActive", True) is False:

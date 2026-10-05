@@ -1,15 +1,17 @@
 from datetime import datetime, timedelta, timezone
+import hashlib
+import hmac
 import secrets
 import re
 
-import resend
 from bcrypt import checkpw, gensalt, hashpw
 from bson import ObjectId
 from flask import Blueprint, current_app, jsonify, request
-from flask_jwt_extended import create_access_token, get_jwt, get_jwt_identity, jwt_required, unset_jwt_cookies
+from flask_jwt_extended import create_access_token, get_jwt, unset_jwt_cookies
 
 from ...extensions import limiter, mongo
-from ...rbac import effective_permissions, requireAuth
+from ...mail import send_otp
+from ...rbac import authenticated_user_id, effective_permissions, requireAuth
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -17,6 +19,51 @@ auth_bp = Blueprint("auth", __name__)
 def _database():
     """Use the URI database when present, otherwise apply DB_NAME explicitly."""
     return mongo.db or mongo.cx[current_app.config["MONGO_DBNAME"]]
+
+
+def _shared_session_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _shared_cookie(response, token: str, expires: datetime | None = None):
+    response.set_cookie(
+        current_app.config.get("SHARED_SESSION_COOKIE_NAME", "rk_shared_session"), token,
+        max_age=current_app.config.get("AUTH_SESSION_DAYS", 30) * 86400,
+        expires=expires,
+        domain=current_app.config.get("SHARED_SESSION_COOKIE_DOMAIN") or None,
+        path="/", secure=current_app.config.get("JWT_COOKIE_SECURE", True),
+        httponly=True, samesite="Lax",
+    )
+    return response
+
+
+def _create_shared_session(user_id: ObjectId) -> tuple[str, datetime]:
+    token = secrets.token_urlsafe(48)
+    expires = datetime.now(timezone.utc) + timedelta(days=current_app.config.get("AUTH_SESSION_DAYS", 30))
+    _database().auth_sessions.insert_one({
+        "tokenHash": _shared_session_hash(token), "userId": user_id,
+        "expiresAt": expires, "createdAt": datetime.now(timezone.utc),
+        "lastSeenAt": datetime.now(timezone.utc), "revokedAt": None,
+    })
+    return token, expires
+
+
+def _shared_session_user(token: str):
+    if not token:
+        return None
+    session = _database().auth_sessions.find_one({"tokenHash": _shared_session_hash(token), "revokedAt": None})
+    now = datetime.now(timezone.utc)
+    expires_at = session.get("expiresAt") if session else None
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if not session or not expires_at or expires_at <= now:
+        return None
+    user = _database().users.find_one({"_id": session["userId"], "isActive": {"$ne": False}})
+    if not user:
+        return None
+    new_expiry = now + timedelta(days=current_app.config.get("AUTH_SESSION_DAYS", 30))
+    _database().auth_sessions.update_one({"_id": session["_id"]}, {"$set": {"lastSeenAt": now, "expiresAt": new_expiry}})
+    return user
 
 
 def _normalise_email(value: object) -> str:
@@ -41,19 +88,7 @@ def _valid_password(password: object) -> bool:
 
 
 def _send_otp_email(email: str, otp: str, purpose: str = "verification") -> None:
-    api_key = current_app.config["RESEND_API_KEY"]
-    if not api_key:
-        raise RuntimeError("RESEND_API_KEY is not configured")
-
-    resend.api_key = api_key
-    resend.Emails.send(
-        {
-            "from": f'{current_app.config["EMAIL_FROM_NAME"]} <{current_app.config["EMAIL_FROM"]}>',
-            "to": [email],
-            "subject": f"Your Rashi Kapoor {purpose} code",
-            "html": f"<p>Your one-time verification code is <strong>{otp}</strong>.</p><p>This code expires in 10 minutes.</p>",
-        }
-    )
+    send_otp(email, otp, purpose)
 
 
 def _public_user(user: dict) -> dict:
@@ -262,7 +297,9 @@ def signup_verify_otp():
     }).inserted_id
     _database().otp_challenges.delete_one({"_id": challenge["_id"]})
     user = _database().users.find_one({"_id": user_id})
-    return jsonify({"accessToken": create_access_token(identity=str(user_id)), "user": _public_user(user)}), 201
+    session_token, expires = _create_shared_session(user_id)
+    response = jsonify({"accessToken": create_access_token(identity=str(user_id)), "user": _public_user(user)})
+    return _shared_cookie(response, session_token, expires), 201
 
 
 @auth_bp.post("/login")
@@ -281,7 +318,9 @@ def login():
     # Backfill legacy documents without changing an existing role.
     _database().users.update_one({"_id": user["_id"]}, {"$setOnInsert": {"role": "customer", "isActive": True, "emailVerified": False}})
     user = _database().users.find_one({"_id": user["_id"]})
-    return jsonify({"accessToken": create_access_token(identity=str(user["_id"])), "user": _public_user(user)}), 200
+    session_token, expires = _create_shared_session(user["_id"])
+    response = jsonify({"accessToken": create_access_token(identity=str(user["_id"])), "user": _public_user(user)})
+    return _shared_cookie(response, session_token, expires), 200
 
 
 @auth_bp.post("/forgot-password/request-otp")
@@ -350,15 +389,134 @@ def verify_otp():
     )
     user = _database().users.find_one({"_id": user["_id"]})
     token = create_access_token(identity=str(user["_id"]))
-    return jsonify({"accessToken": token, "user": _public_user(user)}), 200
+    session_token, expires = _create_shared_session(user_id)
+    response = jsonify({"accessToken": token, "user": _public_user(user)})
+    return _shared_cookie(response, session_token, expires), 200
 
 
 @auth_bp.get("/me")
 @requireAuth
 def me():
-    user = _database().users.find_one({"_id": ObjectId(get_jwt_identity())})
+    user = _database().users.find_one({"_id": authenticated_user_id()})
     if not user:
         return jsonify({"error": "Profile not found."}), 404
+    return jsonify({"user": _public_user(user)}), 200
+
+
+@auth_bp.get("/shared/me")
+def shared_me():
+    expected = current_app.config.get("SHARED_SESSION_INTERNAL_SECRET", "")
+    supplied = request.headers.get("X-RK-Shared-Auth", "")
+    cookie = request.cookies.get(current_app.config["SHARED_SESSION_COOKIE_NAME"], "")
+    header_present = bool(supplied)
+    secret_match = bool(expected and supplied and hmac.compare_digest(supplied, expected))
+    session = None
+    session_lookup_db = None
+    session_active = False
+    session_expired = False
+    user = None
+    user_active = False
+    failure_reason = ""
+
+    if secret_match and cookie:
+        session_lookup_db = _database()
+        session = session_lookup_db.auth_sessions.find_one({
+            "tokenHash": _shared_session_hash(cookie),
+            "revokedAt": None,
+        })
+        expires_at = session.get("expiresAt") if session else None
+        if expires_at and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        now_utc = datetime.now(timezone.utc)
+        session_expired = bool(session and expires_at and expires_at <= now_utc)
+        session_active = bool(session and expires_at and expires_at > now_utc)
+        if session:
+            user = session_lookup_db.users.find_one({"_id": session.get("userId")})
+            user_active = bool(user and user.get("isActive", True) is not False)
+
+    if not header_present:
+        failure_reason = "missing_internal_header"
+    elif not secret_match:
+        failure_reason = "internal_secret_mismatch"
+    elif not cookie:
+        failure_reason = "missing_shared_cookie"
+    elif not session:
+        failure_reason = "session_not_found_or_revoked"
+    elif not session_active:
+        failure_reason = "session_expired"
+    elif not user:
+        failure_reason = "user_not_found"
+    elif not user_active:
+        failure_reason = "user_inactive"
+
+    def log_diagnostic(reason: str):
+        current_app.logger.warning(
+            "[SHARED_AUTH_DIAG] cookie=%s header=%s secret_match=%s "
+            "session_found=%s session_active=%s user_found=%s user_active=%s "
+            "role=%s reason=%s",
+            bool(cookie), header_present, secret_match, bool(session),
+            session_active, bool(user), user_active,
+            str((user or {}).get("role") or ""), reason,
+        )
+
+    # TEMPORARY LOCAL DIAGNOSTIC: expose status flags only while RK-WEB is
+    # explicitly targeting its isolated local test database. Never include
+    # credential, cookie, token, header, or secret values in this payload.
+    def local_401_payload(error: str, reason: str) -> dict:
+        payload = {"error": error}
+        local_host = request.host.split(":", 1)[0].lower() in {"localhost", "127.0.0.1", "::1"}
+        if current_app.debug and local_host:
+            role = (user or {}).get("role")
+            runtime_db = _database()
+            runtime_metadata = {
+                "diagnostic_version": "shared-auth-runtime-v3",
+                "runtime_config_dbname": str(current_app.config.get("MONGO_DBNAME") or ""),
+                "runtime_db_name": str(runtime_db.name),
+                "runtime_users_count": runtime_db.users.count_documents({}),
+                "runtime_auth_sessions_count": runtime_db.auth_sessions.count_documents({}),
+                "runtime_active_auth_sessions_count": runtime_db.auth_sessions.count_documents({"revokedAt": None}),
+                "runtime_admin_exists": bool(runtime_db.users.find_one({"role": "admin"}, {"_id": 1})),
+                "runtime_db_object_identity": hex(id(runtime_db)),
+                "shared_session_lookup_same_runtime_db": session_lookup_db is runtime_db,
+                "shared_session_lookup_returned_document": bool(session),
+                "session_lookup_found": bool(session),
+            }
+            payload["debug"] = {
+                "shared_cookie_present": bool(cookie),
+                "shared_header_present": header_present,
+                "internal_secret_configured": bool(expected),
+                "internal_secret_match": secret_match,
+                "session_hash_found": bool(session),
+                "session_active": session_active,
+                "session_expired": session_expired,
+                "user_id_present": bool(session and session.get("userId")),
+                "user_found": bool(user),
+                "user_active": user_active,
+                "user_role": role if role in {"admin", "staff", "customer"} else None,
+                "failure_reason": reason,
+                **runtime_metadata,
+            }
+            current_app.logger.warning(
+                "[SHARED_AUTH_RUNTIME] db_name=%s users=%s auth_sessions=%s "
+                "active_auth_sessions=%s session_found=%s",
+                runtime_metadata["runtime_db_name"],
+                runtime_metadata["runtime_users_count"],
+                runtime_metadata["runtime_auth_sessions_count"],
+                runtime_metadata["runtime_active_auth_sessions_count"],
+                runtime_metadata["shared_session_lookup_returned_document"],
+            )
+        return payload
+
+    if not expected or not secret_match:
+        reason = failure_reason or "internal_auth_failure"
+        log_diagnostic(reason)
+        return jsonify(local_401_payload("Authentication required.", reason)), 401
+    user = _shared_session_user(cookie)
+    if not user:
+        reason = failure_reason or "session_rejected"
+        log_diagnostic(reason)
+        return jsonify(local_401_payload("Invalid or expired shared session.", reason)), 401
+    log_diagnostic("none")
     return jsonify({"user": _public_user(user)}), 200
 
 
@@ -366,7 +524,7 @@ def me():
 @requireAuth
 def update_profile():
     payload = request.get_json(silent=True) or {}
-    user_id = ObjectId(get_jwt_identity())
+    user_id = authenticated_user_id()
     users = _database().users
     current = users.find_one({"_id": user_id})
     if not current:
@@ -447,13 +605,16 @@ def update_profile():
 @limiter.limit("5 per 15 minutes")
 @requireAuth
 def request_password_change():
+    user = _database().users.find_one({"_id": authenticated_user_id()})
+    if (user or {}).get("role") == "staff":
+        return jsonify({"error": "Staff password changes must be performed by an administrator."}), 403
     payload = request.get_json(silent=True) or {}
     password = payload.get("password")
     confirmation = payload.get("confirmPassword")
     if password != confirmation or not _valid_password(password):
         return jsonify({"error": "Passwords must match and contain at least 8 characters."}), 400
 
-    user_id = ObjectId(get_jwt_identity())
+    user_id = authenticated_user_id()
     user = _database().users.find_one({"_id": user_id})
     if not user or not user.get("email"):
         return jsonify({"error": "We could not start password verification. Please try again."}), 400
@@ -485,7 +646,10 @@ def request_password_change():
 @limiter.limit("10 per 15 minutes")
 @requireAuth
 def verify_password_change():
-    user_id = ObjectId(get_jwt_identity())
+    user = _database().users.find_one({"_id": authenticated_user_id()})
+    if (user or {}).get("role") == "staff":
+        return jsonify({"error": "Staff password changes must be performed by an administrator."}), 403
+    user_id = authenticated_user_id()
     payload = request.get_json(silent=True) or {}
     otp = str(payload.get("otp") or "").strip()
     password = payload.get("password")
@@ -518,7 +682,7 @@ def _address_view(address: dict) -> dict:
 @auth_bp.get("/addresses")
 @requireAuth
 def list_addresses():
-    user_id = ObjectId(get_jwt_identity())
+    user_id = authenticated_user_id()
     addresses = _database().addresses.find({"userId": user_id}).sort("isDefault", -1)
     return jsonify({"addresses": [_address_view(address) for address in addresses]}), 200
 
@@ -533,7 +697,7 @@ def create_address():
     phone = str(payload["phone"]).strip()
     if not re.fullmatch(r"\+?[0-9\s().-]{7,20}", phone):
         return jsonify({"error": "Enter a valid address phone number."}), 400
-    user_id = ObjectId(get_jwt_identity())
+    user_id = authenticated_user_id()
     addresses = _database().addresses
     is_default = bool(payload.get("isDefault")) or addresses.count_documents({"userId": user_id}) == 0
     now = datetime.now(timezone.utc)
@@ -551,7 +715,7 @@ def create_address():
 def delete_address(address_id: str):
     if not ObjectId.is_valid(address_id):
         return jsonify({"error": "Invalid address id."}), 400
-    result = _database().addresses.delete_one({"_id": ObjectId(address_id), "userId": ObjectId(get_jwt_identity())})
+    result = _database().addresses.delete_one({"_id": ObjectId(address_id), "userId": authenticated_user_id()})
     if not result.deleted_count:
         return jsonify({"error": "Address not found."}), 404
     return jsonify({"message": "Address removed."}), 200
@@ -564,7 +728,7 @@ def request_email_change():
     email = _normalise_email(payload.get("email"))
     if not email or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
         return jsonify({"error": "Enter a valid email address."}), 400
-    user_id = ObjectId(get_jwt_identity())
+    user_id = authenticated_user_id()
     users = _database().users
     if users.find_one({"email": email, "_id": {"$ne": user_id}}):
         return jsonify({"error": "That email is already in use."}), 409
@@ -587,7 +751,7 @@ def request_email_change():
 @requireAuth
 def verify_email_change():
     payload = request.get_json(silent=True) or {}
-    user_id = ObjectId(get_jwt_identity())
+    user_id = authenticated_user_id()
     challenge = _database().email_change_challenges.find_one({"userId": user_id})
     otp = str(payload.get("otp") or "").strip()
     now = datetime.now(timezone.utc)
@@ -602,7 +766,7 @@ def verify_email_change():
 @auth_bp.delete("/profile")
 @requireAuth
 def delete_profile():
-    user_id = ObjectId(get_jwt_identity())
+    user_id = authenticated_user_id()
     now = datetime.now(timezone.utc)
     _database().users.update_one({"_id": user_id}, {"$set": {"isActive": False, "updatedAt": now, "deletedAt": now}})
     _database().profile_update_logs.insert_one({"user": user_id, "changedFields": ["isActive"], "timestamp": now, "action": "delete"})
@@ -610,16 +774,38 @@ def delete_profile():
 
 
 @auth_bp.post("/logout")
-@jwt_required()
+@requireAuth
 def logout():
-    token = get_jwt()
-    expires_at = datetime.fromtimestamp(token["exp"], timezone.utc)
-    _database().revoked_tokens.create_index("expiresAt", expireAfterSeconds=0)
-    _database().revoked_tokens.update_one(
-        {"jti": token["jti"]},
-        {"$set": {"jti": token["jti"], "userId": ObjectId(get_jwt_identity()), "expiresAt": expires_at, "revokedAt": datetime.now(timezone.utc)}},
-        upsert=True,
-    )
+    try:
+        jwt = get_jwt()
+    except RuntimeError:
+        jwt = {}
+    if jwt.get("jti") and jwt.get("exp"):
+        expires_at = datetime.fromtimestamp(jwt["exp"], timezone.utc)
+        _database().revoked_tokens.create_index("expiresAt", expireAfterSeconds=0)
+        _database().revoked_tokens.update_one(
+            {"jti": jwt["jti"]},
+            {"$set": {"jti": jwt["jti"], "userId": authenticated_user_id(), "expiresAt": expires_at, "revokedAt": datetime.now(timezone.utc)}},
+            upsert=True,
+        )
     response = jsonify({"message": "Logged out."})
     unset_jwt_cookies(response)
+    token = request.cookies.get(current_app.config["SHARED_SESSION_COOKIE_NAME"])
+    if token:
+        _database().auth_sessions.update_one({"tokenHash": _shared_session_hash(token), "revokedAt": None}, {"$set": {"revokedAt": datetime.now(timezone.utc)}})
+    response.set_cookie(current_app.config["SHARED_SESSION_COOKIE_NAME"], "", expires=0, max_age=0, domain=current_app.config["SHARED_SESSION_COOKIE_DOMAIN"], path="/", secure=current_app.config.get("JWT_COOKIE_SECURE", True), httponly=True, samesite="Lax")
+    return response, 200
+
+
+@auth_bp.post("/shared/logout")
+def shared_logout():
+    expected = current_app.config.get("SHARED_SESSION_INTERNAL_SECRET", "")
+    supplied = request.headers.get("X-RK-Shared-Auth", "")
+    if not expected or not hmac.compare_digest(supplied, expected):
+        return jsonify({"error": "Authentication required."}), 401
+    token = request.cookies.get(current_app.config["SHARED_SESSION_COOKIE_NAME"], "")
+    if token:
+        _database().auth_sessions.update_one({"tokenHash": _shared_session_hash(token)}, {"$set": {"revokedAt": datetime.now(timezone.utc)}})
+    response = jsonify({"message": "Logged out."})
+    response.set_cookie(current_app.config["SHARED_SESSION_COOKIE_NAME"], "", expires=0, max_age=0, domain=current_app.config["SHARED_SESSION_COOKIE_DOMAIN"], path="/", secure=current_app.config.get("JWT_COOKIE_SECURE", True), httponly=True, samesite="Lax")
     return response, 200

@@ -23,12 +23,13 @@ let currentUserToken = '';
 
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
-async function requestCurrentUser(token: string): Promise<Response> {
+async function requestCurrentUser(token?: string): Promise<Response> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       return await fetch(`${apiBaseUrl}/api/auth/me`, {
-        headers: { Authorization: `Bearer ${token}` },
+        ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+        credentials: 'include',
         cache: 'no-store',
       });
     } catch (error) {
@@ -42,23 +43,22 @@ async function requestCurrentUser(token: string): Promise<Response> {
 export async function getCurrentUser(): Promise<AuthUser | null> {
   if (typeof window === 'undefined') return null;
   const token = window.localStorage.getItem('rk_access_token');
-  if (!token) return null;
-  if (currentUserRequest && currentUserToken === token) return currentUserRequest;
-  currentUserToken = token;
-  currentUserRequest = getCurrentUserRequest(token).finally(() => {
+  if (currentUserRequest && currentUserToken === (token || 'shared')) return currentUserRequest;
+  currentUserToken = token || 'shared';
+  currentUserRequest = getCurrentUserRequest(token || undefined).finally(() => {
     currentUserRequest = null;
     currentUserToken = '';
   });
   return currentUserRequest;
 }
 
-async function getCurrentUserRequest(token: string): Promise<AuthUser | null> {
+async function getCurrentUserRequest(token?: string): Promise<AuthUser | null> {
   try {
     const response = await requestCurrentUser(token);
     if (response.ok) {
       const user = (await response.json()).user as AuthUser;
       window.localStorage.setItem(cachedUserKey, JSON.stringify(user));
-      window.localStorage.setItem('rk_auth_token', token);
+      if (token) window.localStorage.setItem('rk_auth_token', token);
       return user;
     }
     if (response.status === 401) {
@@ -87,7 +87,8 @@ export async function logout() {
     if (token) {
       await fetch(`${apiBaseUrl}/api/auth/logout`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+        credentials: 'include',
       });
     }
   } finally {

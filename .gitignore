@@ -35,3 +35,5 @@ frontend-dev.err.log
 Thumbs.db
 *.swp
 *.swo
+.env.local
+backend/.env.local

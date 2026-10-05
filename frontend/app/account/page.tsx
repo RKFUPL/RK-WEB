@@ -107,11 +107,7 @@ export default function AccountPage() {
 
   useEffect(() => {
     const token = window.localStorage.getItem('rk_access_token');
-    if (!token) {
-      setAuthChecking(false);
-      return;
-    }
-    fetch(`${apiBaseUrl}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(`${apiBaseUrl}/api/auth/me`, { ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}), credentials: 'include' })
       .then((response) => {
         if (response.status === 401) {
           window.localStorage.removeItem('rk_access_token');
@@ -169,6 +165,7 @@ export default function AccountPage() {
       const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ identifier, password }),
       });
       const data = await response.json();
@@ -177,8 +174,8 @@ export default function AccountPage() {
         if (response.status === 404) window.alert(errorMessage);
         throw new Error(errorMessage);
       }
-      window.localStorage.setItem('rk_access_token', data.accessToken);
-      window.localStorage.setItem('rk_auth_token', data.accessToken);
+      if (data.accessToken) window.localStorage.setItem('rk_access_token', data.accessToken);
+      if (data.accessToken) window.localStorage.setItem('rk_auth_token', data.accessToken);
       window.localStorage.setItem('rk_auth_user', JSON.stringify(data.user));
       window.location.replace('/');
     } catch (error) {
@@ -197,6 +194,7 @@ export default function AccountPage() {
       const response = await fetch(`${apiBaseUrl}/api/auth/signup/request-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ firstName, lastName, username, email, phone, dob, gender, region, password }),
       });
       const data = await response.json();
@@ -222,8 +220,8 @@ export default function AccountPage() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? 'The signup code is invalid or expired.');
-      window.localStorage.setItem('rk_access_token', data.accessToken);
-      window.localStorage.setItem('rk_auth_token', data.accessToken);
+      if (data.accessToken) window.localStorage.setItem('rk_access_token', data.accessToken);
+      if (data.accessToken) window.localStorage.setItem('rk_auth_token', data.accessToken);
       window.localStorage.setItem('rk_auth_user', JSON.stringify(data.user));
       window.location.replace('/');
     } catch (error) {

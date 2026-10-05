@@ -101,19 +101,80 @@ class StockIntegrationTests(unittest.TestCase):
             self.assertEqual(self.client.get(f"/api/integrations/stock/catalog/{path}",headers={"Authorization":"Bearer wrong"}).status_code,401)
     def test_authenticated_catalog_endpoints_return_safe_catalog_fields(self):
         self.provision()
-        product_id=self.database.products.insert({"sku":"RK-100","name":"Saree","slug":"saree","category":"Saree","price":1000,"currency":"INR","status":"active","isActive":True,"stock":99,"variants":[{"id":"red","sku":"RK-100-RED","colour":"Red","status":"active","sizeInventory":[{"size":"M","stock":7}]}]})
-        collection_id=self.database.collections.insert({"name":"Aakaar","slug":"aakaar","productRefs":[{"productId":product_id}]})
+        image="https://res.cloudinary.com/example/image/upload/saree.jpg"
+        product_id=self.database.products.insert({"sku":"HK-173-HP","name":"173 - Hot Pink","slug":"173-hot-pink","category":"Couture","price":125000,"currency":"INR","status":"active","isActive":True,"stock":99,"media":[image],"variants":[{"id":"hot-pink","sku":"HK-173-HP","colour":"Hot Pink","status":"active","sizeInventory":[{"size":"M","stock":7}]}]})
+        collection_id=self.database.collections.insert({"name":"Hastakala","slug":"collections-of-hasthkala","productRefs":[{"productId":str(product_id)}]})
+        second_collection_id=self.database.collections.insert({"name":"Runway","slug":"runway","productRefs":[{"productId":product_id}]})
         headers={"Authorization":"Bearer bootstrap-test-secret"}
         products=self.client.get("/api/integrations/stock/catalog/products",headers=headers).json["items"]
         categories=self.client.get("/api/integrations/stock/catalog/categories",headers=headers).json["items"]
         collections=self.client.get("/api/integrations/stock/catalog/collections",headers=headers).json["items"]
         self.assertEqual(products[0]["id"],str(product_id))
-        self.assertEqual(products[0]["collection_ids"],[str(collection_id)])
+        self.assertEqual(products[0]["name"],"173 - Hot Pink")
+        self.assertEqual(products[0]["collection_ids"],[str(collection_id),str(second_collection_id)])
+        self.assertEqual(products[0]["images"],[image])
+        self.assertEqual(products[0]["primary_image"],image)
+        self.assertEqual(products[0]["media"],[{"url":image,"position":0,"is_primary":True,"source":"rk-web"}])
         self.assertEqual(products[0]["variants"][0]["sizes"],["M"])
         self.assertNotIn("stock",products[0])
         self.assertNotIn("stock",products[0]["variants"][0])
-        self.assertEqual(categories,[{"id":"category:saree","name":"Saree","slug":"saree"}])
+        self.assertEqual(categories,[{"id":"category:couture","name":"Couture","slug":"couture"}])
         self.assertEqual(collections[0]["id"],str(collection_id))
+
+    def test_catalog_write_requires_opt_in_scope_and_is_idempotent_for_media(self):
+        with self.app.app_context():
+            self.app.config["STOCK_INTEGRATION_CATALOG_WRITE_ENABLED"] = True
+        product_id=self.database.products.insert({"sku":"HK-173-HP","name":"173 - Hot Pink","media":["https://res.cloudinary.com/rk/image/upload/original.jpg"]})
+        self.provision()
+        first_collection=self.database.collections.insert({"name":"Hastakala","productRefs":[]})
+        second_collection=self.database.collections.insert({"name":"Runway","productRefs":[]})
+        payload={"rk_web_product_id":str(product_id),"sku":"HK-173-HP","name":"173 - Hot Pink","active":True,"collection_ids":[str(first_collection)],"media":[{"url":"https://res.cloudinary.com/rk/image/upload/new.jpg","public_id":"new","source":"rk-stock","position":0,"is_primary":True}]}
+        response=self.client.put(f"/api/integrations/stock/catalog/products/{product_id}",headers={"Authorization":"Bearer bootstrap-test-secret"},json=payload)
+        self.assertEqual(response.status_code,200)
+        stored=self.database.products.find_one({"_id":product_id})
+        self.assertEqual(len(stored["media"]),2)
+        self.assertEqual(stored["media"],["https://res.cloudinary.com/rk/image/upload/new.jpg","https://res.cloudinary.com/rk/image/upload/original.jpg"])
+        self.assertEqual(stored["rkStockMedia"][0]["public_id"],"new")
+        self.assertEqual(len(self.database.collections.find({})[0]["productRefs"]),1)
+        self.assertEqual(self.client.put(f"/api/integrations/stock/catalog/products/{product_id}",headers={"Authorization":"Bearer bootstrap-test-secret"},json=payload).status_code,200)
+        self.assertEqual(len(self.database.products.find_one({"_id":product_id})["media"]),2)
+
+    def test_catalog_write_rejects_untrusted_media_and_invalid_collections_before_mutation(self):
+        with self.app.app_context():
+            self.app.config["STOCK_INTEGRATION_CATALOG_WRITE_ENABLED"] = True
+        product_id=self.database.products.insert({"sku":"SAFE-1","name":"Safe","media":["https://res.cloudinary.com/rk/image/upload/web.jpg"]})
+        self.provision()
+        headers={"Authorization":"Bearer bootstrap-test-secret"}
+        base={"rk_web_product_id":str(product_id),"sku":"SAFE-1","name":"Safe","collection_ids":[]}
+        untrusted={**base,"media":[{"url":"http://evil.example/image.jpg","public_id":"bad","source":"rk-stock"}]}
+        self.assertEqual(self.client.put(f"/api/integrations/stock/catalog/products/{product_id}",headers=headers,json=untrusted).status_code,400)
+        foreign={**base,"media":[{"url":"https://res.cloudinary.com/rk/image/upload/web.jpg","public_id":"web","source":"rk-web"}]}
+        self.assertEqual(self.client.put(f"/api/integrations/stock/catalog/products/{product_id}",headers=headers,json=foreign).status_code,400)
+        missing={**base,"collection_ids":[str(ObjectId())],"media":[]}
+        self.assertEqual(self.client.put(f"/api/integrations/stock/catalog/products/{product_id}",headers=headers,json=missing).status_code,400)
+        stored=self.database.products.find_one({"_id":product_id})
+        self.assertEqual(stored["name"],"Safe")
+        self.assertEqual(stored["media"],["https://res.cloudinary.com/rk/image/upload/web.jpg"])
+
+    def test_catalog_write_rejects_duplicate_collection_references(self):
+        with self.app.app_context():
+            self.app.config["STOCK_INTEGRATION_CATALOG_WRITE_ENABLED"] = True
+        product_id=self.database.products.insert({"sku":"SAFE-2","name":"Safe two","media":[]})
+        collection_id=self.database.collections.insert({"name":"Hastakala","productRefs":[]})
+        self.provision()
+        response=self.client.put(f"/api/integrations/stock/catalog/products/{product_id}",headers={"Authorization":"Bearer bootstrap-test-secret"},json={"rk_web_product_id":str(product_id),"sku":"SAFE-2","name":"Safe two","media":[],"collection_ids":[str(collection_id),str(collection_id)]})
+        self.assertEqual(response.status_code,400)
+        self.assertEqual(self.database.collections.find({})[0]["productRefs"],[])
+
+    def test_existing_connection_does_not_gain_catalog_write_without_reconnect(self):
+        self.provision()
+        with self.app.app_context():
+            self.app.config["STOCK_INTEGRATION_CATALOG_WRITE_ENABLED"] = True
+        status=self.client.get("/api/integrations/stock/status",headers={"Authorization":"Bearer bootstrap-test-secret"})
+        self.assertNotIn("catalog:write",status.json["scopes"])
+        product_id=self.database.products.insert({"sku":"SCOPE-1","name":"Scope test","media":[]})
+        denied=self.client.put(f"/api/integrations/stock/catalog/products/{product_id}",headers={"Authorization":"Bearer bootstrap-test-secret"},json={"rk_web_product_id":str(product_id),"sku":"SCOPE-1","name":"Scope test","media":[],"collection_ids":[]})
+        self.assertEqual(denied.status_code,403)
 
 
 if __name__ == "__main__": unittest.main()

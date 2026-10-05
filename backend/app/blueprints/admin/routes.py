@@ -12,6 +12,7 @@ from ...rbac import ROLES, STAFF_PERMISSIONS, current_user, database, effective_
 from ...dashboard_metrics import build_dashboard
 from ...order_fulfillment import migrate_legacy_orders
 from ...time_utils import json_value as serialize_json_value
+from ...mail import SENDERS, safe_status, send_test_email, test_smtp_connection, validate_recipient
 
 
 def _password_hash(password: str) -> str:
@@ -19,6 +20,110 @@ def _password_hash(password: str) -> str:
 
 admin_bp = Blueprint("admin", __name__)
 storefront_lookbooks_bp = Blueprint("storefront_lookbooks", __name__)
+
+
+@admin_bp.get("/integrations/email")
+@requireAdmin
+def email_integration_status():
+    stored = database().integrations.find_one({"_id": "zoho_mail"}) or {}
+    return jsonify({"integration": safe_status(stored)}), 200
+
+
+def _email_state(status: str, **values) -> dict:
+    now = datetime.now(timezone.utc)
+    return {
+        "provider": "zoho",
+        "status": status,
+        "mailbox": safe_status()["mailbox"],
+        "smtp": safe_status()["smtp"],
+        "senders": dict(SENDERS),
+        "updated_at": now,
+        **values,
+    }
+
+
+def _email_error(message: str, status_code: int = 400):
+    values = _email_state("error", last_error=message, last_test_at=datetime.now(timezone.utc))
+    database().integrations.update_one({"_id": "zoho_mail"}, {"$set": values}, upsert=True)
+    return jsonify({"ok": False, "error": message, "integration": safe_status(values)}), status_code
+
+
+def _safe_connection_error(error: RuntimeError) -> str:
+    messages = {
+        "Zoho Mail is not the selected mail provider",
+        "Zoho Mail SMTP authentication failed",
+        "Unable to reach the Zoho Mail SMTP server",
+        "Zoho Mail SMTP protocol negotiation failed",
+    }
+    return str(error) if str(error) in messages else "Unable to connect to Zoho Mail. Check the local SMTP configuration."
+
+
+def _safe_delivery_error(error: RuntimeError) -> str:
+    messages = {
+        "Zoho Mail SMTP authentication failed",
+        "Unable to reach the Zoho Mail SMTP server",
+        "SMTP sender address rejected",
+        "SMTP recipient address rejected",
+        "SMTP test message failed",
+    }
+    return str(error) if str(error) in messages else "Unable to send the test email through Zoho Mail."
+
+
+@admin_bp.post("/integrations/email/test-connection")
+@requireAdmin
+def email_integration_test():
+    try:
+        result = test_smtp_connection()
+        tested_at = result["testedAt"]
+        values = _email_state("connected", verified_at=tested_at, last_test_at=tested_at, last_error=None)
+        database().integrations.update_one({"_id": "zoho_mail"}, {"$set": values}, upsert=True)
+        return jsonify({"ok": True, "integration": safe_status(values)}), 200
+    except ValueError:
+        return _email_error("Zoho Mail configuration is incomplete.")
+    except RuntimeError as error:
+        return _email_error(_safe_connection_error(error))
+
+
+@admin_bp.post("/integrations/email/connect")
+@requireAdmin
+def email_integration_connect():
+    try:
+        result = test_smtp_connection()
+        tested_at = result["testedAt"]
+        values = _email_state("connected", connected_at=tested_at, verified_at=tested_at, last_test_at=tested_at, last_error=None)
+        database().integrations.update_one({"_id": "zoho_mail"}, {"$set": values}, upsert=True)
+        return jsonify({"ok": True, "integration": safe_status(values)}), 200
+    except ValueError:
+        return _email_error("Zoho Mail configuration is incomplete.")
+    except RuntimeError as error:
+        return _email_error(_safe_connection_error(error))
+
+
+@admin_bp.post("/integrations/email/disconnect")
+@requireAdmin
+def email_integration_disconnect():
+    values = _email_state("disconnected", connected_at=None, verified_at=None, last_error=None)
+    database().integrations.update_one({"_id": "zoho_mail"}, {"$set": values}, upsert=True)
+    return jsonify({"ok": True, "integration": safe_status(values)}), 200
+
+
+@admin_bp.post("/integrations/email/test-email")
+@admin_bp.post("/integrations/email/test-send")
+@requireAdmin
+def email_integration_test_email():
+    payload = request.get_json(silent=True) or {}
+    sender = str(payload.get("sender") or "").strip()
+    try:
+        recipient = validate_recipient(payload.get("recipient"))
+        if sender not in SENDERS:
+            raise ValueError("An approved sender identity is required.")
+        send_test_email(recipient, sender)
+    except ValueError as error:
+        message = "An approved sender identity is required." if sender not in SENDERS else str(error)
+        return jsonify({"ok": False, "error": message}), 400
+    except RuntimeError as error:
+        return jsonify({"ok": False, "error": _safe_delivery_error(error)}), 400
+    return jsonify({"ok": True}), 200
 _dashboard_indexes_ready = False
 
 SETTINGS_DEFAULTS = {

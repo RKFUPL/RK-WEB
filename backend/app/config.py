@@ -14,6 +14,7 @@ class BaseConfig:
     EMAIL_FROM = os.getenv("EMAIL_FROM", "noreply@rashikapoor.com")
     EMAIL_FROM_NAME = os.getenv("EMAIL_FROM_NAME", "Rashi Kapoor")
     RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+    MAIL_PROVIDER = os.getenv("MAIL_PROVIDER", "resend").strip().lower()
     ORDER_CONFIRMATION_BCC = os.getenv("ORDER_CONFIRMATION_BCC", "")
     FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
     FRONTEND_URLS = os.getenv("FRONTEND_URLS", "")
@@ -25,11 +26,36 @@ class BaseConfig:
     RATELIMIT_STORAGE_URI = os.getenv("RATELIMIT_STORAGE_URI", "memory://")
     STOCK_INTEGRATION_BOOTSTRAP_SECRET = os.getenv("STOCK_INTEGRATION_BOOTSTRAP_SECRET", "")
     STOCK_INTEGRATION_CLIENT_ID = os.getenv("STOCK_INTEGRATION_CLIENT_ID", "rk-stock-linesheets")
+    STOCK_INTEGRATION_CATALOG_WRITE_ENABLED = os.getenv("STOCK_INTEGRATION_CATALOG_WRITE_ENABLED", "false").lower() == "true"
+    STOCK_INTEGRATION_CLOUDINARY_HOST = os.getenv("STOCK_INTEGRATION_CLOUDINARY_HOST", "res.cloudinary.com").strip().lower()
+    AUTH_SESSION_DAYS = int(os.getenv("AUTH_SESSION_DAYS", "30"))
+    SHARED_SESSION_COOKIE_NAME = os.getenv("SHARED_SESSION_COOKIE_NAME", "rk_shared_session")
+    SHARED_SESSION_COOKIE_DOMAIN = os.getenv("SHARED_SESSION_COOKIE_DOMAIN", ".rashikapoor.co.in")
+    SHARED_SESSION_INTERNAL_SECRET = os.getenv("SHARED_SESSION_INTERNAL_SECRET", "")
+    ZOHO_MAILBOX = os.getenv("ZOHO_MAILBOX", "rk@rashikapoorofficial.com")
+    # SMTP_* is the authoritative application configuration. ZOHO_SMTP_*
+    # remains an input alias for existing local environments.
+    SMTP_HOST = os.getenv("ZOHO_SMTP_HOST", os.getenv("SMTP_HOST", "smtppro.zoho.com"))
+    SMTP_PORT = os.getenv("ZOHO_SMTP_PORT", os.getenv("SMTP_PORT", "587"))
+    SMTP_SECURE = os.getenv("ZOHO_SMTP_SECURITY", os.getenv("SMTP_SECURE", "starttls"))
+    SMTP_USERNAME = os.getenv("ZOHO_SMTP_USERNAME", os.getenv("SMTP_USERNAME", ""))
+    SMTP_PASSWORD = os.getenv("ZOHO_SMTP_PASSWORD", os.getenv("SMTP_PASSWORD", ""))
+    SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", os.getenv("EMAIL_FROM", "otp@rashikapoorofficial.com"))
+    SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", os.getenv("EMAIL_FROM_NAME", "Rashi Kapoor"))
+    ZOHO_SMTP_HOST = SMTP_HOST
+    ZOHO_SMTP_PORT = SMTP_PORT
+    ZOHO_SMTP_SECURITY = SMTP_SECURE
+    ZOHO_SMTP_USERNAME = SMTP_USERNAME
+    ZOHO_SMTP_PASSWORD = SMTP_PASSWORD
+    ZOHO_CLIENT_ID = os.getenv("ZOHO_CLIENT_ID", "")
+    ZOHO_CLIENT_SECRET = os.getenv("ZOHO_CLIENT_SECRET", "")
+    ZOHO_REFRESH_TOKEN = os.getenv("ZOHO_REFRESH_TOKEN", "")
 
 
 class DevelopmentConfig(BaseConfig):
     DEBUG = True
     JWT_COOKIE_SECURE = False
+    SHARED_SESSION_COOKIE_DOMAIN = os.getenv("SHARED_SESSION_COOKIE_DOMAIN", "")
 
 
 class ProductionConfig(BaseConfig):

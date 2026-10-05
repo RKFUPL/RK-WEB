@@ -1,14 +1,29 @@
 from pathlib import Path
 import os
 
-from flask import Flask, request
+from flask import Flask, g, request
 from flask import send_file
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
 # Resolve the backend environment from the application location rather than
 # the caller's working directory. This keeps local `flask --app wsgi:app run`
 # launches consistent whether they start from the repository root or backend/.
-load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+_backend_env = Path(__file__).resolve().parents[1]
+
+
+def _load_environment(backend_env: Path) -> None:
+    """Load local configuration as process > .env.local > .env."""
+    process_keys = set(os.environ)
+    load_dotenv(backend_env / ".env", override=False)
+    local_env = backend_env / ".env.local"
+    if not local_env.exists():
+        return
+    for key, value in dotenv_values(local_env).items():
+        if value is not None and key not in process_keys:
+            os.environ[key] = value
+
+
+_load_environment(_backend_env)
 
 # The local development environment can expose a dead placeholder proxy. It
 # prevents Resend from reaching its API even though the backend is healthy.
@@ -95,6 +110,20 @@ def create_app() -> Flask:
         # the negotiated headers; the actual GET/POST still remains guarded.
         if request.method == "OPTIONS" and request.path.startswith("/api/"):
             return app.make_response(("", 204))
+
+    @app.after_request
+    def refresh_shared_session_cookie(response):
+        refresh = getattr(g, "shared_session_refresh", None)
+        if refresh:
+            token, expires = refresh
+            response.set_cookie(
+                app.config["SHARED_SESSION_COOKIE_NAME"], token,
+                expires=expires, max_age=app.config.get("AUTH_SESSION_DAYS", 30) * 86400,
+                domain=app.config.get("SHARED_SESSION_COOKIE_DOMAIN") or None,
+                path="/", secure=app.config.get("JWT_COOKIE_SECURE", True),
+                httponly=True, samesite="Lax",
+            )
+        return response
 
     @app.before_request
     def maintain_feedback_data():

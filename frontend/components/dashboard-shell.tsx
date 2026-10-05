@@ -3,10 +3,12 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
-import { BarChart3, Bell, BookOpen, CalendarDays, ChevronRight, FileText, FolderKanban, LayoutDashboard, Megaphone, Menu, Package, Search, Settings, ShoppingBag, UserCircle, Users, X } from 'lucide-react';
+import { BarChart3, Bell, BookOpen, CalendarDays, ChevronRight, FileText, FolderKanban, LayoutDashboard, Mail, Megaphone, Menu, Package, Search, Settings, ShoppingBag, UserCircle, Users, X } from 'lucide-react';
 import { getCurrentUser, type AuthUser, type Role, type StaffPermission } from '@/lib/rbac';
 import { brandLogoUrl } from '@/lib/home-content';
 import { QuickCreate } from '@/components/admin/quick-create';
+
+const stockAppUrl = process.env.NEXT_PUBLIC_STOCK_APP_URL || 'https://stocknlinesheets.rashikapoor.co.in/inventory';
 
 function dashboardGroups(role: Role, permissions: StaffPermission[] = []) {
   const base = role === 'admin' ? '/admin' : '/staff';
@@ -19,7 +21,7 @@ function dashboardGroups(role: Role, permissions: StaffPermission[] = []) {
   if (role === 'staff') return shared.filter((group) => group.items.length);
   shared[1].items.push({ href: '/admin/collections', label: 'Collections', icon: FolderKanban });
   shared[2].items.push({ href: '/admin/marketing', label: 'Marketing', icon: Megaphone });
-  return [...shared, { label: 'Workspace', items: [{ href: '/admin/lookbooks', label: 'Lookbooks', icon: BookOpen }, { href: 'https://stocknlinesheets.rashikapoor.co.in/inventory', label: 'Stock Page', icon: Package, external: true }, { href: '/admin/users', label: 'Staff & access', icon: Users }, { href: '/admin/reports', label: 'Reports & analytics', icon: BarChart3 }, { href: '/admin/settings', label: 'Settings', icon: Settings }] }];
+  return [...shared, { label: 'Workspace', items: [{ href: '/admin/lookbooks', label: 'Lookbooks', icon: BookOpen }, { href: '/admin/integrations/email', label: 'Email / Zoho Mail', icon: Mail }, { href: stockAppUrl, label: 'Stock Page', icon: Package, external: true }, { href: '/admin/users', label: 'Staff & access', icon: Users }, { href: '/admin/reports', label: 'Reports & analytics', icon: BarChart3 }, { href: '/admin/settings', label: 'Settings', icon: Settings }] }];
 }
 
 function haptic(duration = 7) {

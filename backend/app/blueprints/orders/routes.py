@@ -3,7 +3,6 @@ import re
 
 from bson import ObjectId
 from flask import Blueprint, current_app, jsonify, request
-from flask_jwt_extended import get_jwt_identity
 
 from ...order_fulfillment import (
     ACTIVE_FULFILLMENT_STATUSES,
@@ -23,7 +22,7 @@ from ...order_fulfillment import (
 )
 from ...order_confirmation import send_order_confirmation
 from ...returns import create_return_request, return_url, send_return_accepted
-from ...rbac import current_user, database, requireCustomer, requirePermission
+from ...rbac import authenticated_user_id, current_user, database, requireCustomer, requirePermission
 
 
 customer_orders_bp = Blueprint("customer_orders", __name__)
@@ -138,7 +137,7 @@ def _order_counts(database_instance) -> dict:
 def list_customer_orders():
     db = database()
     _prepare(db)
-    user_id = ObjectId(get_jwt_identity())
+    user_id = authenticated_user_id()
     orders = list(db.orders.find(_customer_order_query(user_id)).sort("createdAt", -1).limit(100))
     views = [order_view(ensure_order_tracking(db, order)) for order in orders]
     active = db.orders.count_documents({"customerId": user_id, "fulfillment.status": {"$in": list(ACTIVE_FULFILLMENT_STATUSES)}})
@@ -155,7 +154,7 @@ def get_customer_order(order_id: str):
         return jsonify({"error": "Order not found."}), 404
     db = database()
     _prepare(db)
-    order = db.orders.find_one({"_id": object_id, "customerId": ObjectId(get_jwt_identity())})
+    order = db.orders.find_one({"_id": object_id, "customerId": authenticated_user_id()})
     if not order:
         return jsonify({"error": "Order not found."}), 404
     return jsonify({"order": order_view(ensure_order_tracking(db, order))}), 200

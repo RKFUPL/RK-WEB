@@ -6,7 +6,6 @@ import secrets
 
 from bson import ObjectId
 from flask import Blueprint, current_app, jsonify, request
-from flask_jwt_extended import get_jwt_identity
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError, OperationFailure
 
@@ -23,7 +22,7 @@ from ...order_fulfillment import (
 from ...order_confirmation import send_order_confirmation
 from ...payments import RazorpayAPIError, is_configured, razorpay_api_request, verify_payment_signature, verify_webhook_signature
 from ...product_variants import find_variant, sync_product_variants
-from ...rbac import current_user, database, requireAuth
+from ...rbac import authenticated_user_id, current_user, database, requireAuth
 from ...time_utils import json_value as serialize_json_value
 
 
@@ -398,7 +397,7 @@ def create_razorpay_order():
     if not re.fullmatch(r"[A-Za-z0-9_.:-]{8,80}", attempt_id):
         return jsonify({"error": "A valid checkout attempt is required."}), 400
     user = current_user()
-    user_id = ObjectId(get_jwt_identity())
+    user_id = authenticated_user_id()
     db = database()
     _ensure_payment_indexes(db)
     ensure_catalog_seed(db)
@@ -462,7 +461,7 @@ def verify_razorpay_payment():
         return jsonify({"error": "The Razorpay payment response is incomplete."}), 400
 
     db = database()
-    user_id = ObjectId(get_jwt_identity())
+    user_id = authenticated_user_id()
     order = db.orders.find_one({"customerId": user_id, "razorpayOrderId": callback_order_id})
     if not order:
         return jsonify({"error": "The checkout order could not be found."}), 404
@@ -498,7 +497,7 @@ def update_razorpay_state():
     if not ObjectId.is_valid(order_id) or state not in {"failed", "cancelled"}:
         return jsonify({"error": "Invalid payment state."}), 400
     db = database()
-    order = db.orders.find_one({"_id": ObjectId(order_id), "customerId": ObjectId(get_jwt_identity())})
+    order = db.orders.find_one({"_id": ObjectId(order_id), "customerId": authenticated_user_id()})
     if not order:
         return jsonify({"error": "Order not found."}), 404
     if order.get("paymentStatus") == "paid":
@@ -518,7 +517,7 @@ def update_razorpay_state():
 def get_customer_order(order_id: str):
     if not ObjectId.is_valid(order_id):
         return jsonify({"error": "Order not found."}), 404
-    order = database().orders.find_one({"_id": ObjectId(order_id), "customerId": ObjectId(get_jwt_identity())})
+    order = database().orders.find_one({"_id": ObjectId(order_id), "customerId": authenticated_user_id()})
     if not order:
         return jsonify({"error": "Order not found."}), 404
     return jsonify({"order": _order_view(ensure_order_tracking(database(), order))}), 200
