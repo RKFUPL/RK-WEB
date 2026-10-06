@@ -45,6 +45,7 @@ from .blueprints.staff.routes import staff_bp
 from .blueprints.integrations.routes import integrations_bp
 from .config import get_config
 from .extensions import cors, jwt, limiter, mail, mongo
+from .credential_sync import ensure_indexes as ensure_credential_sync_indexes
 
 
 def create_app() -> Flask:
@@ -100,6 +101,7 @@ def create_app() -> Flask:
             ensure_catalog_indexes(mongo.db)
             ensure_catalog_seed_once(mongo.db)
             ensure_dashboard_indexes(mongo.db)
+            ensure_credential_sync_indexes(mongo.db)
     except Exception:
         app.logger.exception("Unable to initialize catalog indexes during startup")
 
@@ -120,8 +122,8 @@ def create_app() -> Flask:
                 app.config["SHARED_SESSION_COOKIE_NAME"], token,
                 expires=expires, max_age=app.config.get("AUTH_SESSION_DAYS", 30) * 86400,
                 domain=app.config.get("SHARED_SESSION_COOKIE_DOMAIN") or None,
-                path="/", secure=app.config.get("JWT_COOKIE_SECURE", True),
-                httponly=True, samesite="Lax",
+                path="/", secure=app.config.get("SHARED_SESSION_COOKIE_SECURE", True),
+                httponly=True, samesite=app.config.get("SHARED_SESSION_COOKIE_SAMESITE", "Lax"),
             )
         return response
 

@@ -70,14 +70,14 @@ class EndpointAuthorizationTests(unittest.TestCase):
             response = self.client.get("/api/admin/users", headers=self.headers)
         self.assertEqual(response.status_code, 403)
 
-    def test_admin_users_endpoint_only_queries_staff_and_admin(self):
+    def test_admin_users_endpoint_returns_authoritative_user_directory(self):
         admin = {"_id": ObjectId(), "displayName": "Admin", "role": "admin", "isActive": True}
         staff = {"_id": ObjectId(), "displayName": "Staff", "role": "staff", "isActive": True}
         users = TrackingUsers([admin, staff])
         with patch("app.rbac.current_user", return_value=admin), patch("app.blueprints.admin.routes.database", return_value=SimpleNamespace(users=users)):
             response = self.client.get("/api/admin/users", headers=self.headers)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(users.query, {"role": {"$in": ["staff", "admin"]}})
+        self.assertEqual(users.query, {})
         self.assertEqual([user["role"] for user in response.get_json()["users"]], ["admin", "staff"])
 
     def test_staff_customer_scope_is_assignment_limited(self):

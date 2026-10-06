@@ -50,6 +50,11 @@ class MemoryCollection:
         for key, amount in update.get("$inc", {}).items():
             current[key] = current.get(key, 0) + amount
 
+    def update_many(self, query, update):
+        for current in self.documents:
+            if self._matches(current, query):
+                current.update(update.get("$set", {}))
+
     def delete_one(self, query):
         current = self.find_one(query)
         if current:
@@ -154,6 +159,35 @@ class SignupFlowTests(unittest.TestCase):
             self.client.set_cookie("rk_shared_session", token)
             response = self.client.post("/api/auth/profile/password/request", json={"password": "new-password", "confirmPassword": "new-password"})
             assert response.status_code == 403
+
+    def test_forced_password_user_is_returned_by_login_and_blocked_from_protected_routes(self):
+        user = {"_id": self.user_id, "email": "forced@example.com", "username": "forced", "passwordHash": hashpw(b"temporary-password", gensalt()).decode(), "role": "customer", "isActive": True, "mustChangePassword": True}
+        self.database.users.documents.append(user)
+        with patch("app.blueprints.auth.routes._database", return_value=self.database), patch("app.rbac.database", return_value=self.database):
+            login = self.client.post("/api/auth/login", json={"identifier": "forced@example.com", "password": "temporary-password"})
+            self.assertEqual(login.status_code, 200)
+            self.assertTrue(login.json["user"]["must_change_password"])
+            blocked = self.client.get("/api/auth/addresses", headers={"Authorization": f"Bearer {login.json['accessToken']}"})
+        self.assertEqual(blocked.status_code, 403)
+        self.assertTrue(blocked.json["must_change_password"])
+
+    def test_forced_password_change_clears_flag_revokes_old_sessions_and_restores_access(self):
+        user = {"_id": self.user_id, "email": "forced@example.com", "username": "forced", "passwordHash": hashpw(b"temporary-password", gensalt()).decode(), "role": "customer", "isActive": True, "mustChangePassword": True}
+        self.database.users.documents.append(user)
+        with patch("app.blueprints.auth.routes._database", return_value=self.database), patch("app.rbac.database", return_value=self.database):
+            login = self.client.post("/api/auth/login", json={"identifier": "forced@example.com", "password": "temporary-password"})
+            changed = self.client.post(
+                "/api/auth/password/change",
+                headers={"Authorization": f"Bearer {login.json['accessToken']}"},
+                json={"currentPassword": "temporary-password", "password": "new-secure-password", "confirmPassword": "new-secure-password"},
+            )
+            access = self.client.get("/api/auth/me", headers={"Authorization": f"Bearer {login.json['accessToken']}"})
+        self.assertEqual(changed.status_code, 200)
+        self.assertFalse(changed.json["user"]["must_change_password"])
+        self.assertEqual(access.status_code, 200)
+        self.assertFalse(user["mustChangePassword"])
+        self.assertTrue(checkpw(b"new-secure-password", user["passwordHash"].encode()))
+        self.assertTrue(all(session.get("revokedAt") is not None for session in self.database.auth_sessions.documents[:-1]))
 
     def test_production_like_cookie_attributes_are_cross_subdomain_safe(self):
         self.app.config.update(SHARED_SESSION_COOKIE_DOMAIN=".rashikapoor.test", JWT_COOKIE_SECURE=True)

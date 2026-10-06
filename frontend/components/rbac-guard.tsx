@@ -17,6 +17,8 @@ export function RbacGuard({ role, children }: { role?: Role; children: ReactNode
     getCurrentUser().then((currentUser) => {
       if (!currentUser) {
         router.replace(`/account?next=${encodeURIComponent(pathnameRef.current)}`);
+      } else if (currentUser.must_change_password && pathnameRef.current !== '/account/change-password') {
+        router.replace('/account/change-password');
       } else if (role && currentUser.role !== role) {
         router.replace(currentUser.role === 'admin' ? '/admin' : currentUser.role === 'staff' ? '/staff' : '/account');
       } else {

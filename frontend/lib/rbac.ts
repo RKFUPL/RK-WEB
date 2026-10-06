@@ -11,6 +11,7 @@ export type AuthUser = {
   permissions?: StaffPermission[];
   isActive: boolean;
   emailVerified: boolean;
+  must_change_password: boolean;
 };
 
 export type StaffPermission = 'products:manage' | 'inventory:manage' | 'quotes:manage' | 'orders:manage' | 'customers:manage';

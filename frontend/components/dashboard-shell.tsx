@@ -8,7 +8,7 @@ import { getCurrentUser, type AuthUser, type Role, type StaffPermission } from '
 import { brandLogoUrl } from '@/lib/home-content';
 import { QuickCreate } from '@/components/admin/quick-create';
 
-const stockAppUrl = process.env.NEXT_PUBLIC_STOCK_APP_URL || 'https://stocknlinesheets.rashikapoor.co.in/inventory';
+const stockAppUrl = process.env.NEXT_PUBLIC_STOCK_APP_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:3006/inventory' : 'https://stocknlinesheets.rashikapoor.co.in/inventory');
 
 function dashboardGroups(role: Role, permissions: StaffPermission[] = []) {
   const base = role === 'admin' ? '/admin' : '/staff';

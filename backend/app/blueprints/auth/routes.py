@@ -12,6 +12,7 @@ from flask_jwt_extended import create_access_token, get_jwt, unset_jwt_cookies
 from ...extensions import limiter, mongo
 from ...mail import send_otp
 from ...rbac import authenticated_user_id, effective_permissions, requireAuth
+from ...credential_sync import next_credential_version, sync_event
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -31,8 +32,8 @@ def _shared_cookie(response, token: str, expires: datetime | None = None):
         max_age=current_app.config.get("AUTH_SESSION_DAYS", 30) * 86400,
         expires=expires,
         domain=current_app.config.get("SHARED_SESSION_COOKIE_DOMAIN") or None,
-        path="/", secure=current_app.config.get("JWT_COOKIE_SECURE", True),
-        httponly=True, samesite="Lax",
+        path="/", secure=current_app.config.get("SHARED_SESSION_COOKIE_SECURE", True),
+        httponly=True, samesite=current_app.config.get("SHARED_SESSION_COOKIE_SAMESITE", "Lax"),
     )
     return response
 
@@ -116,6 +117,7 @@ def _public_user(user: dict) -> dict:
         "newsletter": user.get("newsletter", False),
         "marketingEmails": user.get("marketingEmails", False),
         "whatsappNotifications": user.get("whatsappNotifications", False),
+        "must_change_password": bool(user.get("mustChangePassword", False)),
     }
 
 
@@ -294,9 +296,11 @@ def signup_verify_otp():
         "createdAt": now,
         "updatedAt": now,
         "profile": {},
+        "credentialVersion": 1,
     }).inserted_id
     _database().otp_challenges.delete_one({"_id": challenge["_id"]})
     user = _database().users.find_one({"_id": user_id})
+    sync_event(_database(), "USER_CREATED", user)
     session_token, expires = _create_shared_session(user_id)
     response = jsonify({"accessToken": create_access_token(identity=str(user_id)), "user": _public_user(user)})
     return _shared_cookie(response, session_token, expires), 201
@@ -318,6 +322,12 @@ def login():
     # Backfill legacy documents without changing an existing role.
     _database().users.update_one({"_id": user["_id"]}, {"$setOnInsert": {"role": "customer", "isActive": True, "emailVerified": False}})
     user = _database().users.find_one({"_id": user["_id"]})
+    _database().users.update_one({"_id": user["_id"]}, {"$set": {"lastLoginAt": datetime.now(timezone.utc)}})
+    user = _database().users.find_one({"_id": user["_id"]})
+    # RK-WEB remains authoritative for login.  This is a best-effort, one-time
+    # credential handoff; failures must never affect local authentication.
+    if user.get("role") in {"admin", "staff"}:
+        sync_event(_database(), "PASSWORD_CHANGED", user, password=password, version=user.get("credentialVersion", 0))
     session_token, expires = _create_shared_session(user["_id"])
     response = jsonify({"accessToken": create_access_token(identity=str(user["_id"])), "user": _public_user(user)})
     return _shared_cookie(response, session_token, expires), 200
@@ -360,7 +370,10 @@ def forgot_password_reset():
     _database().otp_challenges.update_one({"_id": challenge["_id"]}, {"$inc": {"otpAttempts": 1}})
     if not checkpw(otp.encode(), challenge["otpHash"].encode()):
         return jsonify({"error": "The recovery code is invalid or expired."}), 400
-    _database().users.update_one({"_id": user["_id"]}, {"$set": {"passwordHash": _password_hash(password), "updatedAt": now}})
+    version = next_credential_version(user)
+    _database().users.update_one({"_id": user["_id"]}, {"$set": {"passwordHash": _password_hash(password), "credentialVersion": version, "updatedAt": now}})
+    user["credentialVersion"] = version
+    sync_event(_database(), "PASSWORD_RESET", user, password=password, version=version)
     _database().otp_challenges.delete_one({"_id": challenge["_id"]})
     return jsonify({"message": "Password updated. You can now sign in."}), 200
 
@@ -401,6 +414,31 @@ def me():
     if not user:
         return jsonify({"error": "Profile not found."}), 404
     return jsonify({"user": _public_user(user)}), 200
+
+
+@auth_bp.post("/password/change")
+@requireAuth
+def change_authenticated_password():
+    user_id = authenticated_user_id()
+    payload = request.get_json(silent=True) or {}
+    current_password = payload.get("currentPassword")
+    password = payload.get("password")
+    confirmation = payload.get("confirmPassword")
+    user = _database().users.find_one({"_id": user_id, "isActive": {"$ne": False}})
+    if not user or not isinstance(current_password, str) or not user.get("passwordHash") or not checkpw(current_password.encode(), user["passwordHash"].encode()):
+        return jsonify({"error": "The current password is incorrect."}), 400
+    if password != confirmation or not _valid_password(password) or password == current_password:
+        return jsonify({"error": "Choose a new password of at least 8 characters."}), 400
+    now = datetime.now(timezone.utc)
+    version = next_credential_version(user)
+    _database().users.update_one({"_id": user_id}, {"$set": {"passwordHash": _password_hash(password), "mustChangePassword": False, "credentialVersion": version, "updatedAt": now}})
+    _database().auth_sessions.update_many({"userId": user_id, "revokedAt": None}, {"$set": {"revokedAt": now}})
+    _database().profile_update_logs.insert_one({"user": user_id, "changedFields": ["passwordHash", "mustChangePassword"], "timestamp": now})
+    refreshed, expires = _create_shared_session(user_id)
+    updated = _database().users.find_one({"_id": user_id})
+    sync_event(_database(), "PASSWORD_CHANGED", updated, password=password, version=version)
+    response = jsonify({"message": "Your password has been changed.", "user": _public_user(updated)})
+    return _shared_cookie(response, refreshed, expires), 200
 
 
 @auth_bp.get("/shared/me")
@@ -665,11 +703,14 @@ def verify_password_change():
     if not checkpw(otp.encode(), challenge["otpHash"].encode()):
         return jsonify({"error": "The verification code is invalid or expired."}), 400
 
+    version = next_credential_version(user)
     _database().users.update_one(
         {"_id": user_id},
-        {"$set": {"passwordHash": _password_hash(password), "updatedAt": now}},
+        {"$set": {"passwordHash": _password_hash(password), "credentialVersion": version, "updatedAt": now}},
     )
     challenges.delete_one({"_id": challenge["_id"]})
+    user["credentialVersion"] = version
+    sync_event(_database(), "PASSWORD_CHANGED", user, password=password, version=version)
     _database().profile_update_logs.insert_one({"user": user_id, "changedFields": ["passwordHash"], "timestamp": now})
     return jsonify({"message": "Your password has been changed."}), 200
 
@@ -793,7 +834,7 @@ def logout():
     token = request.cookies.get(current_app.config["SHARED_SESSION_COOKIE_NAME"])
     if token:
         _database().auth_sessions.update_one({"tokenHash": _shared_session_hash(token), "revokedAt": None}, {"$set": {"revokedAt": datetime.now(timezone.utc)}})
-    response.set_cookie(current_app.config["SHARED_SESSION_COOKIE_NAME"], "", expires=0, max_age=0, domain=current_app.config["SHARED_SESSION_COOKIE_DOMAIN"], path="/", secure=current_app.config.get("JWT_COOKIE_SECURE", True), httponly=True, samesite="Lax")
+    response.set_cookie(current_app.config["SHARED_SESSION_COOKIE_NAME"], "", expires=0, max_age=0, domain=current_app.config.get("SHARED_SESSION_COOKIE_DOMAIN") or None, path="/", secure=current_app.config.get("SHARED_SESSION_COOKIE_SECURE", True), httponly=True, samesite=current_app.config.get("SHARED_SESSION_COOKIE_SAMESITE", "Lax"))
     return response, 200
 
 
@@ -807,5 +848,5 @@ def shared_logout():
     if token:
         _database().auth_sessions.update_one({"tokenHash": _shared_session_hash(token)}, {"$set": {"revokedAt": datetime.now(timezone.utc)}})
     response = jsonify({"message": "Logged out."})
-    response.set_cookie(current_app.config["SHARED_SESSION_COOKIE_NAME"], "", expires=0, max_age=0, domain=current_app.config["SHARED_SESSION_COOKIE_DOMAIN"], path="/", secure=current_app.config.get("JWT_COOKIE_SECURE", True), httponly=True, samesite="Lax")
+    response.set_cookie(current_app.config["SHARED_SESSION_COOKIE_NAME"], "", expires=0, max_age=0, domain=current_app.config.get("SHARED_SESSION_COOKIE_DOMAIN") or None, path="/", secure=current_app.config.get("SHARED_SESSION_COOKIE_SECURE", True), httponly=True, samesite=current_app.config.get("SHARED_SESSION_COOKIE_SAMESITE", "Lax"))
     return response, 200

@@ -128,6 +128,8 @@ def _guard(allowed_roles: set[str]) -> Callable:
             user = current_user()
             if not user or user.get("isActive", True) is False:
                 return jsonify({"error": "Authentication required."}), 401
+            if user.get("mustChangePassword") and request.path not in {"/api/auth/me", "/api/auth/password/change", "/api/auth/logout"}:
+                return jsonify({"error": "Password change required before continuing.", "must_change_password": True}), 403
             role = user.get("role", "customer")
             if role not in allowed_roles:
                 return jsonify({"error": "You do not have permission to perform this action."}), 403

@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import secrets
 import re
+from bcrypt import gensalt, hashpw
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 from bson import ObjectId
@@ -10,14 +11,163 @@ from flask import Blueprint, current_app, jsonify, request
 
 from ...rbac import database
 from ...time_utils import json_value
+from ...credential_sync import consume_handoff, retry_pending, verify_handoff
 
 
 integrations_bp = Blueprint("integrations", __name__)
 
 
+def _credential_sync_authorized() -> bool:
+    configured = str(current_app.config.get("STOCK_CREDENTIAL_SYNC_SECRET") or "")
+    supplied = _bearer_token()
+    return bool(configured and supplied and hmac.compare_digest(supplied, configured))
+
+
 def _bearer_token():
     value = request.headers.get("Authorization", "")
     return value[7:] if value.startswith("Bearer ") else ""
+
+
+@integrations_bp.post("/internal/auth/sync-ack")
+def credential_sync_ack():
+    if not _credential_sync_scope_authorized():
+        return jsonify({"error": "Service credential rejected."}), 401
+    payload = request.get_json(silent=True) or {}
+    event_id = str(payload.get("event_id") or "").strip()
+    required = ("event_type", "source_user_id", "credential_version", "status", "applied")
+    if not event_id or "target_user_id" not in payload or any(key not in payload for key in required) or payload.get("status") not in {"APPLIED", "ALREADY_APPLIED", "STALE", "CONFLICT"} or not isinstance(payload.get("applied"), bool) or payload.get("source_system") not in {"rk-stock", "rk-web"} or payload.get("target_system") not in {"rk-web", "rk-stock"}:
+        return jsonify({"error": "Invalid synchronization acknowledgement."}), 400
+    event = database().credential_sync_outbox.find_one({"_id": event_id, "source_system": payload["target_system"], "target_system": payload["source_system"]})
+    if not event:
+        return jsonify({"error": "Synchronization event not found."}), 404
+    if event.get("event_type") != payload.get("event_type") or event.get("source_user_id") != str(payload.get("source_user_id")) or event.get("credential_version") != payload.get("credential_version") or event.get("target_user_id") != payload.get("target_user_id") or bool(payload["applied"]) != (payload["status"] == "APPLIED"):
+        return jsonify({"error": "Synchronization acknowledgement does not match the event."}), 409
+    if payload.get("status") == "CONFLICT":
+        return jsonify({"error": "Synchronization conflict."}), 409
+    database().credential_sync_outbox.update_one({"_id": event_id, "status": {"$in": ["PENDING", "COMPLETED"]}}, {"$set": {"status": "COMPLETED", "completed_at": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc), "last_error": None, "receiver_status": payload["status"]}})
+    return jsonify({"status": payload["status"], "event_id": event_id}), 200
+
+
+def _credential_sync_scope_authorized():
+    return _credential_sync_authorized() and request.headers.get("X-Credential-Sync-Scope") == "credential:sync"
+
+
+def _validate_inbound_sync(payload, *, password_event=False):
+    if not _credential_sync_scope_authorized():
+        return jsonify({"error": "Credential synchronization scope required."}), 403
+    required = ("event_id", "event_type", "source_system", "target_system", "source_user_id", "target_user_id", "credential_version", "profile_version", "payload_metadata")
+    if password_event:
+        required = required + ("credential_handoff",)
+    if any(key not in payload for key in required):
+        return jsonify({"error": "Invalid synchronization request."}), 400
+    if payload["source_system"] != "rk-stock" or payload["target_system"] != "rk-web":
+        return jsonify({"error": "Invalid synchronization direction."}), 400
+    event = {"event_id": payload["event_id"], "event_type": payload["event_type"], "source_user_id": str(payload["source_user_id"]), "target_user_id": str(payload["target_user_id"]), "credential_version": payload["credential_version"], "profile_version": payload["profile_version"]}
+    if password_event:
+        try:
+            payload["_claims"] = verify_handoff(payload["credential_handoff"], expected_event=event, issuer="rk-stock", audience="rk-web")
+        except ValueError:
+            return jsonify({"error": "Invalid credential handoff."}), 401
+    else:
+        payload["_claims"] = {**event, "jti": f"metadata:{payload['event_id']}"}
+    if password_event and not isinstance(payload.get("password"), str):
+        return jsonify({"error": "Credential is required."}), 400
+    return None
+
+
+@integrations_bp.post("/internal/auth/provision-credential")
+def inbound_credential_provision():
+    payload = request.get_json(silent=True) or {}
+    failure = _validate_inbound_sync(payload, password_event=True)
+    if failure:
+        return failure
+    db = database()
+    user = db.users.find_one({"_id": ObjectId(payload["target_user_id"])}) if ObjectId.is_valid(payload["target_user_id"]) else None
+    if not user:
+        return jsonify({"error": "Target identity not found."}), 404
+    current = int(user.get("credentialVersion", 0))
+    if payload["credential_version"] < current:
+        return jsonify({"event_id": payload["event_id"], "event_type": payload["event_type"], "status": "STALE", "applied": False, "credential_version": current}), 200
+    if payload["credential_version"] == current:
+        return jsonify({"event_id": payload["event_id"], "event_type": payload["event_type"], "status": "CONFLICT", "applied": False, "credential_version": current}), 409
+    if not consume_handoff(db, payload["_claims"], event_type=payload["event_type"], source_system="rk-stock", target_system="rk-web"):
+        return jsonify({"event_id": payload["event_id"], "event_type": payload["event_type"], "status": "ALREADY_APPLIED", "applied": False, "credential_version": current}), 200
+    now = datetime.now(timezone.utc)
+    db.users.update_one({"_id": user["_id"]}, {"$set": {"passwordHash": hashpw(payload["password"].encode(), gensalt()).decode(), "credentialVersion": payload["credential_version"], "updatedAt": now}})
+    db.auth_sessions.update_many({"userId": user["_id"], "revokedAt": None}, {"$set": {"revokedAt": now}})
+    return jsonify({"event_id": payload["event_id"], "event_type": payload["event_type"], "status": "APPLIED", "applied": True, "credential_version": payload["credential_version"]}), 200
+
+
+@integrations_bp.post("/internal/users/provision")
+def inbound_user_provision():
+    payload = request.get_json(silent=True) or {}
+    failure = _validate_inbound_sync(payload)
+    if failure:
+        return failure
+    db = database()
+    event_type = payload["event_type"]
+    if event_type not in {"USER_CREATED", "ROLE_CHANGED", "STATUS_CHANGED", "USERNAME_CHANGED", "EMAIL_CHANGED"}:
+        return jsonify({"error": "Unsupported metadata event."}), 400
+    metadata = payload["payload_metadata"] if isinstance(payload["payload_metadata"], dict) else {}
+    target_id = payload["target_user_id"]
+    user = db.users.find_one({"_id": ObjectId(target_id)}) if ObjectId.is_valid(target_id) else None
+    created = False
+    if user is None and event_type == "USER_CREATED":
+        role = metadata.get("role")
+        if role not in {"admin", "staff"}:
+            return jsonify({"error": "Only operational users may be provisioned."}), 403
+        email = str(metadata.get("email") or "").strip().lower()
+        username = str(metadata.get("username") or "").strip()
+        if not email or "@" not in email or not username:
+            return jsonify({"error": "Valid user metadata is required."}), 400
+        if db.users.find_one({"$or": [{"email": email}, {"username": username}]}):
+            return jsonify({"error": "User identity conflict."}), 409
+        now = datetime.now(timezone.utc)
+        user = {"email": email, "username": username, "role": role, "isActive": bool(metadata.get("is_active", True)), "emailVerified": True, "mustChangePassword": True, "credentialVersion": int(payload["credential_version"]), "createdAt": now, "updatedAt": now}
+        result = db.users.insert_one(user)
+        user["_id"] = result.inserted_id
+        created = True
+    if user is None:
+        return jsonify({"error": "Target identity not found."}), 404
+    if created:
+        if not consume_handoff(db, payload["_claims"], event_type=event_type, source_system="rk-stock", target_system="rk-web"):
+            return jsonify({"event_id": payload["event_id"], "event_type": event_type, "status": "ALREADY_APPLIED", "applied": False, "credential_version": payload["credential_version"]}), 200
+        db.user_identity_links.update_one({"rk_stock_user_id": target_id}, {"$set": {"rk_web_user_id": user["_id"], "email": user["email"], "username": user["username"], "status": "active", "updated_at": datetime.now(timezone.utc)}, "$setOnInsert": {"created_at": datetime.now(timezone.utc)}}, upsert=True)
+        return jsonify({"event_id": payload["event_id"], "event_type": event_type, "status": "APPLIED", "applied": True, "credential_version": payload["credential_version"]}), 200
+    current = int(user.get("credentialVersion", 0))
+    if payload["credential_version"] < current:
+        return jsonify({"event_id": payload["event_id"], "event_type": event_type, "status": "STALE", "applied": False, "credential_version": current}), 200
+    if payload["credential_version"] == current:
+        if not consume_handoff(db, payload["_claims"], event_type=event_type, source_system="rk-stock", target_system="rk-web"):
+            return jsonify({"event_id": payload["event_id"], "event_type": event_type, "status": "ALREADY_APPLIED", "applied": False, "credential_version": current}), 200
+        return jsonify({"error": "Equal version conflict."}), 409
+    if not consume_handoff(db, payload["_claims"], event_type=event_type, source_system="rk-stock", target_system="rk-web"):
+        return jsonify({"event_id": payload["event_id"], "event_type": event_type, "status": "ALREADY_APPLIED", "applied": False, "credential_version": current}), 200
+    updates = {"credentialVersion": payload["credential_version"], "updatedAt": datetime.now(timezone.utc)}
+    if event_type in {"ROLE_CHANGED", "USER_CREATED"}:
+        role = metadata.get("role")
+        if role not in {"admin", "staff"}:
+            return jsonify({"error": "Unsupported operational role."}), 403
+        if role != user.get("role") and user.get("role") == "admin" and role != "admin" and db.users.count_documents({"role": "admin", "isActive": {"$ne": False}}) <= 1:
+            return jsonify({"error": "The final administrator cannot be removed."}), 409
+        updates["role"] = role
+    if event_type in {"STATUS_CHANGED", "USER_CREATED"}:
+        updates["isActive"] = bool(metadata.get("is_active", True))
+        if not updates["isActive"]:
+            db.auth_sessions.update_many({"userId": user["_id"], "revokedAt": None}, {"$set": {"revokedAt": datetime.now(timezone.utc)}})
+    if event_type == "USERNAME_CHANGED":
+        username = str(metadata.get("username") or "").strip()
+        if not username or db.users.find_one({"username": username, "_id": {"$ne": user["_id"]}}):
+            return jsonify({"error": "Username conflict."}), 409
+        updates["username"] = username
+    if event_type == "EMAIL_CHANGED":
+        email = str(metadata.get("email") or "").strip().lower()
+        if "@" not in email or db.users.find_one({"email": email, "_id": {"$ne": user["_id"]}}):
+            return jsonify({"error": "Email conflict."}), 409
+        updates["email"] = email
+    db.users.update_one({"_id": user["_id"]}, {"$set": updates})
+    db.user_identity_links.update_one({"rk_stock_user_id": target_id}, {"$set": {"rk_web_user_id": user["_id"], "email": updates.get("email", user.get("email")), "username": updates.get("username", user.get("username")), "updated_at": datetime.now(timezone.utc)}}, upsert=True)
+    return jsonify({"event_id": payload["event_id"], "event_type": event_type, "status": "APPLIED", "applied": True, "credential_version": payload["credential_version"]}), 200
 
 
 def _token_hash(token):

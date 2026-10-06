@@ -13,6 +13,7 @@ from ...dashboard_metrics import build_dashboard
 from ...order_fulfillment import migrate_legacy_orders
 from ...time_utils import json_value as serialize_json_value
 from ...mail import SENDERS, safe_status, send_test_email, test_smtp_connection, validate_recipient
+from ...credential_sync import next_credential_version, sync_event
 
 
 def _password_hash(password: str) -> str:
@@ -226,7 +227,21 @@ def _user_view(user: dict) -> dict:
         "emailVerified": user.get("emailVerified", False),
         "createdAt": serialize_json_value(user.get("createdAt")),
         "updatedAt": serialize_json_value(user.get("updatedAt")),
+        "lastLoginAt": serialize_json_value(user.get("lastLoginAt")),
     }
+
+
+def _user_admin_audit(action: str, target: dict, **metadata) -> None:
+    actor = current_user() or {}
+    database().user_admin_logs.insert_one({
+        "actorUserId": actor.get("_id"),
+        "actorEmail": actor.get("email"),
+        "action": action,
+        "targetUserId": target.get("_id"),
+        "targetEmail": target.get("email"),
+        "metadata": metadata,
+        "timestamp": datetime.now(timezone.utc),
+    })
 
 
 def _document_view(document: dict) -> dict:
@@ -271,11 +286,53 @@ def _integer(value: object, default: int = 0) -> int:
         return default
 
 
-@admin_bp.get("/users")
+@admin_bp.route("/users", methods=["GET", "POST"])
 @requireAdmin
 def list_users():
-    users = database().users.find({"role": {"$in": ["staff", "admin"]}}).sort("createdAt", -1)
-    return jsonify({"users": [_user_view(user) for user in users]}), 200
+    db = database()
+    if request.method == "GET":
+        users = db.users.find({}).sort("createdAt", -1)
+        return jsonify({"users": [_user_view(user) for user in users]}), 200
+
+    payload = request.get_json(silent=True) or {}
+    first_name = str(payload.get("firstName") or payload.get("name") or "").strip()
+    last_name = str(payload.get("lastName") or "").strip()
+    username = str(payload.get("username") or "").strip()
+    email = str(payload.get("email") or "").strip().lower()
+    role = str(payload.get("role") or "staff").strip().lower()
+    password = payload.get("password")
+    active = payload.get("isActive", True)
+    if not first_name or not username or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        return jsonify({"error": "Name, username, and a valid email are required."}), 400
+    if role not in ROLES:
+        return jsonify({"error": "Role must be customer, staff, or admin."}), 400
+    if not isinstance(password, str) or len(password) < 8:
+        return jsonify({"error": "Temporary password must be at least 8 characters."}), 400
+    if not isinstance(active, bool):
+        return jsonify({"error": "isActive must be boolean."}), 400
+    if db.users.find_one({"$or": [{"email": email}, {"username": {"$regex": f"^{re.escape(username)}$", "$options": "i"}}]}):
+        return jsonify({"error": "A user with that email or username already exists."}), 409
+    now = datetime.now(timezone.utc)
+    document = {
+        "firstName": first_name,
+        "lastName": last_name,
+        "displayName": " ".join(filter(None, (first_name, last_name))),
+        "username": username,
+        "email": email,
+        "passwordHash": _password_hash(password),
+        "role": role,
+        "permissions": [],
+        "isActive": active,
+        "emailVerified": True,
+        "mustChangePassword": True,
+        "credentialVersion": 1,
+        "createdAt": now,
+        "updatedAt": now,
+    }
+    document["_id"] = db.users.insert_one(document).inserted_id
+    sync_event(db, "USER_CREATED", document, password=password)
+    _user_admin_audit("user_created", document, role=role, active=active)
+    return jsonify({"user": _user_view(document)}), 201
 
 
 @admin_bp.get("/dashboard")
@@ -510,6 +567,8 @@ def change_role(user_id: str):
         "timestamp": now,
     })
     target = users.find_one({"_id": target_id})
+    sync_event(database(), "ROLE_CHANGED", target, version=target.get("credentialVersion", 0), metadata={"previous_role": previous_role}, force=True)
+    _user_admin_audit("user_role_changed", target, previousRole=previous_role, newRole=new_role)
     return jsonify({"user": _user_view(target)}), 200
 
 
@@ -582,7 +641,12 @@ def change_status(user_id: str):
     if target.get("role", "customer") == "admin" and not active and users.count_documents({"role": "admin", "isActive": {"$ne": False}}) <= 1:
         return jsonify({"error": "The last remaining admin cannot be deactivated."}), 409
     users.update_one({"_id": target["_id"]}, {"$set": {"isActive": active, "updatedAt": datetime.now(timezone.utc)}})
-    return jsonify({"user": _user_view(users.find_one({"_id": target["_id"]}))}), 200
+    if not active:
+        database().auth_sessions.update_many({"userId": target["_id"], "revokedAt": None}, {"$set": {"revokedAt": datetime.now(timezone.utc)}})
+    updated = users.find_one({"_id": target["_id"]})
+    sync_event(database(), "STATUS_CHANGED", updated, version=updated.get("credentialVersion", 0), force=target.get("role") in {"admin", "staff"})
+    _user_admin_audit("user_activated" if active else "user_deactivated", updated)
+    return jsonify({"user": _user_view(updated)}), 200
 
 
 @admin_bp.patch("/users/<user_id>/password")
@@ -601,5 +665,11 @@ def change_password(user_id: str):
     if target.get("role", "customer") not in {"staff", "admin"}:
         return jsonify({"error": "Only staff and admin passwords can be updated here."}), 400
 
-    users.update_one({"_id": target["_id"]}, {"$set": {"passwordHash": _password_hash(password), "updatedAt": datetime.now(timezone.utc)}})
+    now = datetime.now(timezone.utc)
+    version = next_credential_version(target)
+    users.update_one({"_id": target["_id"]}, {"$set": {"passwordHash": _password_hash(password), "mustChangePassword": True, "credentialVersion": version, "updatedAt": now}})
+    database().auth_sessions.update_many({"userId": target["_id"], "revokedAt": None}, {"$set": {"revokedAt": now}})
+    _user_admin_audit("admin_password_reset", target)
+    target["credentialVersion"] = version
+    sync_event(database(), "PASSWORD_RESET", target, password=password, version=version)
     return jsonify({"message": "Password updated successfully."}), 200

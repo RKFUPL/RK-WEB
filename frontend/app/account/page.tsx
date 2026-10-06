@@ -177,7 +177,7 @@ export default function AccountPage() {
       if (data.accessToken) window.localStorage.setItem('rk_access_token', data.accessToken);
       if (data.accessToken) window.localStorage.setItem('rk_auth_token', data.accessToken);
       window.localStorage.setItem('rk_auth_user', JSON.stringify(data.user));
-      window.location.replace('/');
+      window.location.replace(data.user.must_change_password ? '/account/change-password' : '/');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Unable to sign in.');
     } finally {
