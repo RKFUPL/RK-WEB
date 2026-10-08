@@ -1,0 +1,50 @@
+﻿services:
+  backend:
+    container_name: rk-backend
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:5000:5000"
+    networks:
+      - rk-internal
+
+  catalog-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: rk-catalog-worker
+    env_file:
+      - .env
+    command: python catalog_worker.py
+    networks:
+      - rk-internal
+    restart: unless-stopped
+
+  frontend:
+    container_name: rk-frontend
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+      NEXT_PUBLIC_CAREERS_URL: ${NEXT_PUBLIC_CAREERS_URL:-/careers}
+      BACKEND_INTERNAL_URL: http://backend:5000
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      - rk-internal
+
+networks:
+  rk-internal:
+    driver: bridge
