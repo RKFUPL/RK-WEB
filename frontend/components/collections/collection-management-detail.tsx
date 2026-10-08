@@ -112,7 +112,7 @@ function ProductDrawer({ product, collection, collections, canManageProducts, ca
   </div></aside></div>;
 }
 
-export function CollectionManagementDetail({ slug, basePath }: { slug: string; basePath: '/admin/collections' | '/staff/collections' }) {
+export function CollectionManagementDetail({ slug, basePath }: { slug: string; basePath: '/admin/collections' | '/admin/products' | '/staff/collections' }) {
   const [data, setData] = useState<DetailPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);

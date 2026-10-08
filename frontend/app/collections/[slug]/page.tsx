@@ -1,4 +1,4 @@
-import { notFound, redirect } from 'next/navigation';
+import { redirect } from 'next/navigation';
 import { CollectionDetailPage } from '@/components/collections/collection-detail-page';
 import { collectionPages } from '@/lib/home-content';
 import { pageMetadata } from '@/lib/site-metadata';
@@ -26,7 +26,10 @@ export async function generateMetadata({ params }: CollectionSlugPageProps) {
   const { slug } = await params;
   const canonicalSlug = collectionAliases[slug] || slug;
   const collection = collectionPages.find((item) => item.route === `/collections/${canonicalSlug}`);
-  if (!collection) return {};
+  if (!collection) {
+    const name = canonicalSlug.split('-').filter(Boolean).map((part) => part[0]?.toUpperCase() + part.slice(1)).join(' ');
+    return pageMetadata(`${name} Collection`, `Discover the ${name} collection by Rashi Kapoor.`, `/collections/${canonicalSlug}`);
+  }
   return pageMetadata(
     `${collection.name} Collection`,
     `${collection.summary} Discover the ${collection.name} collection by Rashi Kapoor.`,
@@ -39,11 +42,14 @@ export default async function CollectionSlugPage({ params }: CollectionSlugPageP
   if (collectionAliases[slug]) {
     redirect(`/collections/${collectionAliases[slug]}`);
   }
-  const collection = collectionPages.find((item) => item.route === `/collections/${slug}`);
-
-  if (!collection) {
-    notFound();
-  }
+  const collection = collectionPages.find((item) => item.route === `/collections/${slug}`) || {
+    name: slug.split('-').filter(Boolean).map((part) => part[0]?.toUpperCase() + part.slice(1)).join(' '),
+    route: `/collections/${slug}`,
+    status: 'Collection',
+    summary: '',
+    image: '',
+    fontFamily: 'var(--font-display)',
+  };
 
   return <CollectionDetailPage collection={collection} />;
 }

@@ -16,13 +16,14 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { brandLogoUrl, collectionGalleryPages, searchItems } from '@/lib/home-content';
+import { brandLogoUrl, searchItems } from '@/lib/home-content';
 import { apiBaseUrl, logout } from '@/lib/rbac';
 import { cartChangedEvent, readStoredCart, removeStoredCartItem, updateStoredCartQuantity } from '@/lib/storefront-cart';
 import { readWishlist, removeFromWishlist, wishlistChangedEvent, type StorefrontWishlistItem } from '@/lib/storefront-wishlist';
 import type { Cart } from '@/lib/store-types';
 import { cn } from '@/lib/utils';
 import { inr } from '@/lib/catalog';
+import type { ManagedCollection } from '@/lib/catalog';
 import { cartLineKey, getCartSubtotal } from '@/lib/cart';
 
 type HeaderUser = { displayName?: string; firstName?: string; lastName?: string; username?: string; email?: string; role?: 'customer' | 'staff' | 'admin' };
@@ -30,8 +31,6 @@ const mainLinks = [
   { label: 'Lookbooks', href: '/rk-lookbooks' },
   { label: 'Runway', href: '/runway' },
 ] as const;
-
-const collectionLinks = collectionGalleryPages;
 
 const utilityLinks = [
   { label: 'Search', Icon: Search },
@@ -70,6 +69,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
   const [shoppingBag, setShoppingBag] = useState<Cart>({ items: [], currency: 'INR' });
   const [wishlistNotice, setWishlistNotice] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [collectionLinks, setCollectionLinks] = useState<Array<{ id: string; name: string; route: string; summary: string }>>([]);
   const headerRef = useRef<HTMLElement | null>(null);
   const previousScrollYRef = useRef(0);
   const scrollFrameRef = useRef<number | null>(null);
@@ -82,6 +82,22 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
 
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`${apiBaseUrl}/api/catalog/collections`, { cache: 'no-store' })
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || 'Unable to load collections.');
+        return (payload.collections || []) as ManagedCollection[];
+      })
+      .then((collections) => {
+        if (!active) return;
+        setCollectionLinks(collections.map((collection) => ({ id: collection.id, name: collection.name, route: `/collections/${collection.slug}`, summary: collection.description || '' })));
+      })
+      .catch(() => { if (active) setCollectionLinks([]); });
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
@@ -261,15 +277,17 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
   };
 
   const searchResults = useMemo(() => {
+    const dynamicItems = collectionLinks.map((collection) => ({ title: collection.name, type: 'Collection', href: collection.route, keywords: `${collection.name} ${collection.summary}` }));
+    const items = [...dynamicItems, ...searchItems.filter((item) => item.type !== 'Collection' || item.title === 'All Collections')];
     const normalizedQuery = searchQuery.trim().toLowerCase();
     if (!normalizedQuery) {
-      return searchItems;
+      return items;
     }
 
-    return searchItems.filter((item) =>
+    return items.filter((item) =>
       `${item.title} ${item.type} ${item.keywords}`.toLowerCase().includes(normalizedQuery)
     );
-  }, [searchQuery]);
+  }, [collectionLinks, searchQuery]);
 
   const scrollToHome = () => {
     handleNavigation();
@@ -374,7 +392,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
                   <div className="mt-4 grid gap-3">
                     {collectionLinks.map((collection) => (
                       <Link
-                        key={collection.name}
+                        key={collection.id}
                         href={collection.route}
                         onClick={handleNavigation}
                         className="flex items-center justify-between border-b border-black/6 pb-3 text-sm uppercase tracking-[0.22em] text-charcoal transition hover:text-gold"
@@ -567,7 +585,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
                       <div className="space-y-3 pl-4 pt-2">
                         {collectionLinks.map((collection) => (
                           <Link
-                            key={collection.name}
+                            key={collection.id}
                             href={collection.route}
                             onClick={handleNavigation}
                             className="flex items-center justify-between border-b border-black/6 pb-3 text-sm uppercase tracking-[0.22em] text-charcoal transition hover:text-gold"

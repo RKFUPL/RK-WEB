@@ -47,17 +47,17 @@ export function CollectionDetailPage({ collection }: { collection: CollectionPag
     textTheme: collection.hero?.textTheme || 'light',
     titleScale: collection.hero?.titleScale || 'standard',
   }), [collection.hero, collection.image]);
-  const configuredHeroImage = collection.hero?.image || collection.image;
+  const configuredHeroImage = collection.hero?.image || managedCollection?.hero?.image || managedCollection?.heroImage || collection.image;
   const hero: CollectionHeroConfig = {
     ...fallbackHero,
     ...(managedCollection?.hero || {}),
     ...(collection.hero || {}),
     type: collection.hero?.type || managedCollection?.hero?.type || 'image',
     image: configuredHeroImage,
-    video: collection.hero?.video || '',
-    poster: collection.hero?.poster || configuredHeroImage,
-    mobileImage: collection.hero?.mobileImage || '',
-    mobileVideo: collection.hero?.mobileVideo || '',
+    video: collection.hero?.video || managedCollection?.hero?.video || '',
+    poster: collection.hero?.poster || managedCollection?.hero?.poster || configuredHeroImage,
+    mobileImage: collection.hero?.mobileImage || managedCollection?.hero?.mobileImage || '',
+    mobileVideo: collection.hero?.mobileVideo || managedCollection?.hero?.mobileVideo || '',
     layout: 'full_bleed',
   };
   const displayCollection: StorefrontCollection = managedCollection || {

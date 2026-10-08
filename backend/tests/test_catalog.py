@@ -1,13 +1,32 @@
 import unittest
 from datetime import datetime, timezone
+from unittest.mock import ANY, MagicMock, patch
 
 from bson import ObjectId
+from flask import Flask
 
 from app.catalog import AAKAAR_COLLECTION_SEED, AAKAAR_PRODUCT_SEEDS, ANAMIKA_PRODUCT_SEEDS, HASTAKALA_PRODUCT_SEEDS, NORMAL_COLLECTIONS, PRODUCT_SEEDS, _ensure_compatible_index, _product_seed_document, collection_hero, collection_view, is_excluded_collection, is_runway_collection, product_view
+from app.blueprints.catalog.routes import catalog_bp
 from app.inventory import DEFAULT_CUSTOM_SIZE_FIELDS, STANDARD_SIZES, custom_size_fields, validate_custom_size
 
 
 class CatalogTests(unittest.TestCase):
+    def test_storefront_collection_index_uses_managed_database_collections(self):
+        app = Flask(__name__)
+        app.register_blueprint(catalog_bp, url_prefix="/api/catalog")
+        collection = {"_id": ObjectId(), "name": "Database Collection", "slug": "database-collection"}
+        rendered = {"id": str(collection["_id"]), "name": collection["name"], "slug": collection["slug"], "productCount": 3}
+
+        database = MagicMock()
+        database.collections.find.return_value = [collection]
+        with patch("app.blueprints.catalog.routes.database", return_value=database), \
+             patch("app.blueprints.catalog.routes.collection_view", return_value=rendered) as view:
+            response = app.test_client().get("/api/catalog/collections")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), {"collections": [rendered], "count": 1})
+        view.assert_called_once_with(ANY, collection, include_products=False)
+
     def test_equivalent_named_index_is_reused_without_recreation(self):
         class ExistingIndexCollection:
             def __init__(self):

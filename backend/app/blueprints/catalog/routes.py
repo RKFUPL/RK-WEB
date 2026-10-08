@@ -26,6 +26,21 @@ from ...rbac import database
 catalog_bp = Blueprint("catalog", __name__)
 
 
+@catalog_bp.get("/collections")
+def storefront_collections():
+    db = database()
+    existing = [collection for collection in db.collections.find({}) if not is_excluded_collection(collection)]
+    existing.sort(key=lambda collection: (int(collection.get("displayOrder", 9999)), str(collection.get("createdAt") or ""), str(collection.get("_id"))))
+    collections = [
+        collection_view(db, collection, include_products=False)
+        for collection in existing
+        if not is_runway_collection(collection)
+    ]
+    response = jsonify({"collections": collections, "count": len(collections)})
+    response.headers["Cache-Control"] = "public, max-age=0, s-maxage=60, stale-while-revalidate=300"
+    return response, 200
+
+
 def _request_text(value: object, maximum: int) -> str:
     return str(value or "").strip()[:maximum]
 
