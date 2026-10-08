@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
+import hashlib
 import re
 import secrets
+from urllib.parse import urlsplit
 
 from bson import ObjectId
 from flask import Blueprint, jsonify, request
@@ -26,8 +28,149 @@ from ...inventory import default_size_inventory, has_size_system, normalise_size
 from ...product_variants import VARIANT_STATUSES, find_variant, sync_product_variants
 from ...rbac import current_user, database, effective_permissions, requireStaff
 from ...time_utils import json_value as serialize_json_value
+from ...catalog_sync_v1 import enqueue as enqueue_catalog_event, make_event
 
 staff_bp = Blueprint("staff", __name__)
+
+
+def _catalog_product_payload(product: dict) -> dict:
+    return {
+        "product_code": product.get("productCode") or product.get("styleCode") or product.get("sku"),
+        "sku": product.get("sku"), "name": product.get("name"), "description": product.get("description", ""),
+        "price": product.get("price"), "currency": product.get("currency", "INR"),
+        "tax_inclusive": bool(product.get("taxInclusive") or product.get("mrpIncludesGst")),
+        "category": product.get("category"), "status": product.get("status"), "active": product.get("isActive") is not False,
+    }
+
+
+def _normalize_catalog_media(items):
+    """Keep legacy URL arrays while deriving safe structured catalog media."""
+    structured, legacy = [], []
+    for position, raw in enumerate(items or []):
+        item = dict(raw) if isinstance(raw, dict) else {"url": str(raw or "").strip()}
+        url = str(item.get("permalink") or item.get("url") or "").strip()
+        if not url:
+            continue
+        parsed = urlsplit(url)
+        provider = str(item.get("provider") or "").lower()
+        media_type = str(item.get("type") or "image").lower()
+        permalink = item.get("permalink")
+        public_id = item.get("public_id")
+        if provider == "zoho_workdrive" or "/file/" in parsed.path and "workdrive.zoho" in (parsed.hostname or ""):
+            provider, permalink = "zoho_workdrive", url
+            if "/file/" not in parsed.path or parsed.scheme != "https":
+                # Preserve the legacy value locally but do not emit an invalid v1 event.
+                legacy.append(url)
+                continue
+        elif provider == "cloudinary" or (parsed.hostname or "").endswith("res.cloudinary.com"):
+            provider = "cloudinary"
+            if not public_id and "/upload/" in parsed.path:
+                tail = parsed.path.split("/upload/", 1)[1].split("?", 1)[0]
+                parts = tail.split("/")
+                if parts and parts[0].startswith("v") and parts[0][1:].isdigit():
+                    parts = parts[1:]
+                public_id = "/".join(parts).rsplit(".", 1)[0]
+        else:
+            legacy.append(url)
+            continue
+        media_id = str(item.get("id") or hashlib.sha256(f"{provider}:{url}".encode()).hexdigest()[:32])
+        structured.append({
+            **item, "id": media_id, "url": url, "provider": provider, "type": media_type,
+            "permalink": permalink, "public_id": public_id, "source": item.get("source") or "rk-web",
+            "owner_system": item.get("owner_system") or "rk-web", "position": position,
+            "is_primary": bool(item.get("is_primary") or item.get("is_main") or position == 0),
+            "is_main": bool(item.get("is_primary") or item.get("is_main") or position == 0),
+        })
+        legacy.append(url)
+    if structured:
+        primary = next((item["id"] for item in structured if item["is_primary"]), structured[0]["id"])
+        for position, item in enumerate(structured):
+            item["position"] = position
+            item["is_primary"] = item["is_main"] = item["id"] == primary
+    return structured, legacy
+
+
+def _queue_media_delta(db, before, after, actor_id=None):
+    before_items = {str(item.get("id")): item for item in (before or []) if isinstance(item, dict) and item.get("id")}
+    after_items = {str(item.get("id")): item for item in (after or []) if isinstance(item, dict) and item.get("id")}
+    product_identity = {"origin_system": after.get("source_system") or "rk-web", "origin_id": str(after.get("source_id") or after["_id"])}
+    emitted = []
+    for media_id, item in after_items.items():
+        if not item.get("public_id") and item.get("provider") == "cloudinary":
+            continue
+        if item.get("provider") == "zoho_workdrive" and "/file/" not in str(item.get("permalink") or ""):
+            continue
+        previous = before_items.get(media_id)
+        if media_id not in before_items:
+            event_type = "MEDIA_CREATED"
+        elif item == previous:
+            event_type = None
+        elif item.get("is_primary") != previous.get("is_primary"):
+            event_type = "MEDIA_PRIMARY_CHANGED"
+        elif item.get("position") != previous.get("position"):
+            event_type = "MEDIA_REORDERED"
+        else:
+            event_type = "MEDIA_UPDATED"
+        if event_type:
+            versions = dict(after.get("catalogVersions") or {}); version = int(versions.get("rk-web", 0)) + 1; versions["rk-web"] = version
+            db.products.update_one({"_id": after["_id"]}, {"$set": {"catalogVersions": versions, "catalogVersion": version}})
+            payload = {key: item[key] for key in ("id", "provider", "type", "url", "public_id", "permalink", "source", "owner_system", "position", "is_primary", "is_main", "alt_text", "description") if item.get(key) is not None}
+            payload.update({"media_id": media_id, "product_identity": product_identity})
+            emitted.append(enqueue_catalog_event(db, make_event(event_type, "media", media_id, version, payload, observed_versions=versions, identity={"origin_system": "rk-web", "origin_id": media_id}, actor_id=actor_id)))
+    for media_id, item in before_items.items():
+        if media_id in after_items:
+            continue
+        versions = dict(after.get("catalogVersions") or {}); version = int(versions.get("rk-web", 0)) + 1; versions["rk-web"] = version
+        db.products.update_one({"_id": after["_id"]}, {"$set": {"catalogVersions": versions, "catalogVersion": version}})
+        delete_payload = {"media_id": media_id, "owner_system": item.get("owner_system") or "rk-web", "provider": item.get("provider") or "cloudinary", "public_id": item.get("public_id") or media_id, "position": int(item.get("position", 0)), "is_primary": False, "product_identity": product_identity}
+        for key in ("type", "permalink", "url"):
+            if item.get(key) is not None:
+                delete_payload[key] = item[key]
+        emitted.append(enqueue_catalog_event(db, make_event("MEDIA_DELETED", "media", media_id, version, delete_payload, observed_versions=versions, identity={"origin_system": "rk-web", "origin_id": media_id}, actor_id=actor_id)))
+    before_order = [str(item.get("id")) for item in before or [] if isinstance(item, dict)]
+    after_order = [str(item.get("id")) for item in after or [] if isinstance(item, dict)]
+    if before_order != after_order and before_order and after_order:
+        emitted.append(_queue_product_event(db, after, "PRODUCT_UPDATED", actor_id))
+    return emitted
+
+
+def _queue_product_event(db, product: dict, event_type: str, actor_id=None):
+    if not hasattr(db, "catalog_sync_outbox"):
+        return None
+    product = db.products.find_one({"_id": product["_id"]}) or product
+    versions = dict(product.get("catalogVersions") or {})
+    version = int(versions.get("rk-web", 0)) + 1
+    versions["rk-web"] = version
+    db.products.update_one({"_id": product["_id"]}, {"$set": {"catalogVersions": versions, "catalogVersion": version}})
+    identity = {"origin_system": product.get("source_system") or "rk-web", "origin_id": str(product.get("source_id") or product["_id"])}
+    event = make_event(event_type, "product", product["_id"], version, _catalog_product_payload(product), observed_versions=versions, identity=identity, actor_id=actor_id)
+    return enqueue_catalog_event(db, event)
+
+
+def _queue_collection_event(db, collection: dict, event_type: str, actor_id=None):
+    if not hasattr(db, "catalog_sync_outbox"):
+        return None
+    collection = db.collections.find_one({"_id": collection["_id"]}) or collection
+    versions = dict(collection.get("catalogVersions") or {}); version = int(versions.get("rk-web", 0)) + 1; versions["rk-web"] = version
+    db.collections.update_one({"_id": collection["_id"]}, {"$set": {"catalogVersions": versions, "catalogVersion": version}})
+    payload = {key: collection.get(key) for key in ("name", "slug", "code", "description", "status")}
+    payload["active"] = collection.get("isActive") is not False and collection.get("status") != "archived"
+    identity = {"origin_system": collection.get("source_system") or "rk-web", "origin_id": str(collection.get("source_id") or collection["_id"])}
+    return enqueue_catalog_event(db, make_event(event_type, "collection", collection["_id"], version, payload, observed_versions=versions, identity=identity, actor_id=actor_id))
+
+
+def _queue_membership_event(db, product: dict, collection: dict, operation: str, display_order=None, actor_id=None):
+    if not hasattr(db, "catalog_sync_outbox"):
+        return None
+    product = db.products.find_one({"_id": product["_id"]}) or product
+    versions = dict(product.get("catalogVersions") or {}); version = int(versions.get("rk-web", 0)) + 1; versions["rk-web"] = version
+    db.products.update_one({"_id": product["_id"]}, {"$set": {"catalogVersions": versions, "catalogVersion": version}})
+    product_identity = {"origin_system": product.get("source_system") or "rk-web", "origin_id": str(product.get("source_id") or product["_id"])}
+    collection_identity = {"origin_system": collection.get("source_system") or "rk-web", "origin_id": str(collection.get("source_id") or collection["_id"])}
+    change = {"collection_identity": collection_identity, "operation": operation}
+    if display_order is not None: change["display_order"] = display_order
+    payload = {"product_identity": product_identity, "changes": [change]}
+    return enqueue_catalog_event(db, make_event("PRODUCT_COLLECTION_CHANGED", "product_collection", product["_id"], version, payload, observed_versions=versions, identity=product_identity, actor_id=actor_id))
 
 RESOURCE_PERMISSIONS = {
     "products": "products:manage",
@@ -141,6 +284,40 @@ def _collection_permission_error(*required: str):
 
 def _valid_id(value: str):
     return ObjectId(value) if ObjectId.is_valid(value) else None
+
+
+def _requested_product_collections(db, payload: dict):
+    raw_ids = payload.get("collectionIds")
+    if raw_ids is None:
+        legacy_id = str(payload.get("collectionId") or "").strip()
+        raw_ids = [legacy_id] if legacy_id else []
+    if not isinstance(raw_ids, list) or len(raw_ids) > 50:
+        return None, (jsonify({"error": "Collections must be a list of valid collection IDs."}), 400)
+    collection_ids = []
+    for value in raw_ids:
+        object_id = _valid_id(str(value or "").strip())
+        if not object_id or object_id in collection_ids:
+            if object_id in collection_ids:
+                continue
+            return None, (jsonify({"error": "Choose valid collections."}), 400)
+        collection_ids.append(object_id)
+    collections = list(db.collections.find({"_id": {"$in": collection_ids}})) if collection_ids else []
+    if len(collections) != len(collection_ids):
+        return None, (jsonify({"error": "Choose valid collections."}), 400)
+    by_id = {collection["_id"]: collection for collection in collections}
+    return [by_id[collection_id] for collection_id in collection_ids], None
+
+
+def _set_product_collections(db, product_id: ObjectId, selected_collections: list[dict]) -> None:
+    selected_ids = {collection["_id"] for collection in selected_collections}
+    current = list(db.collections.find({"productRefs.productId": product_id}))
+    current_ids = {collection["_id"] for collection in current}
+    for collection in current:
+        if collection["_id"] not in selected_ids:
+            remove_product_reference(db, collection, product_id)
+    for collection in selected_collections:
+        if collection["_id"] not in current_ids:
+            add_product_reference(db, collection, product_id)
 
 
 def _customer_scope(user: dict) -> dict:
@@ -263,7 +440,9 @@ def update_collection(slug: str):
             return jsonify({"error": "Enter a valid four-digit collection year."}), 400
         updates["year"] = year
     db.collections.update_one({"_id": collection["_id"]}, {"$set": updates})
-    return jsonify(_management_collection_payload(db, db.collections.find_one({"_id": collection["_id"]}))), 200
+    updated_collection = db.collections.find_one({"_id": collection["_id"]})
+    _queue_collection_event(db, updated_collection, "COLLECTION_DEACTIVATED" if updated_collection.get("status") == "archived" else "COLLECTION_UPDATED", current_user()["_id"])
+    return jsonify(_management_collection_payload(db, updated_collection)), 200
 
 
 @staff_bp.post("/collections/<slug>/products")
@@ -278,9 +457,11 @@ def assign_collection_product(slug: str):
     product_id = _valid_id(str((request.get_json(silent=True) or {}).get("productId") or ""))
     if not collection:
         return jsonify({"error": "Collection not found."}), 404
-    if not product_id or not db.products.find_one({"_id": product_id}):
+    product = db.products.find_one({"_id": product_id}) if product_id else None
+    if not product_id or not product:
         return jsonify({"error": "Product not found."}), 404
     add_product_reference(db, collection, product_id)
+    _queue_membership_event(db, product, collection, "ADD", actor_id=current_user()["_id"])
     sync_product_variants(db, product_id, force=True)
     return jsonify(_management_collection_payload(db, db.collections.find_one({"_id": collection["_id"]}))), 200
 
@@ -299,6 +480,8 @@ def unassign_collection_product(slug: str, product_id: str):
     if not object_id:
         return jsonify({"error": "Invalid product id."}), 400
     remove_product_reference(db, collection, object_id)
+    product = db.products.find_one({"_id": object_id})
+    if product: _queue_membership_event(db, product, collection, "REMOVE", actor_id=current_user()["_id"])
     return jsonify(_management_collection_payload(db, db.collections.find_one({"_id": collection["_id"]}))), 200
 
 
@@ -318,6 +501,8 @@ def reorder_collection_product(slug: str, product_id: str):
         return jsonify({"error": "A valid product and non-negative display order are required."}), 400
     if not update_product_order(db, collection, object_id, display_order):
         return jsonify({"error": "Product is not assigned to this collection."}), 404
+    product = db.products.find_one({"_id": object_id})
+    if product: _queue_membership_event(db, product, collection, "REORDER", display_order, current_user()["_id"])
     return jsonify(_management_collection_payload(db, db.collections.find_one({"_id": collection["_id"]}))), 200
 
 
@@ -389,6 +574,7 @@ def list_resources(resource: str):
     if resource in {"products", "inventory"} and documents:
         product_ids = [document["_id"] for document in documents]
         collection_names: dict[ObjectId, list[str]] = {product_id: [] for product_id in product_ids}
+        collection_ids: dict[ObjectId, list[str]] = {product_id: [] for product_id in product_ids}
         for collection in db.collections.find({"productRefs.productId": {"$in": product_ids}}, {"name": 1, "productRefs": 1}):
             name = str(collection.get("name") or "").strip()
             if not name:
@@ -396,10 +582,12 @@ def list_resources(resource: str):
             for reference in collection.get("productRefs") or []:
                 if isinstance(reference, dict) and reference.get("productId") in collection_names:
                     collection_names[reference["productId"]].append(name)
+                    collection_ids[reference["productId"]].append(str(collection["_id"]))
         viewed = []
         for document in documents:
             names = sorted(set(collection_names.get(document["_id"], [])), key=str.casefold)
             item = _document_view(document, resource)
+            item["collectionIds"] = collection_ids.get(document["_id"], [])
             item["collections"] = names
             item["collection"] = ", ".join(names)
             viewed.append(item)
@@ -420,6 +608,9 @@ def create_resource(resource: str):
     common = {"createdAt": now, "updatedAt": now, "createdBy": actor["_id"], "updatedBy": actor["_id"]}
 
     if resource == "products":
+        requested_collections, collection_error = _requested_product_collections(db, payload)
+        if collection_error:
+            return collection_error
         name = str(payload.get("name") or "").strip()
         sku = str(payload.get("sku") or "").strip().upper()
         price = _number(payload.get("price"))
@@ -453,10 +644,11 @@ def create_resource(resource: str):
             unallocated_stock = stock
         if db.products.find_one({"sku": sku}):
             return jsonify({"error": "That SKU already exists."}), 409
-        media = payload.get("media") if isinstance(payload.get("media"), list) else []
+        raw_media = payload.get("media") if isinstance(payload.get("media"), list) else []
+        catalog_media, media = _normalize_catalog_media(raw_media)
         attributes = payload.get("attributes") if isinstance(payload.get("attributes"), dict) else {}
         tax_inclusive = bool(payload.get("taxInclusive") or payload.get("mrpIncludesGst"))
-        document = {**common, "name": name, "styleCode": str(payload.get("styleCode") or "").strip().upper(), "style": str(payload.get("style") or "").strip(), "sku": sku, "price": price, "taxInclusive": tax_inclusive, "mrpIncludesGst": tax_inclusive, "stock": total_stock, "unallocatedStock": unallocated_stock, "sizeInventoryConfigured": size_enabled, "sizeSystemEnabled": size_enabled, "sizeInventory": size_inventory, "status": status, "availability": availability, "currency": "INR", "category": str(payload.get("category") or "").strip(), "description": str(payload.get("description") or "").strip(), "media": media[:12], "attributes": attributes, "isActive": status != "archived"}
+        document = {**common, "name": name, "styleCode": str(payload.get("styleCode") or "").strip().upper(), "style": str(payload.get("style") or "").strip(), "sku": sku, "price": price, "taxInclusive": tax_inclusive, "mrpIncludesGst": tax_inclusive, "stock": total_stock, "unallocatedStock": unallocated_stock, "sizeInventoryConfigured": size_enabled, "sizeSystemEnabled": size_enabled, "sizeInventory": size_inventory, "status": status, "availability": availability, "currency": "INR", "category": str(payload.get("category") or "").strip(), "description": str(payload.get("description") or "").strip(), "media": media[:12], "catalogMedia": catalog_media[:12], "attributes": attributes, "isActive": status != "archived"}
         if isinstance(payload.get("customSizeConfig"), dict):
             document["customSizeConfig"] = payload["customSizeConfig"]
         collection = db.products
@@ -516,8 +708,17 @@ def create_resource(resource: str):
     result = collection.insert_one(document)
     document["_id"] = result.inserted_id
     if resource == "products":
+        _set_product_collections(db, document["_id"], requested_collections)
         document = sync_product_variants(db, document) or document
-    return jsonify({"item": _document_view(document, "products" if resource == "products" else resource)}), 201
+        _queue_product_event(db, document, "PRODUCT_CREATED", actor["_id"])
+        _queue_media_delta(db, {}, document, actor["_id"])
+        for requested_collection in requested_collections:
+            _queue_membership_event(db, document, requested_collection, "ADD", actor_id=actor["_id"])
+    item = _document_view(document, "products" if resource == "products" else resource)
+    if resource == "products":
+        names = [str(collection.get("name") or "").strip() for collection in requested_collections]
+        item.update({"collectionIds": [str(collection["_id"]) for collection in requested_collections], "collections": names, "collection": ", ".join(names)})
+    return jsonify({"item": item}), 201
 
 
 @staff_bp.patch("/resources/<resource>/<resource_id>")
@@ -541,6 +742,13 @@ def update_resource(resource: str, resource_id: str):
     updates = {"updatedAt": now, "updatedBy": actor["_id"]}
 
     if resource == "products":
+        requested_collections = None
+        previous_collection_ids = set()
+        if "collectionIds" in payload or "collectionId" in payload:
+            requested_collections, collection_error = _requested_product_collections(db, payload)
+            if collection_error:
+                return collection_error
+            previous_collection_ids = {collection["_id"] for collection in db.collections.find({"productRefs.productId": object_id})}
         for key in ("name", "description"):
             if key in payload:
                 updates[key] = str(payload.get(key) or "").strip()
@@ -653,9 +861,11 @@ def update_resource(resource: str, resource_id: str):
             updates["category"] = str(payload.get("category") or "").strip()
         if "media" in payload:
             media = payload.get("media")
-            if not isinstance(media, list) or len(media) > 12 or any(not isinstance(item, str) or len(item) > 2048 for item in media):
-                return jsonify({"error": "Product media must contain up to 12 valid URLs."}), 400
-            updates["media"] = media
+            if not isinstance(media, list) or len(media) > 12 or any(not isinstance(item, (str, dict)) for item in media):
+                return jsonify({"error": "Product media must contain up to 12 valid URLs or media records."}), 400
+            catalog_media, legacy_media = _normalize_catalog_media(media)
+            updates["media"] = legacy_media[:12]
+            updates["catalogMedia"] = catalog_media[:12]
         if "attributes" in payload:
             if not isinstance(payload.get("attributes"), dict):
                 return jsonify({"error": "Product attributes must be an object."}), 400
@@ -743,8 +953,33 @@ def update_resource(resource: str, resource_id: str):
     collection.update_one(query, {"$set": updates})
     updated_document = collection.find_one({"_id": object_id}, {"passwordHash": 0})
     if resource == "products":
+        if requested_collections is not None:
+            _set_product_collections(db, object_id, requested_collections)
         updated_document = sync_product_variants(db, updated_document, force=any(key in updates for key in {"name", "sku", "attributes", "media", "price"})) or updated_document
-    return jsonify({"item": _document_view(updated_document, "products" if resource == "products" else resource)}), 200
+        _queue_product_event(db, updated_document, "PRODUCT_DEACTIVATED" if updated_document.get("status") == "archived" else "PRODUCT_UPDATED", actor["_id"])
+        if "category" in updates and updates.get("category"):
+            category_name = updates["category"]
+            category_slug = "-".join(category_name.casefold().split())
+            category_versions = dict((db.settings.find_one({"_id": "global"}) or {}).get("catalogVersions") or {})
+            category_version = int(category_versions.get("rk-web", 0)) + 1; category_versions["rk-web"] = category_version
+            db.settings.update_one({"_id": "global"}, {"$set": {"catalogVersions": category_versions}}, upsert=True)
+            enqueue_catalog_event(db, make_event("CATEGORY_UPDATED", "category", f"category:{category_slug}", category_version, {"name": category_name, "slug": category_slug, "active": True}, observed_versions=category_versions, identity={"origin_system": "rk-web", "origin_id": f"category:{category_slug}"}, actor_id=actor["_id"]))
+        if "media" in updates:
+            _queue_media_delta(db, current, updated_document, actor["_id"])
+        if requested_collections is not None:
+            selected_ids = {entry["_id"] for entry in requested_collections}
+            for entry in requested_collections:
+                if entry["_id"] not in previous_collection_ids:
+                    _queue_membership_event(db, updated_document, entry, "ADD", actor_id=actor["_id"])
+            for removed_id in previous_collection_ids - selected_ids:
+                removed = db.collections.find_one({"_id": removed_id})
+                if removed: _queue_membership_event(db, updated_document, removed, "REMOVE", actor_id=actor["_id"])
+    item = _document_view(updated_document, "products" if resource == "products" else resource)
+    if resource == "products":
+        assigned = list(db.collections.find({"productRefs.productId": object_id}, {"_id": 1, "name": 1}))
+        names = sorted({str(entry.get("name") or "").strip() for entry in assigned if str(entry.get("name") or "").strip()}, key=str.casefold)
+        item.update({"collectionIds": [str(entry["_id"]) for entry in assigned], "collections": names, "collection": ", ".join(names)})
+    return jsonify({"item": item}), 200
 
 
 @staff_bp.get("/products/<product_id>/variants/<path:variant_id>")
@@ -851,6 +1086,9 @@ def delete_product(product_id: str):
     product = db.products.find_one({"_id": object_id}, {"name": 1, "sku": 1, "seedKey": 1})
     if not product:
         return jsonify({"error": "Product not found."}), 404
+
+    full_product = db.products.find_one({"_id": object_id}) or product
+    _queue_product_event(db, full_product, "PRODUCT_DELETED", current_user()["_id"])
 
     db.catalog_deletions.update_one(
         {"_id": f"product:{object_id}"},

@@ -32,6 +32,8 @@ class MemoryCollection:
         key=document.get("_id") or ObjectId()
         self.documents[key]={**document,"_id":key}
         return key
+    def insert_one(self, document):
+        return type("InsertResult", (), {"inserted_id": self.insert(document)})()
 
 
 class Database:
@@ -138,6 +140,43 @@ class StockIntegrationTests(unittest.TestCase):
         self.assertEqual(len(self.database.collections.find({})[0]["productRefs"]),1)
         self.assertEqual(self.client.put(f"/api/integrations/stock/catalog/products/{product_id}",headers={"Authorization":"Bearer bootstrap-test-secret"},json=payload).status_code,200)
         self.assertEqual(len(self.database.products.find_one({"_id":product_id})["media"]),2)
+
+    def test_source_identity_provisioning_is_idempotent_and_keeps_code_sku_media_separate(self):
+        with self.app.app_context():
+            self.app.config["STOCK_INTEGRATION_CATALOG_WRITE_ENABLED"] = True
+        self.provision()
+        collection = self.client.post("/api/integrations/stock/catalog/collections/provision", headers={"Authorization": "Bearer bootstrap-test-secret"}, json={"rk_stock_collection_id": "stock-hastakala-1", "name": "Hastakala", "slug": "hastakala", "code": "HASTAKALA"})
+        self.assertEqual(collection.status_code, 201)
+        collection_id = collection.json["collection"]["id"]
+        repeat = self.client.post("/api/integrations/stock/catalog/collections/provision", headers={"Authorization": "Bearer bootstrap-test-secret"}, json={"rk_stock_collection_id": "stock-hastakala-1", "name": "Hastakala Updated", "slug": "hastakala", "code": "HASTAKALA"})
+        self.assertEqual(repeat.status_code, 200)
+        media = [{"provider": "zoho_workdrive", "type": "image", "permalink": "https://workdrive.zoho.in/file/ck150-one", "source": "rk-stock", "source_id": "media-one", "position": 0, "is_primary": True, "description": "Front", "alt_text": "CK150 front"}]
+        payload = {"rk_stock_product_id": "stock-ck150", "product_code": "CK150", "sku": "HK-CK150-A", "name": "CK150", "description": "Source description", "price": 262884, "currency": "INR", "tax_inclusive": True, "collection_ids": [collection_id], "media": media}
+        product = self.client.post("/api/integrations/stock/catalog/products/provision", headers={"Authorization": "Bearer bootstrap-test-secret"}, json=payload)
+        self.assertEqual(product.status_code, 201)
+        repeat_product = self.client.post("/api/integrations/stock/catalog/products/provision", headers={"Authorization": "Bearer bootstrap-test-secret"}, json=payload)
+        self.assertEqual(repeat_product.status_code, 200)
+        self.assertEqual(len(self.database.products.documents), 1)
+        stored = next(iter(self.database.products.documents.values()))
+        self.assertEqual(stored["product_code"], "CK150")
+        self.assertEqual(stored["sku"], "HK-CK150-A")
+        self.assertEqual(stored["rkStockMedia"][0]["permalink"], media[0]["permalink"])
+
+    def test_catalog_write_accepts_structured_workdrive_media_and_preserves_metadata(self):
+        with self.app.app_context():
+            self.app.config["STOCK_INTEGRATION_CATALOG_WRITE_ENABLED"] = True
+        product_id = self.database.products.insert({"sku": "CK150", "name": "Hastakala piece", "media": []})
+        collection_id = self.database.collections.insert({"name": "Hastakala", "slug": "hastakala", "productRefs": [], "lookbook": {"provider": "zoho_workdrive", "type": "embed", "embed_url": "https://workdrive.zohoexternal.in/embed/example", "title": "Hastakala"}})
+        self.provision()
+        media = [{"provider": "zoho_workdrive", "type": "image", "permalink": "https://workdrive.zoho.in/file/example-one", "source": "rk-stock", "source_id": "one", "position": 1}, {"provider": "zoho_workdrive", "type": "image", "permalink": "https://workdrive.zoho.in/file/example-primary", "source": "rk-stock", "source_id": "primary", "position": 0, "is_primary": True}]
+        response = self.client.put(f"/api/integrations/stock/catalog/products/{product_id}", headers={"Authorization": "Bearer bootstrap-test-secret"}, json={"rk_web_product_id": str(product_id), "sku": "CK150", "name": "Hastakala piece", "price": 262884, "currency": "INR", "source_system": "rk-stock", "source_id": "stock-ck150", "media": media, "collection_ids": [str(collection_id)]})
+        self.assertEqual(response.status_code, 200)
+        stored = self.database.products.find_one({"_id": product_id})
+        self.assertEqual(len(stored["rkStockMedia"]), 2)
+        self.assertEqual(stored["rkStockMedia"][0]["provider"], "zoho_workdrive")
+        self.assertEqual(stored["media"][0], "https://workdrive.zoho.in/file/example-primary")
+        collections = self.client.get("/api/integrations/stock/catalog/collections", headers={"Authorization": "Bearer bootstrap-test-secret"}).json["items"]
+        self.assertEqual(collections[0]["lookbook"]["provider"], "zoho_workdrive")
 
     def test_catalog_write_rejects_untrusted_media_and_invalid_collections_before_mutation(self):
         with self.app.app_context():

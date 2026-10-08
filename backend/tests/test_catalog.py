@@ -3,11 +3,44 @@ from datetime import datetime, timezone
 
 from bson import ObjectId
 
-from app.catalog import AAKAAR_COLLECTION_SEED, AAKAAR_PRODUCT_SEEDS, ANAMIKA_PRODUCT_SEEDS, HASTAKALA_PRODUCT_SEEDS, NORMAL_COLLECTIONS, PRODUCT_SEEDS, _product_seed_document, collection_hero, is_excluded_collection, is_runway_collection, product_view
+from app.catalog import AAKAAR_COLLECTION_SEED, AAKAAR_PRODUCT_SEEDS, ANAMIKA_PRODUCT_SEEDS, HASTAKALA_PRODUCT_SEEDS, NORMAL_COLLECTIONS, PRODUCT_SEEDS, _ensure_compatible_index, _product_seed_document, collection_hero, collection_view, is_excluded_collection, is_runway_collection, product_view
 from app.inventory import DEFAULT_CUSTOM_SIZE_FIELDS, STANDARD_SIZES, custom_size_fields, validate_custom_size
 
 
 class CatalogTests(unittest.TestCase):
+    def test_equivalent_named_index_is_reused_without_recreation(self):
+        class ExistingIndexCollection:
+            def __init__(self):
+                self.created = []
+
+            def index_information(self):
+                return {"_id_": {"key": [("_id", 1)]}, "legacy_slug_lookup": {"key": [("slug", 1)]}}
+
+            def create_index(self, keys, **options):
+                self.created.append((keys, options))
+                return options.get("name")
+
+        collection = ExistingIndexCollection()
+        name = _ensure_compatible_index(collection, "slug", "catalog_collection_slug")
+        self.assertEqual(name, "legacy_slug_lookup")
+        self.assertEqual(collection.created, [])
+
+    def test_collection_uses_current_product_media_and_reference_order(self):
+        first_id, second_id = ObjectId(), ObjectId()
+        products = [
+            {"_id": first_id, "name": "First", "sku": "ONE", "status": "active", "isActive": True, "availability": "in_stock", "media": ["https://example.com/current-one.jpg"]},
+            {"_id": second_id, "name": "Second", "sku": "TWO", "status": "active", "isActive": True, "availability": "in_stock", "media": ["https://example.com/current-two.jpg"]},
+        ]
+
+        class Products:
+            def find(self, *_args, **_kwargs):
+                return products
+
+        collection = {"_id": ObjectId(), "name": "Aakaar", "slug": "aakaar", "productRefs": [{"productId": first_id, "displayOrder": 20}, {"productId": second_id, "displayOrder": 10}]}
+        payload = collection_view(type("DB", (), {"products": Products()})(), collection)
+        self.assertEqual([product["name"] for product in payload["products"]], ["Second", "First"])
+        self.assertEqual(payload["products"][0]["media"], ["https://example.com/current-two.jpg"])
+
     def test_normal_collection_seed_order_matches_the_storefront_sequence(self):
         self.assertEqual([collection["name"] for collection in NORMAL_COLLECTIONS], ["Hastakala", "Inaara", "Anamika", "Naqab", "Sandook"])
         anamika = next(collection for collection in NORMAL_COLLECTIONS if collection["name"] == "Anamika")

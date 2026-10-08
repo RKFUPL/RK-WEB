@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import secrets
 import re
+from uuid import uuid4
 from bcrypt import gensalt, hashpw
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
@@ -12,6 +13,7 @@ from flask import Blueprint, current_app, jsonify, request
 from ...rbac import database
 from ...time_utils import json_value
 from ...credential_sync import consume_handoff, retry_pending, verify_handoff
+from ...catalog_sync_v1 import CatalogEventError, apply_incoming, manifest as catalog_manifest, queue_repair_events, classify_manifest_difference
 
 
 integrations_bp = Blueprint("integrations", __name__)
@@ -192,10 +194,153 @@ def _catalog_write_required():
     return connection
 
 
+def _catalog_event_required():
+    connection = _connection_for_token()
+    if not connection or not {"catalog:events:write", "catalog:write"}.intersection(connection.get("scopes", [])):
+        return None
+    return connection
+
+
+@integrations_bp.post("/internal/catalog/events")
+def inbound_catalog_event():
+    if not _catalog_event_required():
+        return jsonify({"error": "Catalog event scope is not authorized."}), 403 if _connection_for_token() else 401
+    try:
+        acknowledgement, status_code = apply_incoming(database(), request.get_json(silent=True) or {})
+    except CatalogEventError as error:
+        return jsonify({"schema_version": "catalog.sync.v1", "status": "INVALID", "message": str(error)}), 400
+    except Exception:
+        current_app.logger.exception("Unable to apply inbound catalog event")
+        return jsonify({"schema_version": "catalog.sync.v1", "status": "REJECTED", "message": "Catalog event could not be applied."}), 503
+    return jsonify(acknowledgement), status_code
+
+
+@integrations_bp.get("/internal/catalog/manifest")
+def internal_catalog_manifest():
+    if not _catalog_event_required():
+        return jsonify({"error": "Catalog event scope is not authorized."}), 403 if _connection_for_token() else 401
+    return jsonify(catalog_manifest(database()))
+
+
+@integrations_bp.post("/internal/catalog/reconcile")
+def start_internal_catalog_reconcile():
+    if not _catalog_event_required():
+        return jsonify({"error": "Catalog event scope is not authorized."}), 403 if _connection_for_token() else 401
+    run_id = str(uuid4())
+    timestamp = datetime.now(timezone.utc); db = database(); local = catalog_manifest(db)
+    remote_items = (request.get_json(silent=True) or {}).get("items") or []
+    local_keys = {(item["entity_type"], item["entity_identity"]["origin_system"], str(item["entity_identity"]["origin_id"])) for item in local["items"]}
+    remote_keys = {(item.get("entity_type"), (item.get("entity_identity") or {}).get("origin_system"), str((item.get("entity_identity") or {}).get("origin_id") or "")) for item in remote_items if isinstance(item, dict)}
+    local_by_key = {(item["entity_type"], item["entity_identity"]["origin_system"], str(item["entity_identity"]["origin_id"])): item for item in local["items"]}
+    remote_by_key = {(item.get("entity_type"), (item.get("entity_identity") or {}).get("origin_system"), str((item.get("entity_identity") or {}).get("origin_id") or "")): item for item in remote_items if isinstance(item, dict)}
+    classes = [classify_manifest_difference(local_by_key.get(key), remote_by_key.get(key)) for key in set(local_by_key) | set(remote_by_key)]
+    result = {"local_count": len(local_keys), "remote_count": len(remote_keys), "missing_locally": len(remote_keys - local_keys), "missing_remotely": len(local_keys - remote_keys), "identical": classes.count("IDENTICAL"), "conflicts": classes.count("CONCURRENT_CONFLICT"), "unsafe": classes.count("UNSAFE_TO_REPAIR"), "skipped": classes.count("REMOTE_NEWER")}
+    repair_events = queue_repair_events(db, remote_items)
+    result["repair_events_queued"] = len(repair_events)
+    result["repaired"] = len(repair_events)
+    result["pending"] = db.catalog_sync_outbox.count_documents({"status": "pending", "causation_id": "reconciliation"})
+    result["conflicts"] = db.catalog_sync_conflicts.count_documents({"status": "unresolved"})
+    result["skipped_idempotent"] = max(0, result["missing_remotely"] - len(repair_events))
+    db.catalog_reconciliation_runs.insert_one({"run_id": run_id, "status": "completed", "requested_by": "rk-stock", "result": result, "created_at": timestamp, "updated_at": timestamp})
+    return jsonify({"schema_version": "catalog.sync.v1", "run_id": run_id, "status": "completed", "result": result}), 200
+
+
+@integrations_bp.get("/internal/catalog/reconcile/<run_id>")
+def internal_catalog_reconcile_status(run_id):
+    if not _catalog_event_required():
+        return jsonify({"error": "Catalog event scope is not authorized."}), 403 if _connection_for_token() else 401
+    run = database().catalog_reconciliation_runs.find_one({"run_id": run_id}, {"_id": 0})
+    return (jsonify(json_value(run)), 200) if run else (jsonify({"error": "Reconciliation run not found."}), 404)
+
+
+def _source_identity(payload):
+    source_system = str(payload.get("source_system") or "rk-stock").strip()
+    source_id = str(payload.get("source_id") or payload.get("rk_stock_product_id") or payload.get("rk_stock_collection_id") or "").strip()
+    if source_system != "rk-stock" or not source_id or len(source_id) > 200:
+        return None, None
+    return source_system, source_id
+
+
+@integrations_bp.post("/stock/catalog/collections/provision")
+def provision_stock_collection():
+    if not _catalog_write_required():
+        return jsonify({"error": "Catalog write scope is not authorized."}), 403 if _connection_for_token() else 401
+    payload = request.get_json(silent=True) or {}
+    source_system, source_id = _source_identity(payload)
+    name = str(payload.get("name") or "").strip()
+    slug = str(payload.get("slug") or "").strip().lower()
+    if not source_id or not name or not slug or len(name) > 200 or len(slug) > 160:
+        return jsonify({"error": "source identity, name, and slug are required."}), 400
+    db = database()
+    existing = db.collections.find_one({"source_system": source_system, "source_id": source_id})
+    if not existing:
+        existing = db.collections.find_one({"slug": slug})
+        if existing and existing.get("source_system") not in {None, source_system}:
+            return jsonify({"error": "Collection slug belongs to an unrelated collection."}), 409
+    now = datetime.now(timezone.utc)
+    values = {"source_system": source_system, "source_id": source_id, "name": name, "slug": slug, "code": str(payload.get("code") or "").strip(), "description": str(payload.get("description") or "").strip(), "status": str(payload.get("status") or "active"), "isActive": payload.get("active", True) is not False, "updatedAt": now}
+    if existing:
+        db.collections.update_one({"_id": existing["_id"]}, {"$set": values})
+        collection = db.collections.find_one({"_id": existing["_id"]}) or {**existing, **values}
+        created = False
+    else:
+        values.update({"productRefs": [], "createdAt": now})
+        result = db.collections.insert_one(values)
+        collection = db.collections.find_one({"_id": result.inserted_id}) or {**values, "_id": result.inserted_id}
+        created = True
+    return jsonify({"status": "created" if created else "updated", "collection": {"id": str(collection["_id"]), "source_system": source_system, "source_id": source_id}}), 200 if not created else 201
+
+
+@integrations_bp.post("/stock/catalog/products/provision")
+def provision_stock_product():
+    if not _catalog_write_required():
+        return jsonify({"error": "Catalog write scope is not authorized."}), 403 if _connection_for_token() else 401
+    payload = request.get_json(silent=True) or {}
+    source_system, source_id = _source_identity(payload)
+    required_text = ("product_code", "sku", "name")
+    if not source_id or any(not isinstance(payload.get(key), str) or not payload[key].strip() for key in required_text):
+        return jsonify({"error": "source identity, product_code, sku, and name are required."}), 400
+    if "price" in payload and (isinstance(payload["price"], bool) or not isinstance(payload["price"], (int, float)) or payload["price"] < 0):
+        return jsonify({"error": "price must be a non-negative number."}), 400
+    incoming_media, media_error = _validated_stock_media(payload)
+    if media_error:
+        return jsonify({"error": media_error}), 400
+    db = database()
+    product = db.products.find_one({"source_system": source_system, "source_id": source_id})
+    collection_ids = payload.get("collection_ids") or []
+    if not isinstance(collection_ids, list) or any(not isinstance(value, str) or not ObjectId.is_valid(value) for value in collection_ids):
+        return jsonify({"error": "collection_ids must contain RK-WEB collection IDs."}), 400
+    if any(not db.collections.find_one({"_id": ObjectId(value)}) for value in collection_ids):
+        return jsonify({"error": "One or more RK-WEB collections do not exist."}), 400
+    now = datetime.now(timezone.utc)
+    current_media = product.get("media") if product and isinstance(product.get("media"), list) else []
+    existing_owned = product.get("rkStockMedia") if product and isinstance(product.get("rkStockMedia"), list) else []
+    owned_urls = {str(item.get("url") or item.get("permalink")) for item in existing_owned if isinstance(item, dict)}
+    preserved = [item for item in current_media if isinstance(item, str) and item not in owned_urls]
+    combined = preserved + [item["url"] for item in incoming_media]
+    values = {"source_system": source_system, "source_id": source_id, "product_code": payload["product_code"].strip(), "sku": payload["sku"].strip(), "name": payload["name"].strip(), "description": str(payload.get("description") or ""), "price": payload.get("price"), "currency": str(payload.get("currency") or "INR"), "taxInclusive": payload.get("tax_inclusive") is True, "isActive": payload.get("active", True) is not False, "status": str(payload.get("status") or "active"), "media": combined, "rkStockMedia": incoming_media, "updatedAt": now}
+    if product:
+        db.products.update_one({"_id": product["_id"]}, {"$set": values})
+        product_id = product["_id"]
+        created = False
+    else:
+        values["createdAt"] = now
+        result = db.products.insert_one(values)
+        product_id = result.inserted_id
+        created = True
+    for collection in db.collections.find({}):
+        refs = [ref for ref in collection.get("productRefs") or [] if not isinstance(ref, dict) or str(ref.get("productId")) != str(product_id)]
+        if str(collection.get("_id")) in collection_ids:
+            refs.append({"productId": str(product_id), "source": "rk-stock"})
+        if refs != list(collection.get("productRefs") or []):
+            db.collections.update_one({"_id": collection["_id"]}, {"$set": {"productRefs": refs, "updatedAt": now}})
+    return jsonify({"status": "created" if created else "updated", "product": {"id": str(product_id), "source_system": source_system, "source_id": source_id, "product_code": values["product_code"], "sku": values["sku"]}}), 200 if not created else 201
+
+
 def _configured_scopes():
     scopes = ["connection:status"]
     if current_app.config.get("STOCK_INTEGRATION_CATALOG_WRITE_ENABLED"):
-        scopes.append("catalog:write")
+        scopes.extend(["catalog:write", "catalog:events:write", "catalog:snapshot:read", "catalog:reconcile"])
     return scopes
 
 
@@ -220,13 +365,22 @@ def _validated_stock_media(payload):
     for index, item in enumerate(media):
         if not isinstance(item, dict) or item.get("source") != "rk-stock":
             return None, "Remotely managed media must have source rk-stock."
-        url = str(item.get("secure_url") or item.get("url") or "").strip()
+        provider = str(item.get("provider") or "cloudinary").strip().lower()
+        media_type = str(item.get("type") or "image").strip().lower()
+        url = str(item.get("permalink") or item.get("secure_url") or item.get("url") or "").strip()
         parsed = urlsplit(url)
-        if parsed.scheme != "https" or parsed.hostname != approved_host or parsed.username or parsed.password or parsed.fragment:
-            return None, "Media URLs must use the approved HTTPS Cloudinary host."
-        public_id = str(item.get("public_id") or "").strip()
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,254}", public_id) or ".." in public_id:
-            return None, "Every rk-stock media item requires a valid public_id."
+        if parsed.scheme != "https" or parsed.username or parsed.password or parsed.fragment:
+            return None, "Media URLs must use an approved HTTPS URL."
+        if provider == "zoho_workdrive":
+            if not parsed.netloc or media_type != "image":
+                return None, "WorkDrive media requires a valid image permalink."
+            public_id = str(item.get("source_id") or item.get("id") or url).strip()
+        else:
+            if parsed.hostname != approved_host:
+                return None, "Cloudinary media must use the approved HTTPS host."
+            public_id = str(item.get("public_id") or "").strip()
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,254}", public_id) or ".." in public_id:
+                return None, "Every rk-stock Cloudinary item requires a valid public_id."
         position = item.get("position", index)
         if isinstance(position, bool) or not isinstance(position, int) or position < 0:
             return None, "Media position must be a non-negative integer."
@@ -237,7 +391,8 @@ def _validated_stock_media(payload):
             return None, "Duplicate media references are not allowed."
         normalized[public_id] = {
             "url": url, "secure_url": url, "public_id": public_id,
-            "source": "rk-stock", "position": position,
+            "permalink": url, "provider": provider, "type": media_type,
+            "source": "rk-stock", "source_id": str(item.get("source_id") or item.get("id") or public_id), "position": position,
             "is_primary": item.get("is_primary") is True,
             "is_main": item.get("is_primary") is True,
             "description": description.strip(),
@@ -264,8 +419,9 @@ def _product_catalog_view(product, collection_map):
     variants = [_variant_catalog_view(item) for item in product.get("variants") or [] if isinstance(item, dict)]
     sizes = sorted({size for variant in variants for size in variant.get("sizes") or []})
     colours = [variant.get("colour") for variant in variants if variant.get("colour")]
+    stock_media = [item for item in product.get("rkStockMedia") or [] if isinstance(item, dict)]
     image_urls = [item for item in product.get("media") or [] if isinstance(item, str) and item.strip()]
-    media = [{"url": url, "position": position, "is_primary": position == 0, "source": "rk-web"} for position, url in enumerate(image_urls)]
+    media = stock_media or [{"url": url, "position": position, "is_primary": position == 0, "source": "rk-web"} for position, url in enumerate(image_urls)]
     return json_value({
         "id": product["_id"],
         "sku": product.get("sku"),
@@ -281,6 +437,8 @@ def _product_catalog_view(product, collection_map):
         "active": product.get("isActive") is not False and product.get("status") != "archived",
         "images": image_urls,
         "media": media,
+        "source_system": product.get("source_system") or ("rk-stock" if stock_media else "rk-web"),
+        "source_id": product.get("source_id") or product.get("rkStockProductId"),
         "primary_image": image_urls[0] if image_urls else None,
         "sizes": sizes,
         "colours": colours,
@@ -302,6 +460,9 @@ def _collection_catalog_view(collection):
     }
     if collection.get("code"):
         result["code"] = collection["code"]
+    if isinstance(collection.get("lookbook"), dict):
+        lookbook = collection["lookbook"]
+        result["lookbook"] = {key: lookbook[key] for key in ("provider", "type", "embed_url", "permalink", "title") if isinstance(lookbook.get(key), str) and lookbook[key].strip()}
     return json_value(result)
 
 
@@ -377,6 +538,30 @@ def stock_catalog_categories():
     return jsonify({"items": items, "count": len(items)}), 200
 
 
+@integrations_bp.post("/stock/catalog/categories/provision")
+def provision_stock_category():
+    if not _catalog_write_required():
+        return jsonify({"error": "Catalog write scope is not authorized."}), 403 if _connection_for_token() else 401
+    payload = request.get_json(silent=True) or {}
+    source_system, source_id = _source_identity(payload)
+    name = str(payload.get("name") or "").strip()
+    slug = str(payload.get("slug") or "").strip().lower()
+    if not source_id or not name or not slug or len(name) > 200 or len(slug) > 160:
+        return jsonify({"error": "source identity, name, and slug are required."}), 400
+    db = database()
+    setting = db.settings.find_one({"_id": "global"}) or {}
+    names = list(setting.get("categories") or [])
+    metadata = [item for item in list(setting.get("catalog_source_categories") or []) if item.get("source_id") != source_id]
+    existing = next((value for value in names if str(value).casefold() == name.casefold()), None)
+    if existing is None:
+        names.append(name)
+    elif existing != name:
+        names[names.index(existing)] = name
+    metadata.append({"id": f"category:{slug}", "name": name, "slug": slug, "source_system": source_system, "source_id": source_id, "active": payload.get("active", True) is not False})
+    db.settings.update_one({"_id": "global"}, {"$set": {"categories": names, "catalog_source_categories": metadata, "updated_at": datetime.now(timezone.utc)}}, upsert=True)
+    return jsonify({"status": "updated", "category": {"source_system": source_system, "source_id": source_id, "name": name, "slug": slug}}), 200
+
+
 @integrations_bp.get("/stock/catalog/collections")
 def stock_catalog_collections():
     if not _service_required():
@@ -397,7 +582,7 @@ def stock_catalog_product_write(product_id):
     if not product:
         return jsonify({"error": "Product not found."}), 404
     updates = {}
-    for key, maximum, required in (("sku", 100, True), ("name", 200, True), ("product_code", 100, False), ("colour", 100, False), ("category", 100, False), ("description", 5000, False), ("currency", 3, False)):
+    for key, maximum, required in (("sku", 100, True), ("name", 200, True), ("product_code", 100, False), ("colour", 100, False), ("category", 100, False), ("description", 5000, False), ("currency", 3, False), ("source_system", 40, False), ("source_id", 200, False)):
         value, error = _text(payload, key, maximum, required=required)
         if error:
             return jsonify({"error": error}), 400

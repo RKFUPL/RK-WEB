@@ -43,20 +43,32 @@ def ensure_catalog_indexes(db) -> None:
     with _catalog_indexes_lock:
         if database_key in _catalog_indexed_database_keys:
             return
-        try:
-            db.collections.create_index("slug", name="catalog_collection_slug")
-            db.collections.create_index("productRefs.productId", name="catalog_collection_product_ref")
-            db.products.create_index([("status", 1), ("isActive", 1)], name="catalog_product_visibility")
-            db.products.create_index("slug", name="catalog_product_slug")
-            db.products.create_index("seedKey", name="catalog_product_seed_key")
-            db.products.create_index("sku", name="catalog_product_sku")
-            db.catalog_deletions.create_index("seedKey", name="catalog_deletion_seed_key")
-            db.catalog_deletions.create_index("sku", name="catalog_deletion_sku")
-        except OperationFailure:
-            # Existing deployments may already have equivalent indexes under
-            # another name; queries remain correct if index creation is denied.
-            pass
+        _ensure_compatible_index(db.collections, "slug", "catalog_collection_slug")
+        _ensure_compatible_index(db.collections, "productRefs.productId", "catalog_collection_product_ref")
+        _ensure_compatible_index(db.products, [("status", 1), ("isActive", 1)], "catalog_product_visibility")
+        _ensure_compatible_index(db.products, "slug", "catalog_product_slug")
+        _ensure_compatible_index(db.products, "seedKey", "catalog_product_seed_key")
+        _ensure_compatible_index(db.products, "sku", "catalog_product_sku")
+        _ensure_compatible_index(db.catalog_deletions, "seedKey", "catalog_deletion_seed_key")
+        _ensure_compatible_index(db.catalog_deletions, "sku", "catalog_deletion_sku")
         _catalog_indexed_database_keys.add(database_key)
+
+
+def _index_keys(keys) -> list[tuple[str, int]]:
+    if isinstance(keys, str):
+        return [(keys, 1)]
+    return [(str(key), int(direction)) for key, direction in keys]
+
+
+def _ensure_compatible_index(collection, keys, name: str, **options) -> str:
+    """Reuse an equivalent index even when an older deployment named it differently."""
+    expected_keys = _index_keys(keys)
+    for existing_name, metadata in collection.index_information().items():
+        if _index_keys(metadata.get("key") or []) != expected_keys:
+            continue
+        if all(bool(metadata.get(option)) == bool(value) for option, value in options.items() if option in {"unique", "sparse"}):
+            return existing_name
+    return collection.create_index(keys, name=name, **options)
 
 STOREFRONT_COLLECTION_PROJECTION = {
     "_id": 1,
@@ -774,8 +786,7 @@ def collection_hero(collection: dict) -> dict:
 def ensure_catalog_seed(db) -> None:
     """Idempotently create normal collections, fixtures, and real seed products."""
     now = datetime.now(timezone.utc)
-    db.collections.create_index("slug")
-    db.products.create_index("sku")
+    ensure_catalog_indexes(db)
     try:
         db.products.create_index("variants.sku", unique=True, sparse=True)
     except OperationFailure:

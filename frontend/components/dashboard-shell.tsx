@@ -19,6 +19,7 @@ function dashboardGroups(role: Role, permissions: StaffPermission[] = []) {
     { label: 'Relationship', items: [role === 'admin' && allowed('customers:manage') ? { href: `${base}/customers`, label: 'Customers', icon: Users } : null].filter(Boolean) as Array<{ href: string; label: string; icon: typeof Users }> },
   ];
   if (role === 'staff') return shared.filter((group) => group.items.length);
+  shared[1].items.push({ href: '/admin/products', label: 'Products', icon: Package });
   shared[1].items.push({ href: '/admin/collections', label: 'Collections', icon: FolderKanban });
   shared[2].items.push({ href: '/admin/marketing', label: 'Marketing', icon: Megaphone });
   return [...shared, { label: 'Workspace', items: [{ href: '/admin/lookbooks', label: 'Lookbooks', icon: BookOpen }, { href: '/admin/integrations/email', label: 'Email / Zoho Mail', icon: Mail }, { href: stockAppUrl, label: 'Stock Page', icon: Package, external: true }, { href: '/admin/users', label: 'Staff & access', icon: Users }, { href: '/admin/reports', label: 'Reports & analytics', icon: BarChart3 }, { href: '/admin/settings', label: 'Settings', icon: Settings }] }];

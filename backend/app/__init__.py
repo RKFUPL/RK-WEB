@@ -46,6 +46,7 @@ from .blueprints.integrations.routes import integrations_bp
 from .config import get_config
 from .extensions import cors, jwt, limiter, mail, mongo
 from .credential_sync import ensure_indexes as ensure_credential_sync_indexes
+from .catalog_sync_v1 import ensure_indexes as ensure_catalog_sync_indexes
 
 
 def create_app() -> Flask:
@@ -102,6 +103,7 @@ def create_app() -> Flask:
             ensure_catalog_seed_once(mongo.db)
             ensure_dashboard_indexes(mongo.db)
             ensure_credential_sync_indexes(mongo.db)
+            ensure_catalog_sync_indexes(mongo.db)
     except Exception:
         app.logger.exception("Unable to initialize catalog indexes during startup")
 
