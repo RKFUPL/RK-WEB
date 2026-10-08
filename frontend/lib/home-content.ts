@@ -217,7 +217,7 @@ export const searchItems = [
 export const categoryItems: readonly CategoryItem[] = collectionGalleryPages.map((collection) => ({
   title: collection.name,
   image: collection.image,
-  href: lookbookUrls[collection.name as keyof typeof lookbookUrls] ?? collection.route,
+  href: collection.route,
   comingSoon: collection.comingSoon,
 }));
 

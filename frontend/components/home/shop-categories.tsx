@@ -2,11 +2,21 @@
 
 import { useEffect, useState } from 'react';
 import { categoryItems } from '@/lib/home-content';
+import { fetchCatalogCollections } from '@/lib/catalog-client';
 import { CategoryCard } from './category-card';
 
 export function ShopCategories() {
-  const [lookbookUrls, setLookbookUrls] = useState<Record<string, string>>({});
-  useEffect(() => { fetch('/api/lookbooks', { cache: 'no-store' }).then((response) => response.ok ? response.json() : null).then((payload) => { if (payload?.lookbooks) setLookbookUrls(payload.lookbooks); }).catch(() => undefined); }, []);
+  const [collectionRoutes, setCollectionRoutes] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let active = true;
+    void fetchCatalogCollections()
+      .then((collections) => {
+        if (!active) return;
+        setCollectionRoutes(Object.fromEntries(collections.map((collection) => [collection.name.toLowerCase(), `/collections/${collection.slug}`])));
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
   return (
     <section id="shop" className="shop-categories-section bg-ivory">
       <img
@@ -45,7 +55,7 @@ export function ShopCategories() {
 
           <div className="collection-editorial-grid grid w-full max-w-[44rem] grid-cols-2 gap-4 sm:grid-cols-3 lg:justify-self-end">
             {categoryItems.map((item, index) => (
-              <CategoryCard key={item.title} title={item.title} image={item.image} href={lookbookUrls[item.title] || item.href} index={index} comingSoon={item.comingSoon} />
+              <CategoryCard key={item.title} title={item.title} image={item.image} href={collectionRoutes[item.title.toLowerCase()] || item.href} index={index} comingSoon={item.comingSoon} />
             ))}
           </div>
         </div>

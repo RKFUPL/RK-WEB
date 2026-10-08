@@ -1,20 +1,24 @@
 import Link from 'next/link';
 import { Footer } from '@/components/home/footer';
 import { StickyHeader } from '@/components/home/sticky-header';
+import { featuredCollection } from '@/lib/home-content';
 
 export type LegalSection = { title: string; body: string };
 
-export function LegalPage({ eyebrow, title, intro, updated = '[LAST UPDATED DATE]', sections }: { eyebrow: string; title: string; intro: string; updated?: string; sections: LegalSection[] }) {
+export function LegalPage({ eyebrow, title, intro, updated = '08 October 2026', sections }: { eyebrow: string; title: string; intro: string; updated?: string; sections: LegalSection[] }) {
   return (
     <main className="bg-ivory text-charcoal">
       <StickyHeader />
-      <section className="border-b border-black/10 px-6 pb-16 pt-32 dark:border-white/10 md:px-10 md:pb-24 md:pt-44">
-        <div className="mx-auto max-w-7xl">
-          <p className="text-[0.65rem] uppercase tracking-[0.4em] text-gold">{eyebrow}</p>
-          <h1 className="mt-7 max-w-4xl font-display text-[clamp(3.4rem,8vw,8rem)] leading-[0.84] tracking-[-0.055em]">{title}</h1>
-          <p className="mt-8 max-w-2xl text-base leading-8 text-charcoal/65 md:text-lg">{intro}</p>
-          <p className="mt-8 text-[0.65rem] uppercase tracking-[0.3em] text-charcoal/45">Last updated: {updated}</p>
-          <div className="mt-10 h-px bg-gold/45" />
+      <section className="relative isolate overflow-hidden bg-[#24150e] text-white">
+        <img src={featuredCollection.image} alt="" aria-hidden="true" className="absolute inset-0 -z-20 h-full w-full object-cover object-center" />
+        <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(25,13,8,.9)_0%,rgba(25,13,8,.68)_42%,rgba(25,13,8,.2)_100%)]" />
+        <div className="mx-auto flex min-h-[24rem] max-w-7xl items-end px-6 pb-14 pt-24 md:min-h-[27rem] md:px-10 md:pb-16 md:pt-32">
+          <div className="max-w-3xl">
+            <p className="text-[0.65rem] uppercase tracking-[0.4em] text-gold">{eyebrow}</p>
+            <h1 className="mt-7 max-w-4xl font-display text-[clamp(3.4rem,8vw,8rem)] leading-[0.84] tracking-[-0.055em]">{title}</h1>
+            <p className="mt-8 max-w-2xl text-base leading-8 text-white/82 md:text-lg">{intro}</p>
+            <p className="mt-8 text-[0.65rem] uppercase tracking-[0.3em] text-white/72">Last updated: {updated}</p>
+          </div>
         </div>
       </section>
       <div className="mx-auto grid max-w-7xl gap-12 px-6 py-16 md:grid-cols-[15rem_1fr] md:px-10 md:py-24">

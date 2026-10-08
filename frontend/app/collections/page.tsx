@@ -9,11 +9,10 @@ import { ExclusiveRunway } from '@/components/home/exclusive-runway';
 import { StickyHeader } from '@/components/home/sticky-header';
 import { SectionShell } from '@/components/home/section-shell';
 import type { ManagedCollection } from '@/lib/catalog';
+import { fetchCatalogCollections } from '@/lib/catalog-client';
 import { collectionGalleryPages } from '@/lib/home-content';
-import { apiBaseUrl } from '@/lib/rbac';
 import { cloudinaryImageUrl } from '@/lib/utils';
 
-type CollectionIndexResponse = { collections: ManagedCollection[]; count: number };
 type CollectionCard = ManagedCollection & { image: string; summary?: string; fontFamily?: string };
 
 function editorialFor(collection: ManagedCollection) {
@@ -27,7 +26,7 @@ function CollectionCampaignCard({ collection }: { collection: CollectionCard }) 
   return <Link href={`/collections/${collection.slug}`} className="collections-gallery-card group block">
     <motion.article initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, amount: 0.12 }} transition={{ duration: 0.75, ease: [0.22, 1, 0.36, 1] }}>
       <div className="collections-campaign-image relative aspect-[3/4] overflow-hidden rounded-[14px] bg-sand">
-        {collection.image ? <img src={cloudinaryImageUrl(collection.image, 1000) || collection.image} alt={`${collection.name} collection campaign`} draggable={false} className="collection-card-image block h-full w-full object-cover" /> : <div className="grid h-full place-items-center text-charcoal/35"><span className="text-center"><ImageIcon className="mx-auto h-7 w-7" strokeWidth={1.2} /><span className="mt-3 block text-[0.56rem] uppercase tracking-[0.28em]">Campaign image coming soon</span></span></div>}
+        {collection.image ? <img src={cloudinaryImageUrl(collection.image, 1000) || collection.image} alt={`${collection.name} collection campaign`} draggable={false} loading="lazy" decoding="async" className="collection-card-image block h-full w-full object-cover" /> : <div className="grid h-full place-items-center text-charcoal/35"><span className="text-center"><ImageIcon className="mx-auto h-7 w-7" strokeWidth={1.2} /><span className="mt-3 block text-[0.56rem] uppercase tracking-[0.28em]">Campaign image coming soon</span></span></div>}
         <div className="collections-campaign-shade absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-90 transition-opacity duration-300 group-hover:opacity-100" />
         <div className="collections-campaign-overlay absolute inset-x-0 bottom-0 w-full box-border p-5 text-white md:p-7">
           <p className="text-[0.58rem] uppercase tracking-[0.32em] text-white/75">{collection.productCount} {collection.productCount === 1 ? 'piece' : 'pieces'}</p>
@@ -49,13 +48,8 @@ export default function CollectionsPage() {
 
   useEffect(() => {
     let active = true;
-    fetch(`${apiBaseUrl}/api/catalog/collections`, { cache: 'no-store' })
-      .then(async (response) => {
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.error || 'Unable to load collections.');
-        return payload as CollectionIndexResponse;
-      })
-      .then((payload) => { if (active) setCollections(payload.collections || []); })
+    fetchCatalogCollections()
+      .then((payload) => { if (active) setCollections(payload); })
       .catch((value) => { if (active) setError(value instanceof Error ? value.message : 'Unable to load collections.'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -65,9 +59,11 @@ export default function CollectionsPage() {
     const editorial = editorialFor(collection);
     return {
       ...collection,
-      image: collection.hero?.image || collection.heroImage || editorial?.hero?.image || editorial?.image || '',
+      image: collection.name.trim().toLowerCase() === 'aakaar'
+        ? editorial?.image || collection.hero?.image || collection.heroImage || ''
+        : collection.hero?.image || collection.heroImage || editorial?.hero?.image || editorial?.image || '',
       summary: collection.description || editorial?.summary,
-      fontFamily: editorial?.fontFamily,
+      fontFamily: 'RK Anamika',
     };
   }), [collections]);
   const leftColumn = cards.filter((_, index) => index % 2 === 0);

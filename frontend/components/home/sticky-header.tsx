@@ -18,12 +18,12 @@ import {
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { brandLogoUrl, searchItems } from '@/lib/home-content';
 import { apiBaseUrl, logout } from '@/lib/rbac';
+import { fetchCatalogCollections } from '@/lib/catalog-client';
 import { cartChangedEvent, readStoredCart, removeStoredCartItem, updateStoredCartQuantity } from '@/lib/storefront-cart';
 import { readWishlist, removeFromWishlist, wishlistChangedEvent, type StorefrontWishlistItem } from '@/lib/storefront-wishlist';
 import type { Cart } from '@/lib/store-types';
 import { cn } from '@/lib/utils';
 import { inr } from '@/lib/catalog';
-import type { ManagedCollection } from '@/lib/catalog';
 import { cartLineKey, getCartSubtotal } from '@/lib/cart';
 
 type HeaderUser = { displayName?: string; firstName?: string; lastName?: string; username?: string; email?: string; role?: 'customer' | 'staff' | 'admin' };
@@ -84,21 +84,12 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
     setMounted(true);
   }, []);
 
-  useEffect(() => {
-    let active = true;
-    fetch(`${apiBaseUrl}/api/catalog/collections`, { cache: 'no-store' })
-      .then(async (response) => {
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.error || 'Unable to load collections.');
-        return (payload.collections || []) as ManagedCollection[];
-      })
-      .then((collections) => {
-        if (!active) return;
-        setCollectionLinks(collections.map((collection) => ({ id: collection.id, name: collection.name, route: `/collections/${collection.slug}`, summary: collection.description || '' })));
-      })
-      .catch(() => { if (active) setCollectionLinks([]); });
-    return () => { active = false; };
-  }, []);
+  const loadCollectionLinks = () => {
+    if (collectionLinks.length) return;
+    void fetchCatalogCollections()
+      .then((collections) => setCollectionLinks(collections.map((collection) => ({ id: collection.id, name: collection.name, route: `/collections/${collection.slug}`, summary: collection.description || '' }))))
+      .catch(() => setCollectionLinks([]));
+  };
 
   useEffect(() => {
     const syncBag = () => setShoppingBag(readStoredCart());
@@ -216,7 +207,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
     };
   }, []);
 
-  const openCollections = () => setCollectionsOpen(true);
+  const openCollections = () => { loadCollectionLinks(); setCollectionsOpen(true); };
   const closeCollections = () => setCollectionsOpen(false);
 
   const handleNavigation = () => {
@@ -435,7 +426,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
         <div className="hidden items-center gap-5 lg:flex">
           <button
             type="button"
-            onClick={() => setSearchOpen(true)}
+            onClick={() => { loadCollectionLinks(); setSearchOpen(true); }}
             className="border-0 bg-transparent p-0 text-current transition hover:opacity-70"
             aria-label="Search"
           >
@@ -645,7 +636,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
                   <button
                     type="button"
                     onClick={() => {
-                      if (label === 'Search') setSearchOpen(true);
+                      if (label === 'Search') { loadCollectionLinks(); setSearchOpen(true); }
                       if (label === 'Account') {
                         openAccount();
                       }

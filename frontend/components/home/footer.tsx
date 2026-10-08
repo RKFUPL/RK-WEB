@@ -18,7 +18,7 @@ const footerColumns = [
   },
   {
     title: 'Policies',
-    links: ['Privacy', 'Terms', 'Cookies', 'Shipping', 'Security'],
+    links: ['Privacy Policy', 'Shipping & Returns', 'Legal'],
   },
 ] as const;
 
@@ -27,6 +27,12 @@ const navigationHrefs: Record<string, string> = {
   Lookbook: '/rk-lookbooks',
   Runway: '/runway',
   About: '/about',
+};
+
+const policyHrefs: Record<string, string> = {
+  'Privacy Policy': '/privacy-policy',
+  'Shipping & Returns': '/shipping-returns',
+  Legal: '/legal',
 };
 
 // Update social destinations here when the final brand profiles are ready.
@@ -221,9 +227,9 @@ export function Footer() {
                         <a href="mailto:contact@rashikapoorofficial.com" className="transition hover:text-gold">{link}</a>
                       ) : (
                         <Link
-                          href={`/${link.toLowerCase().replace(/\s+/g, '-')}`}
-                          aria-current={pathname === `/${link.toLowerCase().replace(/\s+/g, '-')}` ? 'page' : undefined}
-                          className={`transition hover:text-gold ${pathname === `/${link.toLowerCase().replace(/\s+/g, '-')}` ? 'text-gold' : ''}`}
+                          href={column.title === 'Policies' ? policyHrefs[link] : `/${link.toLowerCase().replace(/\s+/g, '-')}`}
+                          aria-current={pathname === (column.title === 'Policies' ? policyHrefs[link] : `/${link.toLowerCase().replace(/\s+/g, '-')}`) ? 'page' : undefined}
+                          className={`transition hover:text-gold ${pathname === (column.title === 'Policies' ? policyHrefs[link] : `/${link.toLowerCase().replace(/\s+/g, '-')}`) ? 'text-gold' : ''}`}
                         >{link}</Link>
                       )}
                     </li>

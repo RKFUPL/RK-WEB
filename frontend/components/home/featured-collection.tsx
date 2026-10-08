@@ -143,7 +143,7 @@ export function FeaturedCollection() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.5, delay: 0.35 }}
             >
-              Coming soon
+              The latest collection
             </motion.p>
           ) : (
             <motion.div
@@ -158,9 +158,9 @@ export function FeaturedCollection() {
                   Timeless elegance.<br /><em className="text-gold">Modern luxury.</em>
                 </p>
                 <div className="mt-7 flex flex-wrap items-center gap-5">
-                  <p className="text-[clamp(0.6rem,1.2vw,0.78rem)] uppercase tracking-[0.42em] text-[#fff1df]/85">Coming soon</p>
-                  <a href="/collections" className="pointer-events-auto inline-flex items-center justify-center border border-gold/70 px-5 py-3 text-[0.62rem] uppercase tracking-[0.28em] text-[#fff1df] transition duration-500 hover:bg-gold hover:text-ink">
-                    Explore Collections <span className="ml-3 text-base">→</span>
+                  <p className="text-[clamp(0.6rem,1.2vw,0.78rem)] uppercase tracking-[0.42em] text-[#fff1df]/85">The latest collection</p>
+                  <a href="/collections/aakaar" className="pointer-events-auto inline-flex items-center justify-center border border-gold/70 px-5 py-3 text-[0.62rem] uppercase tracking-[0.28em] text-[#fff1df] transition duration-500 hover:bg-gold hover:text-ink">
+                    Explore our latest collection <span className="ml-3 text-base">→</span>
                   </a>
                 </div>
               </div>

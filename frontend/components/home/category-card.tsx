@@ -11,15 +11,6 @@ type CategoryCardProps = {
   ctaLabel?: string;
 };
 
-const categoryFont: Record<string, string> = {
-  Anamika: 'RK Anamika',
-  Hastakala: 'RK Hastakala',
-  Inaara: 'RK Inaara',
-  Sandook: 'RK Sandook',
-};
-
-const categoryFontSize: Record<string, string> = { Hastakala: '1.15rem' };
-
 const categoryObjectPosition: Record<string, string> = {
   Aakaar: 'center 32%',
   Anamika: 'center 42%',
@@ -55,7 +46,7 @@ export function CategoryCard({ title, image, href, index = 0, comingSoon = false
         <div className="min-w-0">
           <p className={`text-[0.48rem] uppercase tracking-[0.28em] ${category === 'Runway collection' ? 'text-white' : 'text-white/70'}`}>{category}</p>
           <h3
-            style={{ fontFamily: categoryFont[title] ?? 'var(--font-aakaar)', fontSize: categoryFontSize[title] }}
+            style={{ fontFamily: 'RK Anamika, var(--font-display), serif' }}
             className={`mt-2 drop-shadow-[0_1px_8px_rgba(0,0,0,.65)] ${category === 'Runway collection' ? 'break-words text-[1.1rem] leading-[0.95] sm:text-[1.3rem]' : 'truncate text-[1.35rem] leading-none sm:text-[1.5rem]'}`}
           >
             {title}

@@ -55,8 +55,8 @@ export function CollectionDetailPage({ collection }: { collection: CollectionPag
     type: collection.hero?.type || managedCollection?.hero?.type || 'image',
     image: configuredHeroImage,
     video: collection.hero?.video || managedCollection?.hero?.video || '',
-    poster: collection.hero?.poster || managedCollection?.hero?.poster || configuredHeroImage,
-    mobileImage: collection.hero?.mobileImage || managedCollection?.hero?.mobileImage || '',
+    poster: collection.hero?.poster || configuredHeroImage,
+    mobileImage: collection.hero?.mobileImage || configuredHeroImage,
     mobileVideo: collection.hero?.mobileVideo || managedCollection?.hero?.mobileVideo || '',
     layout: 'full_bleed',
   };
@@ -73,7 +73,7 @@ export function CollectionDetailPage({ collection }: { collection: CollectionPag
   };
   return <main className="bg-ivory text-charcoal">
     <StickyHeader transparentAtTop transparentTheme={hero.textTheme || 'light'} />
-    <CollectionHero collection={displayCollection} hero={hero} titleStyle={{ fontFamily: `${collection.fontFamily}, var(--font-display), serif` }} />
+    <CollectionHero collection={displayCollection} hero={hero} titleStyle={{ fontFamily: 'RK Anamika, var(--font-display), serif' }} />
     <StorefrontCollectionProducts collection={displayCollection} loading={loading} />
     <Footer />
   </main>;
