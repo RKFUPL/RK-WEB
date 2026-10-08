@@ -784,7 +784,12 @@ def collection_hero(collection: dict) -> dict:
 
 
 def ensure_catalog_seed(db) -> None:
-    """Idempotently create normal collections, fixtures, and real seed products."""
+    """Run catalog compatibility migrations and ensure catalog collections exist.
+
+    Product fixtures are intentionally not created during application startup.
+    Products must enter the catalog through an explicit product/import workflow
+    or the catalog.sync.v1 receiver.
+    """
     now = datetime.now(timezone.utc)
     ensure_catalog_indexes(db)
     try:
@@ -907,55 +912,6 @@ def ensure_catalog_seed(db) -> None:
             if collection_updates:
                 db.collections.update_one({"_id": collection["_id"]}, {"$set": collection_updates})
                 collection.update(collection_updates)
-        needs_initial_relationship = not collection.get("catalogSeedVersion")
-
-        seed_key = f"dummy:{seed['slug']}"
-        if db.catalog_deletions.find_one({"seedKey": seed_key}, {"_id": 1}):
-            # A staff member explicitly deleted this seeded placeholder. Keep
-            # the deletion authoritative so startup seeding cannot recreate it.
-            continue
-        product = db.products.find_one({"seedKey": seed_key})
-        if not product:
-            sku_root = seed["name"].upper().replace(" ", "-")
-            result = db.products.insert_one({
-                "name": f"Dummy {seed['name']}",
-                "sku": f"{sku_root}-001",
-                "price": seed["dummyPrice"],
-                "currency": "INR",
-                "stock": seed["dummyStock"],
-                "unallocatedStock": seed["dummyStock"],
-                "sizeInventoryConfigured": False,
-                "sizeSystemEnabled": False,
-                "sizeInventory": [],
-                "availability": seed["dummyAvailability"],
-                "status": "active",
-                "description": "Placeholder product record. Replace these fields when the real product is ready.",
-                "category": "",
-                "media": [],
-                "attributes": {
-                    "sizes": [],
-                    "colors": [],
-                    "fabric": "",
-                    "occasion": "",
-                    "gender": "",
-                    "material": "",
-                    "customizationInformation": "",
-                },
-                "seedKey": seed_key,
-                "isDummy": True,
-                "isActive": True,
-                "createdAt": now,
-                "updatedAt": now,
-            })
-            product = db.products.find_one({"_id": result.inserted_id})
-
-        refs = collection.get("productRefs") or []
-        if needs_initial_relationship:
-            update = {"$set": {"updatedAt": now, "catalogSeedVersion": 1}}
-            if not any(ref.get("productId") == product["_id"] for ref in refs if isinstance(ref, dict)):
-                update["$push"] = {"productRefs": {"productId": product["_id"], "displayOrder": 1}}
-            db.collections.update_one({"_id": collection["_id"]}, update)
-
     aakaar_collection = db.collections.find_one({"slug": AAKAAR_COLLECTION_SEED["slug"]})
     if not aakaar_collection:
         aakaar_hero = {
@@ -1048,116 +1004,6 @@ def ensure_catalog_seed(db) -> None:
             collection_updates["updatedAt"] = now
             db.collections.update_one({"_id": runway_collection["_id"]}, {"$set": collection_updates})
             runway_collection.update(collection_updates)
-
-    for seed in PRODUCT_SEEDS:
-        is_anamika_seed = seed.get("collectionSlug") == "collections-of-anamika"
-        is_hastakala_seed = seed.get("collectionSlug") == "collections-of-hasthkala"
-        is_runway_seed = seed.get("collectionSlug") == RUNWAY_COLLECTION_SEED["slug"]
-        is_aakaar_seed = seed.get("collectionSlug") == AAKAAR_COLLECTION_SEED["slug"]
-        is_duplicate_protected_seed = is_anamika_seed or is_hastakala_seed or is_aakaar_seed
-        if db.catalog_deletions.find_one(
-            {"$or": [{"seedKey": seed["seedKey"]}, {"sku": seed.get("sku")}]},
-            {"_id": 1},
-        ):
-            # Explicit permanent deletion wins over the compatibility seed.
-            continue
-        product = db.products.find_one({"seedKey": seed["seedKey"]})
-        if not product and is_duplicate_protected_seed:
-            # Adopt an existing matching SKU instead of creating a duplicate if
-            # this catalogue was entered manually before the seed was deployed.
-            product = db.products.find_one({"sku": seed["sku"]})
-        if not product:
-            result = db.products.insert_one(_product_seed_document(seed, now))
-            product = db.products.find_one({"_id": result.inserted_id})
-
-        seed_updates = {}
-        if is_anamika_seed and int(product.get("anamikaSeedVersion") or 0) < 1:
-            # Apply the source-of-truth data once. The version guard preserves
-            # later edits made through Admin/Staff, including the temporary
-            # CK-56 A description supplied by the owner.
-            seeded_document = _product_seed_document(seed, now)
-            seed_updates = {key: value for key, value in seeded_document.items() if key != "createdAt"}
-        elif is_hastakala_seed and int(product.get("hastakalaSeedVersion") or 0) < 1:
-            # Complete a matching manually-created product without erasing any
-            # images that may already have been attached through Manage Images.
-            seeded_document = _product_seed_document(seed, now)
-            existing_media = product.get("media") if isinstance(product.get("media"), list) else []
-            existing_variants = {
-                str(item.get("colour") or item.get("color") or "").strip().casefold(): item
-                for item in product.get("variants", [])
-                if isinstance(item, dict)
-            }
-            seeded_variants = []
-            for variant in seeded_document.get("variants", []):
-                previous = existing_variants.get(str(variant.get("colour") or "").strip().casefold())
-                merged = {**variant}
-                if previous:
-                    if str(previous.get("id") or "").strip():
-                        merged["id"] = previous["id"]
-                    if isinstance(previous.get("images"), list):
-                        merged["images"] = list(previous["images"])
-                    if isinstance(previous.get("metadata"), dict):
-                        merged["metadata"] = dict(previous["metadata"])
-                seeded_variants.append(merged)
-            seeded_document["media"] = existing_media
-            seeded_document["variants"] = seeded_variants
-            seed_updates = {key: value for key, value in seeded_document.items() if key != "createdAt"}
-        elif is_aakaar_seed and int(product.get("aakaarSeedVersion") or 0) < 1:
-            # Complete a matching manually-created product without erasing
-            # images already attached through the existing image manager.
-            seeded_document = _product_seed_document(seed, now)
-            existing_media = product.get("media") if isinstance(product.get("media"), list) else []
-            seeded_document["media"] = existing_media or list(seeded_document.get("media") or [])
-            seed_updates = {key: value for key, value in seeded_document.items() if key != "createdAt"}
-        else:
-            # Older local databases were seeded before SKU/pricing was
-            # requested. Backfill only blank values so staff edits survive.
-            if not str(product.get("sku") or "").strip():
-                seed_updates["sku"] = seed["sku"]
-            if product.get("price") in (None, 0):
-                seed_updates["price"] = seed["price"]
-            if product.get("stock") is None and product.get("availability") in {"custom_order", "sold_out"}:
-                seed_updates["stock"] = 0
-            if is_runway_seed and product.get("media") != seed.get("media"):
-                seed_updates["media"] = list(seed.get("media") or [])
-            if is_runway_seed and not str(product.get("slug") or "").strip() and str(seed.get("slug") or "").strip():
-                seed_updates["slug"] = seed["slug"]
-        if seed_updates:
-            seed_updates["updatedAt"] = now
-            db.products.update_one({"_id": product["_id"]}, {"$set": seed_updates})
-            product.update(seed_updates)
-
-        collection = db.collections.find_one({"slug": seed["collectionSlug"]})
-        if not collection or not product:
-            continue
-        refs = collection.get("productRefs") or []
-        if not any(ref.get("productId") == product["_id"] for ref in refs if isinstance(ref, dict)):
-            next_order = max([int(ref.get("displayOrder", 0)) for ref in refs if isinstance(ref, dict)] or [0]) + 1
-            display_order = int(seed.get("displayOrder") or next_order)
-            if display_order < next_order:
-                display_order = next_order
-            db.collections.update_one(
-                {"_id": collection["_id"]},
-                {"$push": {"productRefs": {"productId": product["_id"], "displayOrder": display_order}}, "$set": {"updatedAt": now}},
-            )
-
-    # Once the real Anamika catalogue exists, retire only its seeded dummy and
-    # remove that one relationship. Other products and collection edits remain
-    # untouched.
-    anamika_collection = db.collections.find_one({"slug": "collections-of-anamika"})
-    anamika_dummy = db.products.find_one({"seedKey": "dummy:collections-of-anamika", "isDummy": True})
-    if anamika_collection and anamika_dummy:
-        db.collections.update_one(
-            {"_id": anamika_collection["_id"]},
-            {
-                "$pull": {"productRefs": {"productId": anamika_dummy["_id"]}},
-                "$set": {"anamikaProductSeedVersion": 1, "updatedAt": now},
-            },
-        )
-        db.products.update_one(
-            {"_id": anamika_dummy["_id"]},
-            {"$set": {"status": "archived", "isActive": False, "updatedAt": now}},
-        )
 
     # Backfill the nested colour-SKU architecture once for every existing
     # product. Subsequent Admin/Staff changes reconcile an individual product.

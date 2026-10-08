@@ -5,12 +5,46 @@ from unittest.mock import ANY, MagicMock, patch
 from bson import ObjectId
 from flask import Flask
 
-from app.catalog import AAKAAR_COLLECTION_SEED, AAKAAR_PRODUCT_SEEDS, ANAMIKA_PRODUCT_SEEDS, HASTAKALA_PRODUCT_SEEDS, NORMAL_COLLECTIONS, PRODUCT_SEEDS, _ensure_compatible_index, _product_seed_document, collection_hero, collection_view, is_excluded_collection, is_runway_collection, product_view
+from app.catalog import AAKAAR_COLLECTION_SEED, AAKAAR_PRODUCT_SEEDS, ANAMIKA_PRODUCT_SEEDS, HASTAKALA_PRODUCT_SEEDS, NORMAL_COLLECTIONS, PRODUCT_SEEDS, _ensure_compatible_index, _product_seed_document, collection_hero, collection_view, ensure_catalog_seed, is_excluded_collection, is_runway_collection, product_view
 from app.blueprints.catalog.routes import catalog_bp
 from app.inventory import DEFAULT_CUSTOM_SIZE_FIELDS, STANDARD_SIZES, custom_size_fields, validate_custom_size
 
 
 class CatalogTests(unittest.TestCase):
+    def test_catalog_startup_does_not_create_legacy_seed_products(self):
+        database = MagicMock()
+        database.collections.find.return_value = []
+        database.collections.find_one.return_value = None
+        database.collections.insert_one.return_value.inserted_id = ObjectId()
+        database.products.find.return_value = []
+        database.catalog_migrations.find_one.return_value = {"_id": "all-current-variants-active-v1"}
+
+        with patch("app.catalog.ensure_catalog_indexes"):
+            ensure_catalog_seed(database)
+
+        database.products.insert_one.assert_not_called()
+        database.products.update_one.assert_not_called()
+
+    def test_catalog_startup_preserves_existing_products_without_seed_overwrite(self):
+        product_id = ObjectId()
+        existing = {"_id": product_id, "name": "Existing product", "sku": "REAL-001", "stock": 4, "sizeInventory": []}
+        database = MagicMock()
+        database.collections.find.return_value = []
+        database.collections.find_one.return_value = None
+        database.collections.insert_one.return_value.inserted_id = ObjectId()
+        database.products.find.return_value = [existing]
+        database.catalog_migrations.find_one.return_value = {"_id": "all-current-variants-active-v1"}
+
+        with patch("app.catalog.ensure_catalog_indexes"):
+            ensure_catalog_seed(database)
+
+        database.products.insert_one.assert_not_called()
+        for call in database.products.update_one.call_args_list:
+            update = call.args[1].get("$set", {})
+            self.assertNotIn("name", update)
+            self.assertNotIn("sku", update)
+            self.assertNotIn("price", update)
+
     def test_storefront_collection_index_uses_managed_database_collections(self):
         app = Flask(__name__)
         app.register_blueprint(catalog_bp, url_prefix="/api/catalog")
