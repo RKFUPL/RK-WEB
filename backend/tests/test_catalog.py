@@ -5,9 +5,10 @@ from unittest.mock import ANY, MagicMock, patch
 from bson import ObjectId
 from flask import Flask
 
-from app.catalog import AAKAAR_COLLECTION_SEED, AAKAAR_PRODUCT_SEEDS, ANAMIKA_PRODUCT_SEEDS, HASTAKALA_PRODUCT_SEEDS, NORMAL_COLLECTIONS, PRODUCT_SEEDS, _ensure_compatible_index, _product_seed_document, collection_hero, collection_view, ensure_catalog_seed, is_excluded_collection, is_runway_collection, product_view
+from app.catalog import AAKAAR_COLLECTION_SEED, AAKAAR_PRODUCT_SEEDS, ANAMIKA_PRODUCT_SEEDS, HASTAKALA_PRODUCT_SEEDS, NORMAL_COLLECTIONS, PRODUCT_SEEDS, _ensure_compatible_index, _product_seed_document, collection_hero, collection_view, ensure_catalog_seed, is_excluded_collection, is_runway_collection, product_card_view, product_view
 from app.blueprints.catalog.routes import catalog_bp
 from app.inventory import DEFAULT_CUSTOM_SIZE_FIELDS, STANDARD_SIZES, custom_size_fields, validate_custom_size
+from app.workdrive import WorkDriveDownload
 
 
 class CatalogTests(unittest.TestCase):
@@ -93,6 +94,73 @@ class CatalogTests(unittest.TestCase):
         payload = collection_view(type("DB", (), {"products": Products()})(), collection)
         self.assertEqual([product["name"] for product in payload["products"]], ["Second", "First"])
         self.assertEqual(payload["products"][0]["media"], ["https://example.com/current-two.jpg"])
+
+    def test_product_media_falls_back_from_empty_variant_to_structured_cloudinary(self):
+        product = {
+            "_id": ObjectId(), "name": "Synced product", "sku": "SYNC-1", "status": "active", "isActive": True,
+            "variants": [{"id": "one", "sku": "SYNC-1-A", "colour": "Ivory", "status": "active", "images": []}],
+            "catalogMedia": [{
+                "media_id": "cloud-1", "provider": "cloudinary", "owner_system": "rk-stock",
+                "public_id": "rk/cloud-1", "secure_url": "https://res.cloudinary.com/rk/image/upload/cloud-1.jpg",
+                "position": 0, "is_primary": True,
+            }],
+        }
+
+        payload = product_card_view(product)
+
+        self.assertEqual(payload["media"], ["https://res.cloudinary.com/rk/image/upload/cloud-1.jpg"])
+        self.assertEqual(payload["catalogMedia"][0]["provider"], "cloudinary")
+        self.assertEqual(payload["catalogMedia"][0]["owner_system"], "rk-stock")
+
+    def test_workdrive_catalog_media_uses_product_bound_proxy_not_permalink(self):
+        product_id = ObjectId()
+        permalink = "https://workdrive.zoho.in/file/private123"
+        payload = product_view({
+            "_id": product_id, "name": "WorkDrive product", "sku": "WD-1", "status": "active", "isActive": True,
+            "catalogMedia": [{
+                "media_id": "wd-1", "provider": "zoho_workdrive", "owner_system": "rk-stock",
+                "permalink": permalink, "position": 0, "is_primary": True,
+            }],
+        })
+
+        expected = f"/api/catalog/products/{product_id}/media/wd-1"
+        self.assertEqual(payload["media"], [expected])
+        self.assertEqual(payload["catalogMedia"][0]["renderUrl"], expected)
+        self.assertNotIn(permalink, payload["media"])
+
+    def test_product_media_proxy_downloads_only_media_attached_to_product(self):
+        app = Flask(__name__)
+        app.register_blueprint(catalog_bp, url_prefix="/api/catalog")
+        product_id = ObjectId()
+        product = {
+            "_id": product_id, "status": "active", "isActive": True,
+            "catalogMedia": [{
+                "media_id": "wd-1", "provider": "zoho_workdrive", "type": "image",
+                "permalink": "https://workdrive.zoho.in/file/private123",
+            }],
+        }
+        upstream = MagicMock()
+        upstream.headers = {"Content-Type": "image/jpeg"}
+        upstream.iter_content.return_value = [b"image-bytes"]
+        database = MagicMock()
+
+        with patch("app.blueprints.catalog.routes.database", return_value=database), \
+             patch("app.blueprints.catalog.routes.product_document", return_value=product), \
+             patch("app.blueprints.catalog.routes.download_file", return_value=WorkDriveDownload(upstream, "private123")) as download:
+            response = app.test_client().get(f"/api/catalog/products/{product_id}/media/wd-1")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content_type, "image/jpeg")
+        self.assertEqual(response.data, b"image-bytes")
+        self.assertEqual(response.headers["Cache-Control"], "private, max-age=300")
+        download.assert_called_once_with("https://workdrive.zoho.in/file/private123", database, prefer_preview=True)
+
+        with patch("app.blueprints.catalog.routes.database", return_value=database), \
+             patch("app.blueprints.catalog.routes.product_document", return_value=product), \
+             patch("app.blueprints.catalog.routes.download_file") as download:
+            missing = app.test_client().get(f"/api/catalog/products/{product_id}/media/not-attached")
+        self.assertEqual(missing.status_code, 404)
+        download.assert_not_called()
 
     def test_normal_collection_seed_order_matches_the_storefront_sequence(self):
         self.assertEqual([collection["name"] for collection in NORMAL_COLLECTIONS], ["Hastakala", "Inaara", "Anamika", "Naqab", "Sandook"])

@@ -6,6 +6,7 @@ quotes, and the storefront resolve the same record.
 """
 from datetime import datetime, timezone
 from threading import Lock
+from urllib.parse import urlparse
 
 from bson import ObjectId
 from pymongo.errors import OperationFailure
@@ -110,6 +111,7 @@ STOREFRONT_PRODUCT_PROJECTION = {
     "unallocatedStock": 1,
     "category": 1,
     "media": {"$slice": 2},
+    "catalogMedia": {"$slice": 12},
     "attributes.sizes": 1,
     "attributes.colors": 1,
     "attributes.color": 1,
@@ -1133,6 +1135,72 @@ def collection_product_documents(
     return matched
 
 
+def _safe_public_image_url(value: object) -> str | None:
+    """Return browser-renderable image URLs without exposing WorkDrive permalinks."""
+    url = str(value or "").strip()
+    if not url:
+        return None
+    if url.startswith("/") and not url.startswith("//"):
+        return url
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        return None
+    if parsed.hostname in {"workdrive.zoho.in", "workdrive.zohoexternal.in"}:
+        return None
+    return url
+
+
+def public_catalog_media(product: dict) -> list[dict]:
+    """Expose structured media identity while resolving only safe display URLs."""
+    product_id = str(product.get("_id") or "")
+    records = []
+    for item in product.get("catalogMedia") or []:
+        if not isinstance(item, dict):
+            continue
+        media_id = str(item.get("media_id") or item.get("id") or "").strip()
+        provider = str(item.get("provider") or "").strip().lower()
+        if not media_id or provider not in {"cloudinary", "zoho_workdrive"}:
+            continue
+        record = {
+            key: _json_value(item[key])
+            for key in (
+                "media_id", "id", "provider", "owner_system", "public_id", "position",
+                "is_primary", "alt_text", "description", "asset_folder", "view", "type",
+            )
+            if item.get(key) is not None
+        }
+        record["media_id"] = media_id
+        if provider == "cloudinary":
+            render_url = _safe_public_image_url(item.get("secure_url") or item.get("url"))
+        else:
+            permalink = str(item.get("permalink") or "")
+            render_url = (
+                f"/api/catalog/products/{product_id}/media/{media_id}"
+                if product_id and permalink.startswith("https://workdrive.zoho.in/file/") and "/embed/" not in permalink
+                else None
+            )
+        if render_url:
+            record["renderUrl"] = render_url
+        records.append(record)
+    records.sort(key=lambda item: (not bool(item.get("is_primary")), int(item.get("position") or 0), item["media_id"]))
+    return records
+
+
+def public_product_media(product: dict, *, selected_variant: dict | None = None, media_limit: int | None = None) -> list[str]:
+    """Resolve variant, legacy product, then structured catalog media in order."""
+    candidates = []
+    if selected_variant:
+        candidates.extend(selected_variant.get("images") or [])
+    candidates.extend(product.get("media") or [])
+    candidates.extend(item.get("renderUrl") for item in public_catalog_media(product))
+    resolved = []
+    for candidate in candidates:
+        url = _safe_public_image_url(candidate)
+        if url and url not in resolved:
+            resolved.append(url)
+    return resolved[:media_limit] if media_limit is not None else resolved
+
+
 def product_view(product: dict, *, display_order: int | None = None, media_limit: int | None = None) -> dict:
     public_variants = [public_variant_view(variant, media_limit=media_limit) for variant in visible_variants(product)]
     selected_variant = next((variant for variant in public_variants if variant["status"] == "active"), None) or (public_variants[0] if public_variants else None)
@@ -1150,7 +1218,7 @@ def product_view(product: dict, *, display_order: int | None = None, media_limit
     public_availability = "in_stock" if any(variant["status"] == "active" for variant in public_variants) else "sold_out" if public_variants else stored_availability if stored_availability in PRODUCT_AVAILABILITY else "in_stock"
     tax_inclusive = bool(product.get("taxInclusive") or product.get("mrpIncludesGst"))
     selected_price = selected_variant.get("price") if selected_variant else product.get("price")
-    selected_media = selected_variant.get("images") if selected_variant else _json_value(product.get("media") or [])
+    selected_media = public_product_media(product, selected_variant=selected_variant, media_limit=media_limit)
     result = {
         "id": str(product["_id"]),
         "publicId": str(product["_id"]),
@@ -1176,7 +1244,8 @@ def product_view(product: dict, *, display_order: int | None = None, media_limit
         "customSizeConfig": _json_value(product.get("customSizeConfig") or {}),
         "category": product.get("category"),
         "description": product.get("description"),
-        "media": selected_media[:media_limit] if media_limit is not None else selected_media,
+        "media": selected_media,
+        "catalogMedia": public_catalog_media(product),
         "variants": public_variants,
         "attributes": public_attributes,
         "isDummy": bool(product.get("isDummy")),
@@ -1237,7 +1306,8 @@ def product_card_view(product: dict, *, display_order: int | None = None, media_
         "sizeInventoryConfigured": configured,
         "sizeInventory": _json_value(size_inventory),
         "category": product.get("category"),
-        "media": _json_value(selected_variant.get("images") if selected_variant else product.get("media") or [])[:media_limit],
+        "media": public_product_media(product, selected_variant=selected_variant, media_limit=media_limit),
+        "catalogMedia": public_catalog_media(product),
         "attributes": {
             key: _json_value(attributes[key]) for key in ("sizes", "colors", "color") if key in attributes
         },

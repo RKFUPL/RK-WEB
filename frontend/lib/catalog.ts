@@ -21,6 +21,18 @@ export type CollectionHeroTextPosition = 'left' | 'right';
 export type CollectionHeroTextTheme = 'light' | 'dark';
 export type CollectionHeroTitleScale = 'standard' | 'feature';
 
+export type CatalogMedia = {
+  media_id: string;
+  provider: 'cloudinary' | 'zoho_workdrive';
+  owner_system?: 'rk-web' | 'rk-stock';
+  public_id?: string;
+  position?: number;
+  is_primary?: boolean;
+  alt_text?: string;
+  description?: string;
+  renderUrl?: string;
+};
+
 export type CollectionHeroConfig = {
   type: CollectionHeroType;
   image: string;
@@ -63,6 +75,7 @@ export type CatalogProduct = {
   category?: string;
   description?: string;
   media: string[];
+  catalogMedia?: CatalogMedia[];
   variants?: CatalogProductVariant[];
   attributes: {
     sizes?: string[];

@@ -4,7 +4,7 @@ import html
 import re
 
 import resend
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 
 from ...catalog import (
     STOREFRONT_COLLECTION_PROJECTION,
@@ -22,6 +22,7 @@ from ...catalog import (
 from ...extensions import limiter
 from ...product_variants import find_variant, product_has_visible_variants, sync_product_variants
 from ...rbac import database
+from ...workdrive import WorkDriveFileNotFound, WorkDriveUnavailable, download_file
 
 
 catalog_bp = Blueprint("catalog", __name__)
@@ -339,3 +340,49 @@ def storefront_product(product_id: str):
         if not is_excluded_collection(collection)
     ]
     return jsonify({"product": product_view(product), "collections": collections}), 200
+
+
+@catalog_bp.get("/products/<product_id>/media/<media_id>")
+def storefront_product_media(product_id: str, media_id: str):
+    """Proxy only WorkDrive images attached to a visible public product."""
+    db = database()
+    product = product_document(db, product_id)
+    if not product or not product_has_visible_variants(product):
+        return jsonify({"error": "Product media not found."}), 404
+    media = next(
+        (
+            item for item in product.get("catalogMedia") or []
+            if isinstance(item, dict)
+            and str(item.get("media_id") or item.get("id") or "") == media_id
+            and str(item.get("provider") or "").lower() == "zoho_workdrive"
+            and str(item.get("type") or "image").lower() == "image"
+        ),
+        None,
+    )
+    if not media:
+        return jsonify({"error": "Product media not found."}), 404
+    permalink = str(media.get("permalink") or "")
+    try:
+        download = download_file(permalink, db, prefer_preview=True)
+    except WorkDriveFileNotFound:
+        return jsonify({"error": "Product media not found."}), 404
+    except WorkDriveUnavailable:
+        return jsonify({"error": "Product media is temporarily unavailable."}), 503
+    upstream = download.response
+    content_type = upstream.headers.get("Content-Type", "application/octet-stream").split(";", 1)[0].strip()
+    if not content_type.startswith("image/"):
+        upstream.close()
+        return jsonify({"error": "Product media is not an image."}), 422
+
+    @stream_with_context
+    def content():
+        try:
+            yield from upstream.iter_content(chunk_size=64 * 1024)
+        finally:
+            upstream.close()
+
+    response = Response(content(), content_type=content_type)
+    response.headers["Cache-Control"] = "private, max-age=300"
+    response.headers["Content-Disposition"] = "inline"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
