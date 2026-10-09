@@ -60,7 +60,7 @@ export function AakaarCollectionPage() {
     let active = true;
     fetch(`${apiBaseUrl}/api/catalog/collections/aakaar`, { cache: 'no-store' })
       .then(async (response) => {
-        if (!response.ok) throw new Error('Unable to load the AAKAAR collection.');
+        if (!response.ok) throw new Error('Unable to load the Aakaar collection.');
         return await response.json() as AakaarCollectionResponse;
       })
       .then((payload) => {
@@ -73,7 +73,7 @@ export function AakaarCollectionPage() {
         }
       })
       .catch((reason) => {
-        if (active && !style && !colour) setError(reason instanceof Error ? reason.message : 'Unable to load the AAKAAR collection.');
+        if (active && !style && !colour) setError(reason instanceof Error ? reason.message : 'Unable to load the Aakaar collection.');
       });
     return () => { active = false; };
   }, [colour, style]);
@@ -91,7 +91,7 @@ export function AakaarCollectionPage() {
     if (colour) query.set('colour', colour);
     fetch(`${apiBaseUrl}/api/catalog/collections/aakaar?${query.toString()}`, { cache: 'no-store' })
       .then(async (response) => {
-        if (!response.ok) throw new Error('Unable to filter the AAKAAR collection.');
+        if (!response.ok) throw new Error('Unable to filter the Aakaar collection.');
         return await response.json() as AakaarCollectionResponse;
       })
       .then((payload) => {
@@ -104,7 +104,7 @@ export function AakaarCollectionPage() {
         if (active) {
           setProducts([]);
           setProductCount(0);
-          setError(reason instanceof Error ? reason.message : 'Unable to filter the AAKAAR collection.');
+          setError(reason instanceof Error ? reason.message : 'Unable to filter the Aakaar collection.');
         }
       })
       .finally(() => { if (active) setLoading(false); });
@@ -135,9 +135,9 @@ export function AakaarCollectionPage() {
       <img src={aakarBannerBackgroundUrl} alt="" aria-hidden="true" className="absolute inset-0 h-full w-full object-cover opacity-35 dark:opacity-15" />
       <div className="absolute inset-0 bg-ivory/70 dark:bg-[#0b0b0b]/80" />
       <SectionShell className="relative py-28 sm:py-36 lg:py-44">
-        <Link href="/aakaar" className="inline-flex items-center gap-3 text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/55 transition hover:text-gold dark:text-[#f5f2ee]/55">← AAKAAR</Link>
+        <Link href="/aakaar" className="inline-flex items-center gap-3 text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/55 transition hover:text-gold dark:text-[#f5f2ee]/55">← Aakaar</Link>
         <p className="mt-14 text-[0.62rem] uppercase tracking-[0.4em] text-gold">The complete collection</p>
-        <h1 className="mt-5 font-aakaar text-[clamp(4rem,12vw,10rem)] leading-[0.78] tracking-[0.04em]">AAKAAR</h1>
+        <h1 className="mt-5 font-aakaar text-[clamp(4rem,12vw,10rem)] leading-[0.78] tracking-[0.04em]">Aakaar</h1>
         <p className="mt-8 max-w-xl font-display text-xl italic leading-tight text-charcoal/65 dark:text-[#f5f2ee]/65 md:text-2xl">The Indian Collection, presented through twenty considered pieces.</p>
       </SectionShell>
     </section>
@@ -146,7 +146,7 @@ export function AakaarCollectionPage() {
       <div className="mx-auto max-w-[100rem]">
         <div className="flex flex-col justify-between gap-8 border-b border-black/10 pb-7 dark:border-white/15 md:flex-row md:items-end">
           <div>
-            <p className="text-[0.58rem] uppercase tracking-[0.38em] text-gold">AAKAAR / Indian Collection</p>
+            <p className="text-[0.58rem] uppercase tracking-[0.38em] text-gold">Aakaar / Indian Collection</p>
             <h2 className="mt-3 font-display text-4xl leading-none sm:text-5xl">Collection</h2>
             <p className="mt-3 text-[0.58rem] uppercase tracking-[0.3em] text-charcoal/48 dark:text-[#f5f2ee]/48">{productCount} {productCount === 1 ? 'piece' : 'pieces'}</p>
           </div>

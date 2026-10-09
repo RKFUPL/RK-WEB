@@ -124,6 +124,13 @@ STOREFRONT_PRODUCT_PROJECTION = {
 NORMAL_COLLECTION_ORDER = ("Aakaar", "Hastakala", "Inaara", "Anamika", "Naqab", "Sandook")
 _NORMAL_COLLECTION_RANK = {name.lower(): index for index, name in enumerate(NORMAL_COLLECTION_ORDER)}
 
+
+def collection_display_sort_key(collection: dict) -> tuple:
+    """Return the established deterministic storefront collection order."""
+    name = str(collection.get("name") or "").strip().lower()
+    rank = _NORMAL_COLLECTION_RANK.get(name, len(NORMAL_COLLECTION_ORDER))
+    return (rank, int(collection.get("displayOrder", 9999)), str(collection.get("createdAt") or ""), str(collection.get("_id")))
+
 _NORMAL_COLLECTIONS = (
     {
         "name": "Anamika",
@@ -1299,7 +1306,7 @@ def collection_view(
 def managed_collections(db) -> list[dict]:
     ensure_catalog_seed(db)
     collections = [collection for collection in db.collections.find({}) if not is_excluded_collection(collection)]
-    return sorted(collections, key=lambda collection: (int(collection.get("displayOrder", 9999)), str(collection.get("createdAt") or ""), str(collection.get("_id"))))
+    return sorted(collections, key=collection_display_sort_key)
 
 
 def product_collection_ids(db, product_id: ObjectId) -> list[str]:

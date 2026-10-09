@@ -1,11 +1,11 @@
 from datetime import datetime, timedelta, timezone
 import re
 import secrets
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from bcrypt import gensalt, hashpw
 from bson import ObjectId
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, redirect, request, stream_with_context
 from pymongo.errors import OperationFailure
 
 from ...rbac import ROLES, STAFF_PERMISSIONS, current_user, database, effective_permissions, requireAdmin
@@ -14,6 +14,8 @@ from ...order_fulfillment import migrate_legacy_orders
 from ...time_utils import json_value as serialize_json_value
 from ...mail import SENDERS, safe_status, send_test_email, test_smtp_connection, validate_recipient
 from ...credential_sync import next_credential_version, sync_event
+from ...extensions import limiter
+from ...workdrive import WorkDriveFileNotFound, WorkDriveUnavailable, begin_oauth as begin_workdrive_oauth, complete_oauth as complete_workdrive_oauth, download_file, file_id_from_permalink, is_supported_permalink, oauth_configuration as workdrive_oauth_configuration, safe_status as workdrive_status, test_connection as test_workdrive_connection
 
 
 def _password_hash(password: str) -> str:
@@ -142,12 +144,24 @@ SETTINGS_DEFAULTS = {
 }
 
 LOOKBOOK_DEFAULTS = {
+    "Aakaar": "https://workdrive.zoho.in/file/45kaa5bb2ec1299cc4455a639950850e76546",
     "Anamika": "https://lookbook.rashikapoor.co.in/catalog/anamika",
     "Espiritu Libre": "https://lookbook.rashikapoor.co.in/catalog/espiritu-libre",
     "Sandook": "https://lookbook.rashikapoor.co.in/catalog/sandook?page=1",
     "Inaara": "https://lookbook.rashikapoor.co.in/catalog/inaara",
-    "Hastakala": "https://lookbook.rashikapoor.co.in/catalog/hastakala",
+    "Hastakala": "https://workdrive.zoho.in/file/gl0sa74334f9a5230420a9bb10250c4055028",
 }
+
+LOOKBOOK_COVER_DEFAULTS = {
+    "Aakaar": "https://workdrive.zoho.in/file/45kaa867c2b2ac8014d029e0d6cef5b83bf22",
+    "Anamika": "https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861902/Anamika_ojeh19.png",
+    "Espiritu Libre": "https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861902/Espi_bbvgfh.png",
+    "Sandook": "https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861901/Sandook_h0rfqg.png",
+    "Inaara": "https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861901/Inaara_hn30rg.png",
+    "Hastakala": "https://res.cloudinary.com/fm1bwbrd/image/upload/v1785862112/Hastakala_kcb6la.png",
+}
+
+_LEGACY_HASTAKALA_LOOKBOOK_URL = "https://lookbook.rashikapoor.co.in/catalog/hastakala"
 
 RESOURCE_COLLECTIONS = {
     "products": "products",
@@ -262,7 +276,103 @@ def _settings(db) -> dict:
 def _lookbooks(db) -> dict[str, str]:
     stored = db.admin_settings.find_one({"_id": "store"}) or {}
     saved = stored.get("lookbookUrls") if isinstance(stored.get("lookbookUrls"), dict) else {}
-    return {name: str(saved.get(name) or default) for name, default in LOOKBOOK_DEFAULTS.items()}
+    return {
+        name: str(default if name == "Hastakala" and saved.get(name) == _LEGACY_HASTAKALA_LOOKBOOK_URL else saved.get(name) or default)
+        for name, default in LOOKBOOK_DEFAULTS.items()
+    }
+
+
+def _lookbook_covers(db) -> dict[str, str]:
+    stored = db.admin_settings.find_one({"_id": "store"}) or {}
+    saved = stored.get("lookbookCoverUrls") if isinstance(stored.get("lookbookCoverUrls"), dict) else {}
+    return {name: str(saved.get(name) or default) for name, default in LOOKBOOK_COVER_DEFAULTS.items()}
+
+
+def _lookbook_asset_url(name: str, kind: str, value: str) -> str:
+    if not is_supported_permalink(value):
+        return value
+    return f"/api/lookbooks/{name.lower().replace(' ', '-')}/{kind}"
+
+
+def _lookbook_asset(name_slug: str, kind: str):
+    names = {name.lower().replace(" ", "-"): name for name in LOOKBOOK_DEFAULTS}
+    name = names.get(name_slug)
+    if not name or kind not in {"cover", "file"}:
+        return jsonify({"error": "Lookbook asset not found."}), 404
+    values = _lookbook_covers(database()) if kind == "cover" else _lookbooks(database())
+    permalink = values.get(name, "")
+    try:
+        download = download_file(permalink, database(), prefer_preview=kind == "cover")
+    except WorkDriveFileNotFound:
+        return jsonify({"error": "Lookbook asset not found."}), 404
+    except WorkDriveUnavailable:
+        return jsonify({"error": "Lookbook asset is temporarily unavailable."}), 503
+
+    upstream = download.response
+    content_type = upstream.headers.get("Content-Type", "application/octet-stream").split(";", 1)[0].strip()
+    if kind == "cover" and not content_type.startswith("image/"):
+        upstream.close()
+        return jsonify({"error": "Lookbook cover is not an image."}), 422
+
+    @stream_with_context
+    def content():
+        try:
+            yield from upstream.iter_content(chunk_size=64 * 1024)
+        finally:
+            upstream.close()
+
+    response = Response(content(), content_type=content_type)
+    response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=3600"
+    response.headers["Content-Disposition"] = "inline"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+def _approved_workdrive_assets(db) -> dict[str, dict[str, str]]:
+    assets: dict[str, dict[str, str]] = {}
+    for name, value in _lookbook_covers(db).items():
+        if is_supported_permalink(value):
+            assets[f"{name}:cover"] = {"collection": name, "kind": "cover", "permalink": value}
+    for name, value in _lookbooks(db).items():
+        if is_supported_permalink(value):
+            assets[f"{name}:lookbook"] = {"collection": name, "kind": "lookbook", "permalink": value}
+    return assets
+
+
+def _workdrive_remediation(category: str | None) -> str | None:
+    return {
+        "missing_configuration": "Configure the WorkDrive OAuth client and refresh token on the backend.",
+        "authentication_failed": "Reconnect using credentials and a refresh token from the same Zoho India OAuth client.",
+        "permission_denied": "Reconnect with WorkDrive.files.READ and confirm the connected account can access the file.",
+        "file_not_found": "Confirm that the configured WorkDrive file still exists and is accessible to the connected account.",
+        "unsupported_request": "Verify the configured file identifier and the Zoho India WorkDrive endpoint.",
+        "rate_limited": "Wait before testing WorkDrive again.",
+        "download_unavailable": "Check local network access to the Zoho India download service.",
+        "provider_unavailable": "Zoho WorkDrive is temporarily unavailable.",
+        "oauth_unavailable": "Check local network access to the Zoho India OAuth service.",
+        "oauth_failed": "Reconnect WorkDrive and verify the OAuth client configuration.",
+        "connect_not_configured": "Configure the WorkDrive redirect URI and token-encryption key on the backend.",
+        "credential_store_invalid": "Verify the WorkDrive token-encryption key matches the key used to store the connection.",
+        "invalid_state": "The WorkDrive connection request expired or failed state validation. Start the connection again.",
+        "invalid_callback": "The WorkDrive callback was incomplete. Start the connection again.",
+        "provider_denied": "Zoho did not authorize the WorkDrive connection.",
+    }.get(category)
+
+
+def _safe_workdrive_integration(db) -> dict:
+    status = workdrive_status(db)
+    status["remediation"] = _workdrive_remediation(status.get("last_error_category"))
+    status["approved_assets"] = [
+        {"key": key, "collection": value["collection"], "kind": value["kind"]}
+        for key, value in _approved_workdrive_assets(db).items()
+    ]
+    oauth = workdrive_oauth_configuration()
+    status["oauth_configured"] = oauth
+    status["reconnect_available"] = all(oauth.values())
+    missing = [key for key, valid in oauth.items() if not valid]
+    status["reconnect_reason"] = None if status["reconnect_available"] else "invalid_configuration"
+    status["reconnect_requirement"] = None if status["reconnect_available"] else f"WorkDrive connect prerequisites not satisfied: {', '.join(missing)}."
+    return status
 
 
 def _valid_lookbook_url(value: object) -> bool:
@@ -463,13 +573,106 @@ def get_settings():
 
 @storefront_lookbooks_bp.get("/lookbooks")
 def get_public_lookbooks():
-    return jsonify({"lookbooks": _lookbooks(database())}), 200
+    db = database()
+    lookbooks = _lookbooks(db)
+    covers = _lookbook_covers(db)
+    return jsonify({
+        "lookbooks": lookbooks,
+        "lookbookCovers": covers,
+        "lookbookAssetUrls": {name: _lookbook_asset_url(name, "file", value) for name, value in lookbooks.items()},
+        "lookbookCoverAssetUrls": {name: _lookbook_asset_url(name, "cover", value) for name, value in covers.items()},
+    }), 200
+
+
+@storefront_lookbooks_bp.get("/lookbooks/<name_slug>/<kind>")
+def get_public_lookbook_asset(name_slug: str, kind: str):
+    return _lookbook_asset(name_slug, kind)
+
+
+@admin_bp.get("/integrations/workdrive")
+@requireAdmin
+def get_workdrive_integration():
+    return jsonify({"integration": _safe_workdrive_integration(database())}), 200
+
+
+@admin_bp.post("/integrations/workdrive/test-connection")
+@requireAdmin
+@limiter.limit("10 per minute")
+def test_workdrive_integration():
+    try:
+        test_workdrive_connection(database())
+    except WorkDriveUnavailable as error:
+        integration = _safe_workdrive_integration(database())
+        return jsonify({"ok": False, "error": _workdrive_remediation(error.category), "error_kind": error.category, "integration": integration}), 400
+    return jsonify({"ok": True, "integration": _safe_workdrive_integration(database())}), 200
+
+
+@admin_bp.post("/integrations/workdrive/test-file")
+@requireAdmin
+@limiter.limit("10 per minute")
+def test_workdrive_file():
+    payload = request.get_json(silent=True) or {}
+    asset_key = str(payload.get("asset") or "").strip()
+    assets = _approved_workdrive_assets(database())
+    asset = assets.get(asset_key)
+    if not asset:
+        return jsonify({"ok": False, "error": "Select a configured WorkDrive lookbook asset.", "error_kind": "unapproved_file"}), 400
+    try:
+        download = download_file(asset["permalink"], database(), prefer_preview=asset["kind"] == "cover")
+        content_type = download.response.headers.get("Content-Type", "application/octet-stream").split(";", 1)[0].strip()
+        status_code = download.response.status_code
+        download.response.close()
+    except WorkDriveFileNotFound:
+        integration = _safe_workdrive_integration(database())
+        return jsonify({"ok": False, "error": _workdrive_remediation("file_not_found"), "error_kind": "file_not_found", "integration": integration}), 404
+    except WorkDriveUnavailable as error:
+        integration = _safe_workdrive_integration(database())
+        return jsonify({"ok": False, "error": _workdrive_remediation(error.category), "error_kind": error.category, "integration": integration}), 400
+    return jsonify({
+        "ok": True,
+        "asset": {"key": asset_key, "collection": asset["collection"], "kind": asset["kind"]},
+        "result": {"status": status_code, "content_type": content_type},
+        "integration": _safe_workdrive_integration(database()),
+    }), 200
+
+
+@admin_bp.post("/integrations/workdrive/oauth/start")
+@requireAdmin
+@limiter.limit("10 per hour")
+def start_workdrive_oauth():
+    actor = current_user()
+    try:
+        authorization_url = begin_workdrive_oauth(database(), str(actor["_id"]))
+    except WorkDriveUnavailable as error:
+        return jsonify({"ok": False, "error": _workdrive_remediation(error.category) or "WorkDrive reconnect is not configured.", "error_kind": error.category}), 400
+    return jsonify({"ok": True, "authorization_url": authorization_url}), 200
+
+
+@admin_bp.get("/integrations/workdrive/oauth/callback")
+@limiter.limit("20 per hour")
+def workdrive_oauth_callback():
+    state = str(request.args.get("state") or "")
+    code = str(request.args.get("code") or "")
+    provider_error = str(request.args.get("error") or "")
+    result = "connected"
+    reason = ""
+    if provider_error:
+        result, reason = "error", "provider_denied"
+    else:
+        try:
+            complete_workdrive_oauth(database(), state, code)
+        except WorkDriveUnavailable as error:
+            result, reason = "error", error.category
+    frontend = current_app.config.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+    query = urlencode({"oauth": result, **({"reason": reason} if reason else {})})
+    return redirect(f"{frontend}/admin/integrations/workdrive?{query}", code=302)
 
 
 @admin_bp.get("/lookbooks")
 @requireAdmin
 def get_lookbooks():
-    return jsonify({"lookbooks": _lookbooks(database())}), 200
+    db = database()
+    return jsonify({"lookbooks": _lookbooks(db), "lookbookCovers": _lookbook_covers(db)}), 200
 
 
 @admin_bp.put("/lookbooks")
@@ -477,20 +680,29 @@ def get_lookbooks():
 def update_lookbooks():
     payload = request.get_json(silent=True) or {}
     submitted = payload.get("lookbooks")
+    submitted_covers = payload.get("lookbookCovers")
     if not isinstance(submitted, dict) or set(submitted) != set(LOOKBOOK_DEFAULTS):
         return jsonify({"error": "All active lookbook names are required, and unknown names are not allowed."}), 400
+    if not isinstance(submitted_covers, dict) or set(submitted_covers) != set(LOOKBOOK_COVER_DEFAULTS):
+        return jsonify({"error": "All active lookbook cover URLs are required, and unknown names are not allowed."}), 400
     urls: dict[str, str] = {}
+    cover_urls: dict[str, str] = {}
     for name in LOOKBOOK_DEFAULTS:
         value = str(submitted.get(name) or "").strip()
+        cover_value = str(submitted_covers.get(name) or "").strip()
         if not _valid_lookbook_url(value):
             return jsonify({"error": f"{name} must be a valid HTTP or HTTPS URL, or blank to disable it."}), 400
+        if not _valid_lookbook_url(cover_value):
+            return jsonify({"error": f"{name} cover must be a valid HTTP or HTTPS URL, or blank to disable it."}), 400
         urls[name] = value
+        cover_urls[name] = cover_value
     nonblank = [url for url in urls.values() if url]
     if len(nonblank) != len(set(nonblank)):
         return jsonify({"error": "Each enabled lookbook must have a unique destination URL."}), 400
     actor = current_user()
-    database().admin_settings.update_one({"_id": "store"}, {"$set": {"lookbookUrls": urls, "updatedAt": datetime.now(timezone.utc), "updatedBy": actor["_id"]}}, upsert=True)
-    return jsonify({"lookbooks": _lookbooks(database())}), 200
+    database().admin_settings.update_one({"_id": "store"}, {"$set": {"lookbookUrls": urls, "lookbookCoverUrls": cover_urls, "updatedAt": datetime.now(timezone.utc), "updatedBy": actor["_id"]}}, upsert=True)
+    db = database()
+    return jsonify({"lookbooks": _lookbooks(db), "lookbookCovers": _lookbook_covers(db)}), 200
 
 
 @admin_bp.put("/settings")

@@ -10,6 +10,7 @@ from ...catalog import (
     STOREFRONT_COLLECTION_PROJECTION,
     collection_document,
     collection_view,
+    collection_display_sort_key,
     ensure_catalog_indexes,
     ensure_catalog_seed_once,
     is_excluded_collection,
@@ -30,7 +31,7 @@ catalog_bp = Blueprint("catalog", __name__)
 def storefront_collections():
     db = database()
     existing = [collection for collection in db.collections.find({}) if not is_excluded_collection(collection)]
-    existing.sort(key=lambda collection: (int(collection.get("displayOrder", 9999)), str(collection.get("createdAt") or ""), str(collection.get("_id"))))
+    existing.sort(key=collection_display_sort_key)
     collections = [
         collection_view(db, collection, include_products=False)
         for collection in existing

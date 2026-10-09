@@ -10,6 +10,8 @@ type CollectionHeroProps = {
   collection: Pick<ManagedCollection, 'name' | 'description' | 'season' | 'year' | 'designerNote' | 'collectionNumber' | 'location' | 'campaignInformation'>;
   hero: CollectionHeroConfig;
   titleStyle?: CSSProperties;
+  ctaHref?: string;
+  ctaLabel?: string;
 };
 
 function HeroMedia({ hero }: { hero: CollectionHeroConfig }) {
@@ -51,7 +53,7 @@ function Metadata({ collection, inverse }: { collection: CollectionHeroProps['co
   </dl>;
 }
 
-function HeroCopy({ collection, hero, titleStyle }: CollectionHeroProps) {
+function HeroCopy({ collection, hero, titleStyle, ctaHref, ctaLabel = 'VIEW LOOKBOOK' }: CollectionHeroProps) {
   const inverse = hero.textTheme !== 'dark';
   const featureTitle = hero.titleScale === 'feature';
 
@@ -66,13 +68,13 @@ function HeroCopy({ collection, hero, titleStyle }: CollectionHeroProps) {
     {collection.description ? <p className={`collection-campaign-description ${inverse ? 'text-white/82' : 'text-[#211d19]/72'}`}>{collection.description}</p> : null}
     {collection.designerNote ? <p className={`mt-3 max-w-lg font-display text-lg italic leading-6 ${inverse ? 'text-white/72' : 'text-[#211d19]/65'}`}>{collection.designerNote}</p> : null}
     <Metadata collection={collection} inverse={inverse} />
-    <a href="#collection-products" className={`collection-campaign-cta ${inverse ? 'border-white/55 hover:border-white' : 'border-[#211d19]/35 hover:border-gold hover:text-gold'}`}>
-      {hero.ctaLabel || 'Explore Collection'} <ArrowDown size={14} strokeWidth={1.5} />
-    </a>
+    {ctaHref ? <a href={ctaHref} target={ctaHref.startsWith('http') ? '_blank' : undefined} rel={ctaHref.startsWith('http') ? 'noopener noreferrer' : undefined} className={`collection-campaign-cta focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-gold ${inverse ? 'border-white/55 hover:border-white hover:bg-white hover:text-ink' : 'border-[#211d19]/35 hover:border-gold hover:text-gold'}`}>
+      {ctaLabel} <ArrowDown size={14} strokeWidth={1.5} />
+    </a> : null}
   </motion.div>;
 }
 
-export function CollectionHero({ collection, hero, titleStyle }: CollectionHeroProps) {
+export function CollectionHero({ collection, hero, titleStyle, ctaHref }: CollectionHeroProps) {
   const textPosition = hero.textPosition || 'left';
   const textTheme = hero.textTheme || 'light';
 
@@ -87,7 +89,7 @@ export function CollectionHero({ collection, hero, titleStyle }: CollectionHeroP
     </motion.div>
     <div className="collection-campaign-hero__scrim" aria-hidden="true" />
     <div className={`collection-campaign-hero__content ${textPosition === 'right' ? 'justify-end' : 'justify-start'}`}>
-      <HeroCopy collection={collection} hero={hero} titleStyle={titleStyle} />
+      <HeroCopy collection={collection} hero={hero} titleStyle={titleStyle} ctaHref={ctaHref} />
     </div>
   </section>;
 }

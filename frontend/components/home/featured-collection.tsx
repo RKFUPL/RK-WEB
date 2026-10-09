@@ -24,12 +24,33 @@ const titlePositions = {
   1: { left: '5%', top: '49%', x: '0%', y: '0%', scale: 0.9, opacity: 0.96 },
 } as const;
 
-export function FeaturedCollection() {
+type FeaturedCollectionProps = {
+  title?: string;
+  eyebrow?: string;
+  ctaLabel?: string;
+  onCtaClick?: () => void;
+  secondaryHref?: string;
+  secondaryLabel?: string;
+  introAboveTitle?: boolean;
+};
+
+export function FeaturedCollection({
+  title = 'AAKAAR',
+  eyebrow = 'Our latest collection',
+  ctaLabel = 'Explore our latest collection',
+  onCtaClick,
+  secondaryHref,
+  secondaryLabel = 'View lookbook',
+  introAboveTitle = false,
+}: FeaturedCollectionProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [rotationReset, setRotationReset] = useState(0);
   const [isVisible, setIsVisible] = useState(true);
   const [phase, setPhase] = useState<HeroPhase>(0);
   const activeFrame = bannerFrames[currentIndex];
+  const titlePosition = introAboveTitle
+    ? { ...titlePositions[phase], top: phase === 0 ? '58%' : titlePositions[phase].top }
+    : titlePositions[phase];
 
   const selectFrame = (index: number) => {
     setCurrentIndex(index);
@@ -122,14 +143,14 @@ export function FeaturedCollection() {
         <motion.div
           className="pointer-events-none absolute z-30 whitespace-nowrap"
           initial={titlePositions[0]}
-          animate={titlePositions[phase]}
+          animate={titlePosition}
           transition={{
             duration: 1.8,
             ease: [0.22, 1, 0.36, 1],
           }}
         >
           <h1 className="font-aakaar text-[clamp(4rem,13vw,11rem)] leading-[0.78] tracking-[0.04em] text-[#fff1df] drop-shadow-[0_1px_22px_rgba(0,0,0,0.2)]">
-            AAKAAR
+            {title}
           </h1>
         </motion.div>
 
@@ -137,13 +158,13 @@ export function FeaturedCollection() {
           {phase === 0 ? (
             <motion.p
               key="intro-copy"
-              className="pointer-events-none absolute inset-x-0 top-[58%] z-30 text-center text-[0.68rem] uppercase tracking-[0.46em] text-[#fff1df]/80"
+              className={`pointer-events-none absolute inset-x-0 z-30 text-center text-[0.68rem] uppercase tracking-[0.46em] text-[#fff1df]/80 ${introAboveTitle ? 'top-[38%]' : 'top-[58%]'}`}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.5, delay: 0.35 }}
             >
-              The latest collection
+              {eyebrow}
             </motion.p>
           ) : (
             <motion.div
@@ -158,10 +179,15 @@ export function FeaturedCollection() {
                   Timeless elegance.<br /><em className="text-gold">Modern luxury.</em>
                 </p>
                 <div className="mt-7 flex flex-wrap items-center gap-5">
-                  <p className="text-[clamp(0.6rem,1.2vw,0.78rem)] uppercase tracking-[0.42em] text-[#fff1df]/85">The latest collection</p>
-                  <a href="/collections/aakaar" className="pointer-events-auto inline-flex items-center justify-center border border-gold/70 px-5 py-3 text-[0.62rem] uppercase tracking-[0.28em] text-[#fff1df] transition duration-500 hover:bg-gold hover:text-ink">
-                    Explore our latest collection <span className="ml-3 text-base">→</span>
-                  </a>
+                  <p className="text-[clamp(0.6rem,1.2vw,0.78rem)] uppercase tracking-[0.42em] text-[#fff1df]/85">{eyebrow}</p>
+                  {onCtaClick ? <button type="button" onClick={onCtaClick} className="pointer-events-auto inline-flex items-center justify-center border border-gold/70 px-5 py-3 text-[0.62rem] uppercase tracking-[0.28em] text-[#fff1df] transition duration-500 hover:bg-gold hover:text-ink">
+                    {ctaLabel} <span className="ml-3 text-base">→</span>
+                  </button> : <a href="/collections/aakaar" className="pointer-events-auto inline-flex items-center justify-center border border-gold/70 px-5 py-3 text-[0.62rem] uppercase tracking-[0.28em] text-[#fff1df] transition duration-500 hover:bg-gold hover:text-ink">
+                    {ctaLabel} <span className="ml-3 text-base">→</span>
+                  </a>}
+                  {secondaryHref ? <a href={secondaryHref} target="_blank" rel="noopener noreferrer" className="pointer-events-auto inline-flex items-center justify-center border border-gold/70 px-5 py-3 text-[0.62rem] uppercase tracking-[0.28em] text-[#fff1df] transition duration-500 hover:bg-gold hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-gold">
+                    {secondaryLabel}
+                  </a> : null}
                 </div>
               </div>
 

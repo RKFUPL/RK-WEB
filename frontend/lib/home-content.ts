@@ -16,6 +16,7 @@ export type CollectionPage = {
   summary: string;
   image: string;
   hero?: CollectionPageHero;
+  lookbookHref?: string;
   /** Add the Cloudinary or local font URL here when each collection font is ready. */
   fontFamily: string;
   fontUrl?: string;
@@ -39,11 +40,21 @@ export const homepageHeroVideoUrl = 'https://video.wixstatic.com/video/afed36_dd
 export const runwayHeroVideoUrl = 'https://video.wixstatic.com/video/afed36_2e5b8660523d4d1eaaac8173ecd89d8f/720p/mp4/file.mp4';
 
 export const lookbookUrls = {
+  Aakaar: 'https://workdrive.zoho.in/file/45kaa5bb2ec1299cc4455a639950850e76546',
   Anamika: 'https://lookbook.rashikapoor.co.in/catalog/anamika',
   Espiritu: 'https://lookbook.rashikapoor.co.in/catalog/espiritu-libre',
   Sandook: 'https://lookbook.rashikapoor.co.in/catalog/sandook?page=1',
   Inaara: 'https://lookbook.rashikapoor.co.in/catalog/inaara',
-  Hastakala: 'https://lookbook.rashikapoor.co.in/catalog/hastakala',
+  Hastakala: 'https://workdrive.zoho.in/file/gl0sa74334f9a5230420a9bb10250c4055028',
+} as const;
+
+export const lookbookCoverUrls = {
+  Aakaar: 'https://workdrive.zoho.in/file/45kaa867c2b2ac8014d029e0d6cef5b83bf22',
+  Anamika: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861902/Anamika_ojeh19.png',
+  Espiritu: espirituLibreImageUrl,
+  Sandook: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861901/Sandook_h0rfqg.png',
+  Inaara: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785861901/Inaara_hn30rg.png',
+  Hastakala: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785862112/Hastakala_kcb6la.png',
 } as const;
 
 export const runwayCollections = [
@@ -116,6 +127,7 @@ const collectionPagesUnordered: readonly CollectionPage[] = [
     status: 'Collection',
     summary: 'Craft-led silhouettes with a more artisanal, hand-finished mood.',
     image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785304857/Hasthkalare_hhljut.jpg',
+    lookbookHref: lookbookUrls.Hastakala,
     hero: {
       type: 'image',
       image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1786735890/img-2026-03-04-18-30-01_rfu8cp.png',
@@ -257,11 +269,10 @@ export const featuredLooks = [
 export const lookbookCovers = sortByCollectionOrder([
   {
     title: 'Aakaar',
-    image: featuredCollection.image,
-    href: '/rk-lookbooks',
-    caption: 'The debut chapter is arriving soon.',
+    image: lookbookCoverUrls.Aakaar,
+    href: lookbookUrls.Aakaar,
+    caption: 'The debut chapter.',
     span: 'lg:col-span-4',
-    comingSoon: true,
   },
   {
     title: 'Hastakala',

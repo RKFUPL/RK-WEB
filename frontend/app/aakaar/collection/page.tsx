@@ -9,7 +9,7 @@ export const metadata = pageMetadata(
 );
 
 function CollectionLoading() {
-  return <main className="min-h-screen bg-ivory" aria-label="Loading AAKAAR collection" />;
+  return <main className="min-h-screen bg-ivory" aria-label="Loading Aakaar collection" />;
 }
 
 export default function AakaarCollectionRoute() {

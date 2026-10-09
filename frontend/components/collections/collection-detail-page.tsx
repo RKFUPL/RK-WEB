@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CollectionHero } from '@/components/collections/collection-hero';
 import { StorefrontCollectionProducts } from '@/components/collections/storefront-collection-products';
 import { Footer } from '@/components/home/footer';
+import { FeaturedCollection } from '@/components/home/featured-collection';
 import { StickyHeader } from '@/components/home/sticky-header';
 import type { CatalogProduct, CollectionHeroConfig, ManagedCollection } from '@/lib/catalog';
 import type { CollectionPage } from '@/lib/home-content';
@@ -13,7 +14,9 @@ type StorefrontCollection = ManagedCollection & { products: CatalogProduct[] };
 
 export function CollectionDetailPage({ collection }: { collection: CollectionPage }) {
   const slug = collection.route.replace('/collections/', '');
+  const isAakaar = slug === 'aakaar';
   const [managedCollection, setManagedCollection] = useState<StorefrontCollection | null>(null);
+  const [lookbookUrls, setLookbookUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -30,6 +33,18 @@ export function CollectionDetailPage({ collection }: { collection: CollectionPag
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [slug]);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`${apiBaseUrl}/api/lookbooks`, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Unable to load lookbook destinations.');
+        return response.json() as Promise<{ lookbookAssetUrls?: Record<string, string> }>;
+      })
+      .then((payload) => { if (active) setLookbookUrls(payload.lookbookAssetUrls || {}); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
 
   const fallbackHero = useMemo<CollectionHeroConfig>(() => ({
     type: collection.hero?.type || 'image',
@@ -60,7 +75,10 @@ export function CollectionDetailPage({ collection }: { collection: CollectionPag
     mobileVideo: collection.hero?.mobileVideo || managedCollection?.hero?.mobileVideo || '',
     layout: 'full_bleed',
   };
-  const displayCollection: StorefrontCollection = managedCollection || {
+  const displayCollection: StorefrontCollection = managedCollection ? {
+    ...managedCollection,
+    name: isAakaar ? 'Aakaar' : managedCollection.name,
+  } : {
     id: slug,
     slug,
     name: collection.name,
@@ -71,9 +89,21 @@ export function CollectionDetailPage({ collection }: { collection: CollectionPag
     productCount: 0,
     products: [],
   };
+  const scrollToProducts = () => {
+    document.getElementById('collection-products')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  const lookbookName = managedCollection?.name || collection.name;
+  const lookbookHref = Object.entries(lookbookUrls).find(([name]) => name.toLowerCase() === lookbookName.toLowerCase())?.[1] || '';
   return <main className="bg-ivory text-charcoal">
-    <StickyHeader transparentAtTop transparentTheme={hero.textTheme || 'light'} />
-    <CollectionHero collection={displayCollection} hero={hero} titleStyle={{ fontFamily: 'RK Anamika, var(--font-display), serif' }} />
+    <StickyHeader transparentAtTop transparentTheme={isAakaar ? 'light' : hero.textTheme || 'light'} />
+    {isAakaar ? <FeaturedCollection
+      title="AAKAAR"
+      eyebrow="WELCOME TO OUR NEWEST COLLECTION OF"
+      introAboveTitle
+      ctaLabel="View more"
+      onCtaClick={scrollToProducts}
+      secondaryHref={lookbookHref || undefined}
+    /> : <CollectionHero collection={displayCollection} hero={hero} titleStyle={{ fontFamily: 'RK Anamika, var(--font-display), serif' }} ctaHref={lookbookHref || undefined} />}
     <StorefrontCollectionProducts collection={displayCollection} loading={loading} />
     <Footer />
   </main>;

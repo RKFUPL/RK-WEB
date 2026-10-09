@@ -1,7 +1,6 @@
 'use client';
 
-import Link from 'next/link';
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { FeaturedCollection } from '@/components/home/featured-collection';
 import { Footer } from '@/components/home/footer';
 import { SectionShell } from '@/components/home/section-shell';
@@ -39,12 +38,17 @@ type AakaarApiProduct = {
 
 export function AakaarPage() {
   const [featuredProducts, setFeaturedProducts] = useState([...previewProducts]);
+  const productsRef = useRef<HTMLDivElement | null>(null);
+
+  const scrollToProducts = () => {
+    productsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   useEffect(() => {
     let active = true;
     fetch(`${apiBaseUrl}/api/catalog/collections/aakaar`, { cache: 'no-store' })
       .then(async (response) => {
-        if (!response.ok) throw new Error('Unable to load AAKAAR products.');
+        if (!response.ok) throw new Error('Unable to load Aakaar products.');
         const payload = await response.json() as { collection?: { products?: AakaarApiProduct[] } };
         return payload.collection?.products || [];
       })
@@ -64,7 +68,12 @@ export function AakaarPage() {
     <main className="aakaar-page min-h-screen bg-ivory text-charcoal">
       <AakaarLightModeStart />
       <StickyHeader transparentAtTop />
-      <FeaturedCollection />
+      <FeaturedCollection
+        title="Aakaar"
+        eyebrow="WELCOME TO OUR NEWEST COLLECTION OF"
+        ctaLabel="View more"
+        onCtaClick={scrollToProducts}
+      />
 
       <section aria-labelledby="aakaar-coming-soon" className="bg-ivory text-charcoal dark:bg-[#0b0b0b] dark:text-[#f5f2ee]">
         <SectionShell className="pb-24 pt-20 lg:pb-32 lg:pt-28">
@@ -78,7 +87,7 @@ export function AakaarPage() {
             </p>
           </header>
 
-          <div className="mt-16 grid gap-6 md:grid-cols-3 lg:mt-20 lg:gap-8">
+          <div ref={productsRef} id="aakaar-products" className="mt-16 grid scroll-mt-24 gap-6 md:grid-cols-3 lg:mt-20 lg:scroll-mt-28 lg:gap-8">
             {featuredProducts.map((product, index) => (
               <article key={product.styleCode} className="group min-w-0">
                 <div className="aspect-[3/4] overflow-hidden rounded-[14px] bg-sand dark:bg-[#181513]">
@@ -103,9 +112,9 @@ export function AakaarPage() {
           </div>
 
           <div className="mt-12 text-center lg:mt-16">
-            <Link href="/aakaar/collection" className="inline-flex items-center gap-3 border-b border-charcoal/35 pb-2 text-[0.6rem] uppercase tracking-[0.28em] text-charcoal transition hover:border-gold hover:text-gold dark:border-white/35 dark:text-[#f5f2ee]">
+            <button type="button" onClick={scrollToProducts} className="inline-flex items-center gap-3 border-b border-charcoal/35 pb-2 text-[0.6rem] uppercase tracking-[0.28em] text-charcoal transition hover:border-gold hover:text-gold dark:border-white/35 dark:text-[#f5f2ee]">
               View more <span aria-hidden="true" className="text-base leading-none">→</span>
-            </Link>
+            </button>
           </div>
 
           <div className="mt-12 border-t border-black/10 pt-10 text-center dark:border-white/10 lg:mt-16">
