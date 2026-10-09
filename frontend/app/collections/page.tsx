@@ -15,6 +15,8 @@ import { cloudinaryImageUrl } from '@/lib/utils';
 
 type CollectionCard = ManagedCollection & { image: string; summary?: string; fontFamily?: string };
 
+const hastakalaLookbookCover = '/api/lookbooks/hastakala/cover';
+
 function editorialFor(collection: ManagedCollection) {
   return collectionGalleryPages.find((item) => {
     const editorialSlug = item.route.replace(/^\/collections\//, '');
@@ -57,11 +59,15 @@ export default function CollectionsPage() {
 
   const cards = useMemo<CollectionCard[]>(() => collections.map((collection) => {
     const editorial = editorialFor(collection);
+    const normalizedName = collection.name.trim().toLowerCase();
     return {
       ...collection,
-      image: collection.name.trim().toLowerCase() === 'aakaar'
-        ? editorial?.image || collection.hero?.image || collection.heroImage || ''
-        : collection.hero?.image || collection.heroImage || editorial?.hero?.image || editorial?.image || '',
+      name: normalizedName === 'aakaar' ? 'Aakaar' : collection.name,
+      image: normalizedName === 'hastakala'
+        ? hastakalaLookbookCover
+        : normalizedName === 'aakaar'
+          ? editorial?.image || collection.hero?.image || collection.heroImage || ''
+          : collection.hero?.image || collection.heroImage || editorial?.hero?.image || editorial?.image || '',
       summary: collection.description || editorial?.summary,
       fontFamily: 'RK Anamika',
     };
