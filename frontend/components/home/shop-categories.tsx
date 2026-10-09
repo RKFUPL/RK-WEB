@@ -5,6 +5,8 @@ import { categoryItems } from '@/lib/home-content';
 import { fetchCatalogCollections } from '@/lib/catalog-client';
 import { CategoryCard } from './category-card';
 
+const hastakalaLookbookCover = '/api/lookbooks/hastakala/cover';
+
 export function ShopCategories() {
   const [collectionRoutes, setCollectionRoutes] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -55,7 +57,7 @@ export function ShopCategories() {
 
           <div className="collection-editorial-grid grid w-full max-w-[44rem] grid-cols-2 gap-4 sm:grid-cols-3 lg:justify-self-end">
             {categoryItems.map((item, index) => (
-              <CategoryCard key={item.title} title={item.title} image={item.image} href={collectionRoutes[item.title.toLowerCase()] || item.href} index={index} comingSoon={item.comingSoon} />
+              <CategoryCard key={item.title} title={item.title} image={item.title === 'Hastakala' ? hastakalaLookbookCover : item.image} href={collectionRoutes[item.title.toLowerCase()] || item.href} index={index} comingSoon={item.comingSoon} />
             ))}
           </div>
         </div>
