@@ -39,7 +39,7 @@ export function CategoryCard({ title, image, href, index = 0, comingSoon = false
           </div>
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent opacity-90" />
-        {comingSoon ? <div className="absolute inset-0 grid place-items-center bg-black/12"><span className="px-4 py-3 text-center text-[0.55rem] uppercase tracking-[0.34em] text-white drop-shadow-[0_1px_10px_rgba(0,0,0,.7)]">Coming<br />Soon</span></div> : null}
+        {comingSoon ? <div className="absolute inset-0 grid place-items-center bg-black/12"><span className="px-4 py-3 text-center text-[0.55rem] uppercase tracking-[0.34em] text-white drop-shadow-[0_1px_10px_rgba(0,0,0,.7)]"></span></div> : null}
       </div>
 
       <div className="absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 p-4 text-white sm:p-5">
