@@ -71,7 +71,7 @@ export function AakaarPage() {
       <FeaturedCollection
         title="Aakaar"
         eyebrow="WELCOME TO OUR NEWEST COLLECTION OF"
-        ctaLabel="View more"
+        ctaLabel="VIEW PRODUCTS"
         onCtaClick={scrollToProducts}
       />
 
@@ -113,7 +113,7 @@ export function AakaarPage() {
 
           <div className="mt-12 text-center lg:mt-16">
             <button type="button" onClick={scrollToProducts} className="inline-flex items-center gap-3 border-b border-charcoal/35 pb-2 text-[0.6rem] uppercase tracking-[0.28em] text-charcoal transition hover:border-gold hover:text-gold dark:border-white/35 dark:text-[#f5f2ee]">
-              View more <span aria-hidden="true" className="text-base leading-none">→</span>
+              VIEW PRODUCTS <span aria-hidden="true" className="text-base leading-none">↓</span>
             </button>
           </div>
 

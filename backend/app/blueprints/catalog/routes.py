@@ -10,12 +10,14 @@ from ...catalog import (
     STOREFRONT_COLLECTION_PROJECTION,
     collection_document,
     collection_view,
+    collection_product_count,
     collection_display_sort_key,
     ensure_catalog_indexes,
     ensure_catalog_seed_once,
     is_excluded_collection,
     is_runway_collection,
     product_document,
+    product_card_view,
     product_is_runway,
     product_view,
 )
@@ -26,6 +28,112 @@ from ...workdrive import WorkDriveFileNotFound, WorkDriveUnavailable, download_f
 
 
 catalog_bp = Blueprint("catalog", __name__)
+
+
+def _normalised_values(value):
+    values = value if isinstance(value, list) else [value]
+    return [str(item or "").strip() for item in values if str(item or "").strip()]
+
+
+def _shop_product_record(product, memberships):
+    record = product_card_view(product, media_limit=2)
+    record["collections"] = memberships
+    record["collectionIds"] = [item["id"] for item in memberships]
+    record["collectionSlugs"] = [item["slug"] for item in memberships]
+    attributes = product.get("attributes") if isinstance(product.get("attributes"), dict) else {}
+    for key in ("fabric", "material", "occasion"):
+        if attributes.get(key):
+            record["attributes"][key] = attributes[key]
+    record["fulfilmentMode"] = "ready_to_ship" if record.get("availability") == "in_stock" and int(record.get("stock") or 0) > 0 else "made_to_order"
+    return record
+
+
+def _shop_matches(record, *, query="", category="", colour="", size="", collection="", fabric="", fulfilment="", minimum=None, maximum=None):
+    attributes = record.get("attributes") if isinstance(record.get("attributes"), dict) else {}
+    variants = record.get("variants") if isinstance(record.get("variants"), list) else []
+    colours = _normalised_values(attributes.get("colors") or attributes.get("color")) + [str(item.get("colour") or "") for item in variants]
+    sizes = _normalised_values(attributes.get("sizes")) + [str(size) for item in variants for size in (item.get("sizes") or [])]
+    collections = record.get("collections") if isinstance(record.get("collections"), list) else []
+    searchable = " ".join([
+        str(record.get("name") or ""), str(record.get("sku") or ""), str(record.get("styleCode") or ""),
+        str(record.get("productCode") or ""), str(record.get("category") or ""), str(attributes.get("fabric") or ""),
+        *colours, *(str(item.get("sku") or "") for item in variants), *(str(item.get("name") or "") for item in collections),
+    ]).casefold()
+    price = record.get("price")
+    if query and query.casefold() not in searchable:
+        return False
+    if category and str(record.get("category") or "").casefold() != category.casefold():
+        return False
+    if colour and not any(item.casefold() == colour.casefold() for item in colours):
+        return False
+    if size and not any(item.casefold() == size.casefold() for item in sizes):
+        return False
+    if collection and not any(collection.casefold() in {str(item.get("id") or "").casefold(), str(item.get("slug") or "").casefold()} for item in collections):
+        return False
+    if fabric and str(attributes.get("fabric") or "").casefold() != fabric.casefold():
+        return False
+    if fulfilment and record.get("fulfilmentMode") != fulfilment:
+        return False
+    if minimum is not None and (price is None or price < minimum):
+        return False
+    if maximum is not None and (price is None or price > maximum):
+        return False
+    return True
+
+
+@catalog_bp.get("/products")
+def storefront_products():
+    db = database()
+    collections = [item for item in db.collections.find({}) if not is_excluded_collection(item)]
+    memberships = {}
+    featured_order = {}
+    for collection in collections:
+        identity = {"id": str(collection.get("_id") or ""), "name": str(collection.get("name") or ""), "slug": str(collection.get("slug") or "")}
+        for ref in collection.get("productRefs") or []:
+            product_id = str(ref.get("productId") or "") if isinstance(ref, dict) else ""
+            if not product_id:
+                continue
+            memberships.setdefault(product_id, []).append(identity)
+            featured_order[product_id] = min(featured_order.get(product_id, 10**9), int(ref.get("displayOrder") or 0))
+    products = [
+        product for product in db.products.find({"status": {"$ne": "archived"}, "isActive": {"$ne": False}})
+        if product_has_visible_variants(product)
+    ]
+    records = [_shop_product_record(product, memberships.get(str(product.get("_id") or ""), [])) for product in products]
+    def facet_values(values):
+        return sorted({str(value).strip() for value in values if str(value or "").strip()}, key=str.casefold)
+    facets = {
+        "categories": facet_values(item.get("category") for item in records),
+        "colours": facet_values(value for item in records for value in _normalised_values((item.get("attributes") or {}).get("colors") or (item.get("attributes") or {}).get("color"))),
+        "sizes": facet_values(value for item in records for value in _normalised_values((item.get("attributes") or {}).get("sizes"))),
+        "fabrics": facet_values((item.get("attributes") or {}).get("fabric") for item in records),
+        "collections": sorted({(collection["id"], collection["name"], collection["slug"]) for item in records for collection in item.get("collections", [])}, key=lambda value: value[1].casefold()),
+    }
+    def number(name):
+        raw = request.args.get(name, "").strip()
+        try:
+            return float(raw) if raw else None
+        except ValueError:
+            return None
+    filters = {key: request.args.get(key, "").strip() for key in ("q", "category", "colour", "size", "collection", "fabric", "fulfilment")}
+    records = [record for record in records if _shop_matches(record, query=filters["q"], category=filters["category"], colour=filters["colour"], size=filters["size"], collection=filters["collection"], fabric=filters["fabric"], fulfilment=filters["fulfilment"], minimum=number("minPrice"), maximum=number("maxPrice"))]
+    sort = request.args.get("sort", "featured")
+    if sort == "newest":
+        records.sort(key=lambda item: (str(item.get("createdAt") or ""), item["id"]), reverse=True)
+    elif sort in {"price_asc", "price_desc"}:
+        records.sort(key=lambda item: (item.get("price") is None, item.get("price") or 0, item["id"]), reverse=sort == "price_desc")
+    else:
+        records.sort(key=lambda item: (featured_order.get(item["id"], 10**9), item.get("displayOrder", 10**9), item["id"]))
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+        page_size = min(60, max(1, int(request.args.get("pageSize", 24))))
+    except ValueError:
+        page, page_size = 1, 24
+    total = len(records)
+    start = (page - 1) * page_size
+    response = jsonify({"products": records[start:start + page_size], "count": total, "page": page, "pageSize": page_size, "facets": facets})
+    response.headers["Cache-Control"] = "public, max-age=0, s-maxage=30, stale-while-revalidate=120"
+    return response, 200
 
 
 @catalog_bp.get("/collections")
@@ -236,10 +344,7 @@ def storefront_runway():
         product_limit=product_limit,
         product_offset=(page - 1) * product_limit if raw_limit is None else 0,
     )
-    total_products = len([
-        ref for ref in (collection.get("productRefs") or [])
-        if isinstance(ref, dict) and ref.get("productId")
-    ])
+    total_products = collection_product_count(db, collection)
     payload["productCount"] = total_products
     payload["pagination"] = {
         "page": page,
@@ -296,10 +401,7 @@ def storefront_collection(slug: str):
         colour=colour_filter,
     )
     if raw_page is not None:
-        total_products = len([
-            ref for ref in (collection.get("productRefs") or [])
-            if isinstance(ref, dict) and ref.get("productId")
-        ])
+        total_products = collection_product_count(db, collection, style=style_filter, colour=colour_filter)
         payload["productCount"] = total_products
         payload["pagination"] = {
             "page": page,

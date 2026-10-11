@@ -80,11 +80,11 @@ export function AdminLookbooks() {
 
   if (loading) return <p className="mt-10 text-sm text-[#8a9098]">Loading lookbook destinations…</p>;
   const dirty = JSON.stringify(form) !== JSON.stringify(saved) || JSON.stringify(covers) !== JSON.stringify(savedCovers);
-  return <div className="mt-10 space-y-5">
-    <div><p className="text-[10px] uppercase tracking-[.2em] text-[#9a7a4d]">Content</p><h2 className="mt-2 text-2xl font-semibold">Lookbooks</h2><p className="mt-2 text-sm text-[#8a9098]">Manage the cover and destination used by each public lookbook card.</p></div>
+  return <div className="mt-8 space-y-5">
+    <div><p className="text-[10px] font-semibold uppercase tracking-[.2em] text-[var(--admin-gold)]">Content</p><h2 className="mt-2 text-3xl">Lookbooks</h2><p className="mt-2 text-sm text-[var(--admin-muted)]">Manage the cover and destination used by each public lookbook card.</p></div>
     {message ? <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{message}</p> : null}
     {error ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
-    <div className="space-y-4">{names.map((name) => <section key={name} className="rounded-2xl border border-black/[.06] bg-white p-6 dark:border-white/[.08] dark:bg-[#191a1f]">
+    <div className="grid gap-4 xl:grid-cols-2">{names.map((name) => <section key={name} className="admin-panel p-6">
       <div className="flex flex-wrap items-start justify-between gap-4"><div><h3 className="text-base font-semibold">{name}</h3><p className="mt-1 text-xs text-[#8a9098]">Public lookbook settings</p></div>{form[name] ? <a href={form[name]} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-[10px] uppercase tracking-[.14em] text-[#9a7a4d]">Open link <ExternalLink size={13} /></a> : <span className="text-xs text-[#8a9098]">Disabled</span>}</div>
       <label className="mt-5 block text-xs text-[#8a9098]">Cover / public card URL<input aria-label={`${name} cover URL`} value={covers[name]} onChange={(event) => updateCover(name, event.target.value)} placeholder="https://…" className="mt-2 w-full rounded-lg border border-black/10 bg-white px-3 py-3 text-sm text-current outline-none transition focus:border-[#9a7a4d] dark:border-white/10 dark:bg-[#121317]" /></label>
       <label className="mt-4 block text-xs text-[#8a9098]">Opened / public lookbook URL<input aria-label={`${name} destination URL`} value={form[name]} onChange={(event) => update(name, event.target.value)} placeholder="https://…" className="mt-2 w-full rounded-lg border border-black/10 bg-white px-3 py-3 text-sm text-current outline-none transition focus:border-[#9a7a4d] dark:border-white/10 dark:bg-[#121317]" /></label>

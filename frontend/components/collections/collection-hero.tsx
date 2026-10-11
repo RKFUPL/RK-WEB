@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowDown } from 'lucide-react';
+import { ArrowDown, ArrowUpRight } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
 import type { CSSProperties } from 'react';
 import type { CollectionHeroConfig, ManagedCollection } from '@/lib/catalog';
@@ -12,6 +12,7 @@ type CollectionHeroProps = {
   titleStyle?: CSSProperties;
   ctaHref?: string;
   ctaLabel?: string;
+  onProductsClick?: () => void;
 };
 
 function HeroMedia({ hero }: { hero: CollectionHeroConfig }) {
@@ -53,7 +54,7 @@ function Metadata({ collection, inverse }: { collection: CollectionHeroProps['co
   </dl>;
 }
 
-function HeroCopy({ collection, hero, titleStyle, ctaHref, ctaLabel = 'VIEW LOOKBOOK' }: CollectionHeroProps) {
+function HeroCopy({ collection, hero, titleStyle, ctaHref, ctaLabel = 'VIEW LOOKBOOK', onProductsClick }: CollectionHeroProps) {
   const inverse = hero.textTheme !== 'dark';
   const featureTitle = hero.titleScale === 'feature';
 
@@ -68,13 +69,18 @@ function HeroCopy({ collection, hero, titleStyle, ctaHref, ctaLabel = 'VIEW LOOK
     {collection.description ? <p className={`collection-campaign-description ${inverse ? 'text-white/82' : 'text-[#211d19]/72'}`}>{collection.description}</p> : null}
     {collection.designerNote ? <p className={`mt-3 max-w-lg font-display text-lg italic leading-6 ${inverse ? 'text-white/72' : 'text-[#211d19]/65'}`}>{collection.designerNote}</p> : null}
     <Metadata collection={collection} inverse={inverse} />
-    {ctaHref ? <a href={ctaHref} target={ctaHref.startsWith('http') ? '_blank' : undefined} rel={ctaHref.startsWith('http') ? 'noopener noreferrer' : undefined} className={`collection-campaign-cta focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-gold ${inverse ? 'border-white/55 hover:border-white hover:bg-white hover:text-ink' : 'border-[#211d19]/35 hover:border-gold hover:text-gold'}`}>
-      {ctaLabel} <ArrowDown size={14} strokeWidth={1.5} />
-    </a> : null}
+    <div className="collection-campaign-actions">
+      {ctaHref ? <a href={ctaHref} target={ctaHref.startsWith('http') ? '_blank' : undefined} rel={ctaHref.startsWith('http') ? 'noopener noreferrer' : undefined} className="collection-campaign-button collection-campaign-button--primary">
+        {ctaLabel} <ArrowUpRight aria-hidden="true" size={14} strokeWidth={1.5} />
+      </a> : null}
+      {onProductsClick ? <button type="button" onClick={onProductsClick} className={`collection-campaign-button collection-campaign-button--secondary ${inverse ? 'collection-campaign-button--light' : 'collection-campaign-button--dark'}`}>
+        VIEW PRODUCTS <ArrowDown aria-hidden="true" size={14} strokeWidth={1.5} />
+      </button> : null}
+    </div>
   </motion.div>;
 }
 
-export function CollectionHero({ collection, hero, titleStyle, ctaHref }: CollectionHeroProps) {
+export function CollectionHero({ collection, hero, titleStyle, ctaHref, onProductsClick }: CollectionHeroProps) {
   const textPosition = hero.textPosition || 'left';
   const textTheme = hero.textTheme || 'light';
 
@@ -89,7 +95,7 @@ export function CollectionHero({ collection, hero, titleStyle, ctaHref }: Collec
     </motion.div>
     <div className="collection-campaign-hero__scrim" aria-hidden="true" />
     <div className={`collection-campaign-hero__content ${textPosition === 'right' ? 'justify-end' : 'justify-start'}`}>
-      <HeroCopy collection={collection} hero={hero} titleStyle={titleStyle} ctaHref={ctaHref} />
+      <HeroCopy collection={collection} hero={hero} titleStyle={titleStyle} ctaHref={ctaHref} onProductsClick={onProductsClick} />
     </div>
   </section>;
 }

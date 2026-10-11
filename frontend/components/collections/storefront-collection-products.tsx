@@ -15,9 +15,10 @@ function unique(values: Array<string | undefined>) {
   return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))].sort();
 }
 
-export function StorefrontCollectionProducts({ collection, loading = false, productHref }: {
+export function StorefrontCollectionProducts({ collection, loading = false, error = '', productHref }: {
   collection: (ManagedCollection & { products: CatalogProduct[] }) | null;
   loading?: boolean;
+  error?: string;
   productHref?: (product: CatalogProduct) => string;
 }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -56,7 +57,7 @@ export function StorefrontCollectionProducts({ collection, loading = false, prod
 
   const resetFilters = () => { setCategory(''); setSize(''); setColor(''); setAvailability(''); setMaxPrice(''); };
 
-  return <section id="collection-products" className="scroll-mt-20 border-t border-black/10 bg-ivory px-4 pb-20 pt-12 text-charcoal dark:border-white/10 sm:px-8 sm:pb-20 sm:pt-14 lg:px-12 lg:pb-24 lg:pt-16">
+  return <section id="collection-products" className="scroll-mt-28 border-t border-black/10 bg-ivory px-4 pb-20 pt-12 text-charcoal dark:border-white/10 sm:px-8 sm:pb-20 sm:pt-14 lg:scroll-mt-32 lg:px-12 lg:pb-24 lg:pt-16">
     <div className="mx-auto max-w-[100rem]">
       <div className="flex flex-col justify-between gap-8 border-b border-black/12 pb-7 dark:border-white/15 md:flex-row md:items-end">
         <div>
@@ -79,7 +80,7 @@ export function StorefrontCollectionProducts({ collection, loading = false, prod
         {activeFilterCount ? <button type="button" onClick={resetFilters} className="inline-flex items-center gap-2 justify-self-start text-[0.56rem] uppercase tracking-[0.24em] text-gold lg:col-span-5"><X size={13} />Clear filters</button> : null}
       </div></motion.div> : null}</AnimatePresence>
 
-      {loading ? <div className="mt-9 grid grid-cols-2 gap-x-3 gap-y-10 md:grid-cols-3 md:gap-x-6 lg:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <div key={index} className="animate-pulse"><div className="aspect-[3/4] bg-sand" /><div className="mt-4 h-3 w-1/3 bg-sand" /><div className="mt-3 h-5 w-3/4 bg-sand" /></div>)}</div> : visibleProducts.length ? <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.08 }} variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.07 } } }} className="mt-9 grid grid-cols-2 gap-x-3 gap-y-10 md:grid-cols-3 md:gap-x-6 md:gap-y-14 lg:grid-cols-4 lg:gap-x-7">
+      {loading ? <div className="mt-9 grid grid-cols-2 gap-x-3 gap-y-10 md:grid-cols-3 md:gap-x-6 lg:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <div key={index} className="animate-pulse"><div className="aspect-[3/4] bg-sand" /><div className="mt-4 h-3 w-1/3 bg-sand" /><div className="mt-3 h-5 w-3/4 bg-sand" /></div>)}</div> : error ? <div role="alert" className="mt-12 border border-red-900/15 bg-red-950/[.025] px-6 py-16 text-center"><p className="font-display text-2xl">This collection could not be loaded.</p><p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-charcoal/60">{error} Please refresh the page or try again shortly.</p></div> : visibleProducts.length ? <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, amount: 0.08 }} variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.07 } } }} className="mt-9 grid grid-cols-2 gap-x-3 gap-y-10 md:grid-cols-3 md:gap-x-6 md:gap-y-14 lg:grid-cols-4 lg:gap-x-7">
         {visibleProducts.map((product) => <motion.div key={product.id} variants={{ hidden: { opacity: 0, y: 18 }, visible: { opacity: 1, y: 0, transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] } } }}><CollectionProductCard product={product} href={productHref?.(product)} /></motion.div>)}
       </motion.div> : <div className="mt-12 border border-black/10 px-6 py-16 text-center dark:border-white/10"><p className="font-display text-2xl">{products.length ? 'No pieces match these filters.' : 'No products in this collection yet.'}</p>{activeFilterCount ? <button type="button" onClick={resetFilters} className="mt-5 text-[0.6rem] uppercase tracking-[0.25em] text-gold">Clear filters</button> : null}</div>}
     </div>

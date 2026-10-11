@@ -76,7 +76,7 @@ class CredentialSyncTests(unittest.TestCase):
         response.read.return_value = ('{"event_id": "' + event_id + '", "event_type": "PASSWORD_CHANGED", "status": "APPLIED", "applied": true, "credential_version": 5}').encode()
         response.__enter__.return_value = response
         urlopen.return_value = response
-        self.app.config.update(STOCK_CREDENTIAL_SYNC_URL="http://127.0.0.1:5999", STOCK_CREDENTIAL_SYNC_SECRET="service-secret", CREDENTIAL_SYNC_HANDOFF_SECRET="handoff-secret")
+        self.app.config.update(STOCK_CREDENTIAL_SYNC_URL="http://127.0.0.1:5999", STOCK_CREDENTIAL_SYNC_SECRET="test-stock-credential-sync-secret-32", CREDENTIAL_SYNC_HANDOFF_SECRET="test-credential-handoff-secret-32")
         with self.app.app_context():
             event = sync_event(self.database, "PASSWORD_CHANGED", self.user, password="temporary-in-memory-only", version=5)
         stored = self.database.credential_sync_outbox.find_one({"_id": event["_id"]})

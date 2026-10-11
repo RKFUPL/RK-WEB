@@ -5,7 +5,8 @@ from types import SimpleNamespace
 import mongomock
 from bson import ObjectId
 
-from app.catalog_sync_v1 import EVENT_TYPES, CatalogEventError, apply_incoming, complete, enqueue, make_event, manifest, queue_repair_events, validate_event
+from app.catalog_sync_v1 import EVENT_TYPES, CatalogEventError, apply_incoming, complete, enqueue, make_event, manifest, queue_repair_events, rejection_ack, validate_event
+from app.blueprints.staff.routes import _normalize_catalog_media, _queue_media_delta, _sync_variant_media_catalog
 
 
 class Collection:
@@ -69,6 +70,20 @@ class CatalogSyncContractTests(unittest.TestCase):
         validate_event(make_event("MEDIA_UPDATED", "media", "wd-1", 1, workdrive))
         with self.assertRaises(CatalogEventError):
             validate_event(make_event("MEDIA_UPDATED", "media", "wd-2", 1, {**workdrive, "media_id": "wd-2", "permalink": "https://workdrive.zoho.in/embed/abc"}))
+        with self.assertRaises(CatalogEventError):
+            validate_event(make_event("MEDIA_UPDATED", "media", "wd-3", 1, {**workdrive, "media_id": "wd-3", "permalink": "https://evil.example/file/abc"}))
+
+    def test_colour_gallery_uses_stable_variant_identity_and_switches_independently(self):
+        product = {"catalogMedia": [], "variants": []}
+        variants = [
+            {"id": "colour:red", "colour": "Red", "colourSlug": "red", "images": ["https://workdrive.zoho.in/file/red-1"]},
+            {"id": "colour:blue", "colour": "Blue", "colourSlug": "blue", "images": ["https://workdrive.zoho.in/file/blue-1", "https://workdrive.zoho.in/file/blue-2"]},
+        ]
+        media = _sync_variant_media_catalog(product, variants)
+        self.assertEqual([item["variant_id"] for item in media], ["colour:red", "colour:blue", "colour:blue"])
+        self.assertEqual([item["colour_slug"] for item in media], ["red", "blue", "blue"])
+        self.assertEqual(len({item["id"] for item in media}), 3)
+        self.assertEqual(_sync_variant_media_catalog(product, variants), media)
 
     def test_outbox_is_metadata_only_and_idempotent(self):
         db = Database(); event = make_event("PRODUCT_CREATED", "product", "web-1", 1, {"sku": "WEB-1", "name": "Web product"})
@@ -86,14 +101,39 @@ class CatalogSyncContractTests(unittest.TestCase):
         db = Database(); event = stock_event()
         ack, code = apply_incoming(db, event)
         self.assertEqual((ack["status"], code), ("APPLIED", 200))
+        self.assertEqual(ack["schema_version"], event["schema_version"])
+        self.assertEqual(ack["event_id"], event["event_id"])
+        self.assertEqual(ack["entity_type"], event["entity_type"])
+        self.assertEqual(ack["source_id"], event["source_id"])
+        self.assertEqual(ack["entity_version"], event["entity_version"])
+        self.assertTrue(ObjectId.is_valid(ack["local_entity_id"]))
         duplicate, code = apply_incoming(db, event)
         self.assertEqual((duplicate["status"], code), ("ALREADY_APPLIED", 200))
+        self.assertEqual(duplicate["local_entity_id"], ack["local_entity_id"])
         stale, code = apply_incoming(db, stock_event(version=1))
         self.assertEqual((stale["status"], code), ("STALE", 200))
+        self.assertEqual(stale["local_entity_id"], ack["local_entity_id"])
         mapping = db.catalog_sync_identities.documents[0]; mapping["versions"]["rk-web"] = 3
         conflict, code = apply_incoming(db, stock_event(version=2, observed={"rk-stock": 2, "rk-web": 1}))
         self.assertEqual((conflict["status"], code), ("CONFLICT", 409))
         self.assertEqual(len(db.catalog_sync_conflicts.documents), 1)
+
+    def test_unmapped_media_rejection_is_correlated_without_applying(self):
+        db = Database()
+        event = make_event("MEDIA_CREATED", "media", "orphan-media", 1, {
+            "media_id": "orphan-media", "provider": "zoho_workdrive",
+            "owner_system": "rk-stock", "permalink": "https://workdrive.zoho.in/file/orphan",
+            "position": 0, "is_primary": False,
+            "product_identity": {"origin_system": "rk-web", "origin_id": "missing-web-product"},
+        })
+        event.update({"source_system": "rk-stock", "source_id": "orphan-media", "entity_identity": {"origin_system": "rk-stock", "origin_id": "orphan-media"}})
+        with self.assertRaises(CatalogEventError):
+            apply_incoming(db, event)
+        acknowledgement = rejection_ack(event, "Mapped product is required before relationship events.")
+        self.assertEqual(acknowledgement["status"], "INVALID")
+        for key in ("schema_version", "event_id", "entity_type", "source_id", "entity_version"):
+            self.assertEqual(acknowledgement[key], event[key])
+        self.assertEqual(acknowledgement["message"], "Mapped product is required before relationship events.")
 
     def test_stock_product_is_stored_locally_without_operational_fields(self):
         db = Database(); event = stock_event(payload={"sku": "CK-301", "name": "CK-301", "description": "Local storefront copy", "price": 1200, "category": "Couture", "active": True})
@@ -149,7 +189,43 @@ class CatalogSyncContractTests(unittest.TestCase):
         self.assertEqual(apply_incoming(db, update)[0]["status"], "APPLIED")
         stored = db.products.find_one({"_id": product_id})["catalogMedia"]
         self.assertEqual(len(stored), 1); self.assertEqual(stored[0]["position"], 3); self.assertFalse(stored[0]["is_primary"]); self.assertEqual(stored[0]["description"], "Updated")
+        removed_payload = {**changed, "owner_system": "rk-stock"}
+        removed = make_event("MEDIA_DELETED", "media", "cloud-1", 4, removed_payload, observed_versions={"rk-stock": 4, "rk-web": 0}, identity={"origin_system": "rk-stock", "origin_id": "cloud-1"}); removed["source_system"] = "rk-stock"
+        self.assertEqual(apply_incoming(db, removed)[0]["status"], "APPLIED")
+        self.assertEqual(db.products.find_one({"_id": product_id})["catalogMedia"], [])
         self.assertEqual(queue_repair_events(db, manifest(db)["items"]), [])
+
+    def test_web_product_document_media_delta_queues_create_and_delete(self):
+        db = mongomock.MongoClient().test
+        product_id = ObjectId()
+        media = {"id": "wd-web-1", "provider": "zoho_workdrive", "owner_system": "rk-web", "permalink": "https://workdrive.zoho.in/file/photo-one", "url": "https://workdrive.zoho.in/file/photo-one", "type": "image", "position": 0, "is_primary": True}
+        product = {"_id": product_id, "catalogMedia": [media], "catalogVersions": {"rk-web": 1, "rk-stock": 0}}
+        db.products.insert_one(product)
+        created = _queue_media_delta(db, {"catalogMedia": []}, product)
+        self.assertEqual([event["event_type"] for event in created], ["MEDIA_CREATED"])
+        self.assertEqual(created[0]["payload"]["product_identity"]["origin_id"], str(product_id))
+        removed = _queue_media_delta(db, product, {**product, "catalogMedia": []})
+        self.assertEqual([event["event_type"] for event in removed], ["MEDIA_DELETED"])
+        self.assertEqual(db.catalog_sync_outbox.count_documents({"entity_type": "media"}), 2)
+
+    def test_workdrive_media_normalization_orders_and_rejects_unsafe_links(self):
+        structured, legacy = _normalize_catalog_media(["https://workdrive.zoho.in/file/first", "https://workdrive.zohoexternal.in/file/second"])
+        self.assertEqual(legacy, ["https://workdrive.zoho.in/file/first", "https://workdrive.zohoexternal.in/file/second"])
+        self.assertEqual([item["position"] for item in structured], [0, 1])
+        self.assertEqual([item["is_primary"] for item in structured], [True, False])
+        preserved, _ = _normalize_catalog_media([{"media_id": "stock-owned", "provider": "zoho_workdrive", "owner_system": "rk-stock", "permalink": "https://workdrive.zoho.in/file/preserved"}])
+        self.assertEqual((preserved[0]["id"], preserved[0]["owner_system"]), ("stock-owned", "rk-stock"))
+        for invalid in ("http://workdrive.zoho.in/file/insecure", "https://user@workdrive.zoho.in/file/secret", "https://workdrive.zoho.in/file/fragment#preview", "https://evil.example/file/not-approved"):
+            with self.assertRaises(ValueError):
+                _normalize_catalog_media([{"provider": "zoho_workdrive", "permalink": invalid}])
+
+    def test_media_contract_preserves_optional_hover_state(self):
+        structured, _ = _normalize_catalog_media([{
+            "provider": "zoho_workdrive",
+            "permalink": "https://workdrive.zoho.in/file/hover",
+            "is_hover": True,
+        }])
+        self.assertTrue(structured[0]["is_hover"])
 
     def test_stock_category_repair_and_ambiguous_authority_conflict(self):
         db = mongomock.MongoClient().test

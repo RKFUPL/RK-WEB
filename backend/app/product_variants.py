@@ -121,6 +121,9 @@ def _variant_sizes(value: object) -> tuple[list[str], list[dict]]:
     except ValueError:
         supplied = []
     by_size = {entry["size"]: entry for entry in supplied}
+    # Explicitly configured sizes are authoritative. Legacy products with no
+    # size configuration retain the standard size run for compatibility.
+    sizes = [entry["size"] for entry in supplied] or list(STANDARD_SIZES)
     inventory = [
         {
             "size": size,
@@ -129,9 +132,9 @@ def _variant_sizes(value: object) -> tuple[list[str], list[dict]]:
             # storefront visibility or purchasing status.
             "enabled": True,
         }
-        for size in STANDARD_SIZES
+        for size in sizes
     ]
-    return list(STANDARD_SIZES), inventory
+    return sizes, inventory
 
 
 def _images(value: object) -> list[str]:
@@ -170,12 +173,19 @@ def build_product_variants(product: dict, collections: list[dict] | tuple[dict, 
             identifier = f"colour:{slug.lower()}:{index + 1}"
         used_ids.add(identifier)
         sizes, size_inventory = _variant_sizes(raw.get("sizeInventory") if "sizeInventory" in raw else parent_size_inventory)
-        raw_price = raw.get("price", product.get("price"))
+        # Generated colour variants inherit the parent product price unless a
+        # price was deliberately set through the variant pricing workflow.
+        # Older generated variants have no priceMode marker and are therefore
+        # treated as inherited; otherwise a copied historical parent price can
+        # silently override a later parent-price edit on the storefront.
+        price_mode = "override" if raw.get("priceMode") == "override" else "inherit"
+        raw_price = raw.get("price") if price_mode == "override" else product.get("price")
         try:
             price = round(float(raw_price), 2) if raw_price is not None else None
         except (TypeError, ValueError):
             price = None
         images = _images(raw.get("images") if "images" in raw else raw.get("media"))
+        image_meta = [dict(item) for item in (raw.get("imageMeta") or []) if isinstance(item, dict)]
         if generated and index == 0 and not images:
             # Legacy common media is migrated to one concrete colour only; it
             # is never copied across every colour variant.
@@ -188,9 +198,11 @@ def build_product_variants(product: dict, collections: list[dict] | tuple[dict, 
             "colour": colour,
             "colourSlug": slug.lower(),
             "images": images,
+            "imageMeta": image_meta,
             "status": variant_status,
             "availabilityStatus": _availability_status(variant_status),
             "price": price,
+            "priceMode": price_mode,
             "currency": "INR",
             "stock": sum(int(entry.get("stock") or 0) for entry in size_inventory),
             "sizes": sizes,
@@ -245,8 +257,9 @@ def find_variant(product: dict, variant_id: object) -> dict | None:
     return next((item for item in all_variants(product) if str(item.get("id") or "") == identifier), None)
 
 
-def public_variant_view(variant: dict, *, media_limit: int | None = None) -> dict:
+def public_variant_view(variant: dict, *, parent_price=None, media_limit: int | None = None) -> dict:
     images = _images(variant.get("images"))
+    image_meta = [dict(item) for item in (variant.get("imageMeta") or []) if isinstance(item, dict)]
     if media_limit is not None:
         images = images[:media_limit]
     return {
@@ -255,9 +268,11 @@ def public_variant_view(variant: dict, *, media_limit: int | None = None) -> dic
         "colour": str(variant.get("colour") or ""),
         "colourSlug": str(variant.get("colourSlug") or ""),
         "images": images,
+        "imageMeta": image_meta,
         "status": _variant_status(variant.get("status")),
         "availabilityStatus": _availability_status(variant.get("status")),
-        "price": variant.get("price"),
+        "price": variant.get("price") if variant.get("priceMode") == "override" else parent_price,
+        "priceMode": "override" if variant.get("priceMode") == "override" else "inherit",
         "currency": "INR",
         "stock": max(0, int(variant.get("stock") or 0)),
         "sizes": list(STANDARD_SIZES),

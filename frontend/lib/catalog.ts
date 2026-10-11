@@ -1,5 +1,5 @@
-export type ProductAvailability = 'in_stock' | 'custom_order' | 'sold_out';
-export type ProductVariantStatus = 'active' | 'inactive' | 'remove';
+export type ProductAvailability = "in_stock" | "custom_order" | "sold_out";
+export type ProductVariantStatus = "active" | "inactive" | "remove";
 
 export type CatalogProductVariant = {
   id: string;
@@ -7,27 +7,38 @@ export type CatalogProductVariant = {
   colour: string;
   colourSlug: string;
   images: string[];
+  imageMeta?: Array<{ id?: string; permalink?: string; renderUrl?: string; alt_text?: string; is_primary?: boolean; is_hover?: boolean; position?: number }>;
   status: ProductVariantStatus;
   price?: number;
-  currency: 'INR';
+  priceMode?: "inherit" | "override";
+  currency: "INR";
   stock?: number;
   sizes: string[];
   sizeInventory: Array<{ size: string; stock: number; enabled?: boolean }>;
   metadata?: Record<string, unknown>;
 };
-export type CollectionHeroType = 'image' | 'video';
-export type CollectionHeroLayout = 'full_bleed' | 'editorial_split' | 'media_dominant';
-export type CollectionHeroTextPosition = 'left' | 'right';
-export type CollectionHeroTextTheme = 'light' | 'dark';
-export type CollectionHeroTitleScale = 'standard' | 'feature';
+export type CollectionHeroType = "image" | "video";
+export type CollectionHeroLayout =
+  "full_bleed" | "editorial_split" | "media_dominant";
+export type CollectionHeroTextPosition = "left" | "right";
+export type CollectionHeroTextTheme = "light" | "dark";
+export type CollectionHeroTitleScale = "standard" | "feature";
 
 export type CatalogMedia = {
+  id?: string;
   media_id: string;
-  provider: 'cloudinary' | 'zoho_workdrive';
-  owner_system?: 'rk-web' | 'rk-stock';
+  variant_id?: string;
+  colour_slug?: string;
+  colour?: string;
+  provider: "cloudinary" | "zoho_workdrive";
+  owner_system?: "rk-web" | "rk-stock";
   public_id?: string;
+  permalink?: string;
+  secure_url?: string;
+  url?: string;
   position?: number;
   is_primary?: boolean;
+  is_hover?: boolean;
   alt_text?: string;
   description?: string;
   renderUrl?: string;
@@ -63,13 +74,18 @@ export type CatalogProduct = {
   status?: string;
   availability: ProductAvailability;
   price?: number;
-  currency: 'INR';
+  currency: "INR";
   stock?: number;
   sizeSystemEnabled?: boolean;
   sizeInventoryConfigured?: boolean;
   sizeInventory?: Array<{ size: string; stock: number; enabled?: boolean }>;
   unallocatedStock?: number;
-  customSizeConfig?: { enabled?: boolean; fields?: string[]; label?: string; unit?: 'cm' | 'in' };
+  customSizeConfig?: {
+    enabled?: boolean;
+    fields?: string[];
+    label?: string;
+    unit?: "cm" | "in";
+  };
   taxInclusive?: boolean;
   mrpIncludesGst?: boolean;
   category?: string;
@@ -94,18 +110,157 @@ export type CatalogProduct = {
   createdAt?: string;
   updatedAt?: string;
   pricing?: {
-    baseCurrency: 'INR';
+    baseCurrency: "INR";
     basePrice?: number;
     fxBufferPercent: number;
   };
 };
+
+function uniqueMediaSources(values: Array<string | undefined>) {
+  const seen = new Set<string>();
+  return values.filter((value): value is string => {
+    const source = String(value || "").trim();
+    if (!source || seen.has(source)) return false;
+    seen.add(source);
+    return true;
+  });
+}
+
+function isPersistedRelationshipId(value: unknown) {
+  return /^[a-f0-9]{24,64}$/i.test(String(value || "")) || /^[0-9a-f-]{36}$/i.test(String(value || ""));
+}
+
+function safeLegacyImageSource(value: unknown) {
+  const source = String(value || "").trim();
+  if (!source || /workdrive\.zoho(?:external)?\.in/i.test(source)) return undefined;
+  if (source.startsWith("/") && !source.startsWith("//")) return source;
+  try {
+    const parsed = new URL(source);
+    return parsed.protocol === "https:" && !parsed.username && !parsed.password ? source : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function catalogMediaSource(product: CatalogProduct, item: CatalogMedia) {
+  const relationshipId = String(item.media_id || item.id || "").trim();
+  if (item.provider === "zoho_workdrive") {
+    if (!isPersistedRelationshipId(relationshipId)) return undefined;
+    const expected = `/api/catalog/products/${encodeURIComponent(product.id)}/media/${encodeURIComponent(relationshipId)}`;
+    return item.renderUrl === expected ? expected : undefined;
+  }
+  return safeLegacyImageSource(item.renderUrl || item.secure_url || item.url || item.permalink);
+}
+
+function mediaPosition(item: CatalogMedia) {
+  const position = Number(item.position ?? 0);
+  return Number.isFinite(position) ? position : 0;
+}
+
+function orderedMedia(items: CatalogMedia[]) {
+  return [...items].sort((a, b) => Number(!a.is_primary) - Number(!b.is_primary) || mediaPosition(a) - mediaPosition(b));
+}
+
+/** Resolve only browser-safe media for the selected colour gallery. */
+export function variantMediaSources(product: CatalogProduct, variant?: CatalogProductVariant): string[] {
+  const structured = orderedMedia((product.catalogMedia || [])
+    .filter((item) => variant ? String(item.variant_id || "") === variant.id : !item.variant_id));
+  if (structured.length) {
+    const resolved = uniqueMediaSources(structured.map((item) => catalogMediaSource(product, item)));
+    if (resolved.length) return resolved;
+  }
+  if (!variant) return uniqueMediaSources((product.media || []).map(safeLegacyImageSource));
+  const legacyVariantImages = uniqueMediaSources((variant.images || []).map(safeLegacyImageSource));
+  if (legacyVariantImages.length) return legacyVariantImages;
+  const hasAnyVariantGallery = (product.catalogMedia || []).some((item) => Boolean(item.variant_id))
+    || (product.variants || []).some((item) => Boolean(item.images?.length || item.imageMeta?.length));
+  if (hasAnyVariantGallery) return [];
+  const parentStructured = orderedMedia((product.catalogMedia || []).filter((item) => !item.variant_id));
+  const parentResolved = uniqueMediaSources(parentStructured.map((item) => catalogMediaSource(product, item)));
+  return parentResolved.length ? parentResolved : uniqueMediaSources((product.media || []).map(safeLegacyImageSource));
+}
+
+export function availableGalleryMedia(sources: string[], failedSources: Iterable<string>) {
+  const failed = new Set(failedSources);
+  return uniqueMediaSources(sources).filter((source) => !failed.has(source));
+}
+
+export function variantPrimaryAndHoverSources(product: CatalogProduct, variant?: CatalogProductVariant) {
+  const sources = variantMediaSources(product, variant);
+  if (!variant || !sources.length) return { primary: sources[0], hover: undefined };
+  const structured = (product.catalogMedia || []).filter((item) => item.variant_id === variant.id);
+  const primaryRecord = structured.find((item) => item.is_primary) || structured[0];
+  const hoverRecord = structured.find((item) => item.is_hover);
+  const safeSource = (item?: CatalogMedia) => item ? catalogMediaSource(product, item) : undefined;
+  const primary = safeSource(primaryRecord) || sources[0];
+  const hover = safeSource(hoverRecord);
+  return { primary, hover: hover && hover !== primary ? hover : undefined };
+}
+
+export type AdminMediaEntry = {
+  identity: string;
+  permalink: string;
+  label: string;
+  variantId?: string;
+};
+
+function mediaIdentity(item: CatalogMedia, fallback: string) {
+  return String(item.media_id || item.id || item.renderUrl || item.permalink || item.secure_url || item.url || fallback);
+}
+
+export function adminMediaGroups(product: CatalogProduct) {
+  const structured = Array.isArray(product.catalogMedia) ? product.catalogMedia : [];
+  const unassigned: AdminMediaEntry[] = [];
+  const variants: Record<string, AdminMediaEntry[]> = Object.fromEntries((product.variants || []).map((variant) => [variant.id, []]));
+  const seen = new Set<string>();
+  structured.forEach((item, index) => {
+    const identity = mediaIdentity(item, `catalog:${index}`);
+    if (seen.has(identity)) return;
+    seen.add(identity);
+    const entry = {
+      identity,
+      permalink: String(item.permalink || item.secure_url || item.url || item.renderUrl || "").trim(),
+      label: String(item.alt_text || item.description || item.colour || "").trim(),
+      variantId: item.variant_id,
+    };
+    if (item.variant_id) (variants[item.variant_id] ||= []).push(entry);
+    else unassigned.push(entry);
+  });
+  (product.variants || []).forEach((variant) => {
+    if ((variants[variant.id] || []).length) return;
+    const metadata = variant.imageMeta || [];
+    const sources: Array<{ id?: string; permalink?: string; renderUrl?: string }> = metadata.length
+      ? metadata
+      : (variant.images || []).map((permalink) => ({ permalink }));
+    sources.forEach((item, index) => {
+      const permalink = String(item.permalink || item.renderUrl || "").trim();
+      const identity = String(item.id || `${variant.id}:${index}:${permalink}`);
+      if (!permalink || seen.has(identity)) return;
+      seen.add(identity);
+      (variants[variant.id] ||= []).push({ identity, permalink, label: variant.colour || "", variantId: variant.id });
+    });
+  });
+  if (!structured.length && !Object.values(variants).some((items) => items.length)) {
+    (product.media || []).forEach((permalink, index) => unassigned.push({ identity: `legacy:${index}:${permalink}`, permalink, label: "" }));
+  }
+  return { unassigned, variants };
+}
+
+export function guardedMediaCleanupPlan(product: CatalogProduct, productId: string, expectedIds: Set<string>) {
+  if (product.id !== productId) return null;
+  const structured = product.catalogMedia || [];
+  const unassigned = structured.filter((item) => !item.variant_id);
+  const actual = new Set(unassigned.map((item) => String(item.media_id || item.id || "")));
+  if (unassigned.length !== expectedIds.size || actual.size !== expectedIds.size || [...expectedIds].some((id) => !actual.has(id))) return null;
+  return unassigned.filter((item) => !expectedIds.has(String(item.media_id || item.id || "")));
+}
 
 export type ManagedCollection = {
   id: string;
   name: string;
   slug: string;
   status: string;
-  collectionType?: 'standard' | 'runway';
+  collectionType?: "standard" | "runway";
   taxInclusive?: boolean;
   description?: string;
   heroImage?: string;
@@ -123,13 +278,13 @@ export type ManagedCollection = {
 };
 
 export const availabilityLabels: Record<ProductAvailability, string> = {
-  in_stock: 'IN STOCK',
-  custom_order: 'CUSTOM ORDER',
-  sold_out: 'NO STOCK',
+  in_stock: "IN STOCK",
+  custom_order: "CUSTOM ORDER",
+  sold_out: "NO STOCK",
 };
 
-export const inr = new Intl.NumberFormat('en-IN', {
-  style: 'currency',
-  currency: 'INR',
+export const inr = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
   maximumFractionDigits: 0,
 });

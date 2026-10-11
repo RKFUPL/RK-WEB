@@ -5,11 +5,13 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Check, LockKeyhole, ShoppingBag } from 'lucide-react';
 import { StickyHeader } from '@/components/home/sticky-header';
+import { ShippingTimeline } from '@/components/commerce/shipping-timeline';
 import { emptyCart, getCartSubtotal } from '@/lib/cart';
 import { apiBaseUrl } from '@/lib/rbac';
 import { cartChangedEvent, readStoredCart, writeStoredCart } from '@/lib/storefront-cart';
 import { inr } from '@/lib/catalog';
 import type { Cart } from '@/lib/store-types';
+import { cartItemShippingTimeline } from '@/lib/shipping-timeline';
 
 type Address = {
   id: string;
@@ -94,6 +96,7 @@ function CheckoutItemSummary({ item }: { item: Cart['items'][number] }) {
       {item.size ? <p className="mt-1 text-xs text-charcoal/55">Size {item.size}</p> : null}
       {item.customSize ? <div className="mt-1 text-xs leading-5 text-charcoal/55"><p>Custom size · {item.customSize.unit}</p>{measurements.map(([name, value]) => <p key={name}>{name}: {value} {item.customSize?.unit}</p>)}</div> : null}
       <p className="mt-1 text-xs text-charcoal/55">{item.quantity} × {inr.format(item.price)}</p>
+      <ShippingTimeline timeline={cartItemShippingTimeline(item)} compact />
     </div>
     <span>{inr.format(item.price * item.quantity)}</span>
   </div>;

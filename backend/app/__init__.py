@@ -36,6 +36,7 @@ from .blueprints.health.routes import health_bp
 from .blueprints.admin.routes import admin_bp, ensure_dashboard_indexes, storefront_lookbooks_bp
 from .blueprints.analytics.routes import analytics_bp, storefront_activity_bp
 from .blueprints.catalog.routes import catalog_bp
+from .blueprints.content.routes import content_bp
 from .catalog import ensure_catalog_indexes, ensure_catalog_seed_once
 from .blueprints.payments.routes import payments_bp, razorpay_webhook_bp
 from .blueprints.orders.routes import customer_orders_bp, staff_orders_bp
@@ -155,6 +156,7 @@ def create_app() -> Flask:
     # `analytics`, which can otherwise make incognito visits vanish silently.
     app.register_blueprint(storefront_activity_bp, url_prefix="/api/storefront")
     app.register_blueprint(catalog_bp, url_prefix="/api/catalog")
+    app.register_blueprint(content_bp, url_prefix="/api/content")
     app.register_blueprint(payments_bp, url_prefix="/api/payments")
     app.register_blueprint(razorpay_webhook_bp, url_prefix="/api/webhooks")
     app.register_blueprint(customer_orders_bp, url_prefix="/api/orders")

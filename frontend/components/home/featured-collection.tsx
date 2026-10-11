@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowLeft, ArrowRight } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUpRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { aakarBannerBackgroundUrl } from '@/lib/home-content';
 
@@ -180,13 +180,13 @@ export function FeaturedCollection({
                 </p>
                 <div className="mt-7 flex flex-wrap items-center gap-5">
                   <p className="text-[clamp(0.6rem,1.2vw,0.78rem)] uppercase tracking-[0.42em] text-[#fff1df]/85">{eyebrow}</p>
-                  {onCtaClick ? <button type="button" onClick={onCtaClick} className="pointer-events-auto inline-flex items-center justify-center border border-gold/70 px-5 py-3 text-[0.62rem] uppercase tracking-[0.28em] text-[#fff1df] transition duration-500 hover:bg-gold hover:text-ink">
-                    {ctaLabel} <span className="ml-3 text-base">→</span>
-                  </button> : <a href="/collections/aakaar" className="pointer-events-auto inline-flex items-center justify-center border border-gold/70 px-5 py-3 text-[0.62rem] uppercase tracking-[0.28em] text-[#fff1df] transition duration-500 hover:bg-gold hover:text-ink">
-                    {ctaLabel} <span className="ml-3 text-base">→</span>
+                  {onCtaClick ? <button type="button" onClick={onCtaClick} className="collection-featured-button collection-featured-button--secondary">
+                    {ctaLabel} <ArrowDown aria-hidden="true" size={14} strokeWidth={1.5} />
+                  </button> : <a href="/collections/aakaar" className="collection-featured-button collection-featured-button--secondary">
+                    {ctaLabel} <ArrowDown aria-hidden="true" size={14} strokeWidth={1.5} />
                   </a>}
-                  {secondaryHref ? <a href={secondaryHref} target="_blank" rel="noopener noreferrer" className="pointer-events-auto inline-flex items-center justify-center border border-gold/70 px-5 py-3 text-[0.62rem] uppercase tracking-[0.28em] text-[#fff1df] transition duration-500 hover:bg-gold hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-gold">
-                    {secondaryLabel}
+                  {secondaryHref ? <a href={secondaryHref} target="_blank" rel="noopener noreferrer" className="collection-featured-button collection-featured-button--primary">
+                    {secondaryLabel} <ArrowUpRight aria-hidden="true" size={14} strokeWidth={1.5} />
                   </a> : null}
                 </div>
               </div>

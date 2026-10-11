@@ -13,6 +13,8 @@ from app.order_fulfillment import (
     canonical_payment_status,
     normalisation_updates,
     order_view,
+    payment_confirmation_changes,
+    rejection_decision,
     shipment_fields,
     valid_next_statuses,
     validate_transition,
@@ -56,6 +58,26 @@ class OrderFulfillmentTests(unittest.TestCase):
         with self.assertRaises(OrderTransitionError):
             validate_transition(order, "confirmed")
         self.assertEqual(valid_next_statuses(order), ["cancelled"])
+
+    def test_paid_zero_stock_order_waits_for_staff_confirmation(self):
+        now = datetime(2026, 10, 10, tzinfo=timezone.utc)
+        fields, events = payment_confirmation_changes(
+            {"paymentStatus": "processing", "status": "order_placed", "requiresAvailabilityConfirmation": True},
+            "pay_test", "checkout", "", now,
+        )
+        self.assertEqual(fields["paymentStatus"], "paid")
+        self.assertEqual(fields["fulfillmentStatus"], "awaiting_confirmation")
+        self.assertEqual(events[-1]["status"], "awaiting_confirmation")
+        order = {"paymentStatus": "paid", "fulfillmentStatus": "awaiting_confirmation"}
+        self.assertEqual(valid_next_statuses(order), ["confirmed", "cancelled"])
+        self.assertEqual(validate_transition(order, "confirmed"), ("awaiting_confirmation", "confirmed"))
+
+    def test_rejection_reason_categories_and_custom_explanation(self):
+        for reason in ("requested_size_unavailable", "fabric_or_material_unavailable", "production_or_fulfilment_limitation"):
+            self.assertEqual(rejection_decision({"rejectionReason": reason}), (reason, ""))
+        with self.assertRaisesRegex(OrderTransitionError, "explanation"):
+            rejection_decision({"rejectionReason": "other"})
+        self.assertEqual(rejection_decision({"rejectionReason": "other", "rejectionExplanation": "Client requested another piece."}), ("other", "Client requested another piece."))
 
     def test_shipment_tracking_is_optional_until_available(self):
         shipment_without_tracking = shipment_fields({"courier": "Courier One"})

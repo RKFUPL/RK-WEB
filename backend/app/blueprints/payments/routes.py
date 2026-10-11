@@ -174,6 +174,8 @@ def _checkout_items(db, cart: object) -> tuple[list[dict], float]:
             raise ValueError("A selected piece does not have a valid price.")
         line_total = round(price * quantity, 2)
         subtotal += line_total
+        size_entry = next((entry for entry in variant.get("sizeInventory", []) if str(entry.get("size") or "").strip().upper() == size), None) if size else None
+        requires_confirmation = purchase_mode == "custom_size" or not size_entry or int(size_entry.get("stock") or 0) < quantity
         media = variant.get("images") if isinstance(variant.get("images"), list) else []
         collection = next((item for item in db.collections.find(
             {"productRefs.productId": product_id},
@@ -193,7 +195,8 @@ def _checkout_items(db, cart: object) -> tuple[list[dict], float]:
             "unitPrice": price,
             "lineTotal": line_total,
             "image": media[0] if media and isinstance(media[0], str) else "",
-            "availability": "in_stock",
+            "availability": "confirmation_required" if requires_confirmation else "in_stock",
+            "requiresAvailabilityConfirmation": requires_confirmation,
             "variantStatus": variant_status,
             "inventoryMode": "variant",
             "purchaseMode": purchase_mode,
@@ -206,6 +209,7 @@ def _checkout_items(db, cart: object) -> tuple[list[dict], float]:
 
 def _new_order_document(user: dict, shipping: dict, items: list[dict], subtotal: float, attempt_id: str, now: datetime) -> dict:
     customer_name = " ".join(filter(None, (user.get("firstName"), user.get("lastName")))) or user.get("displayName") or user.get("username") or "RK Customer"
+    requires_confirmation = any(bool(item.get("requiresAvailabilityConfirmation")) for item in items)
     order = {
         "orderNumber": f"RK-{now:%Y%m%d}-{secrets.token_hex(3).upper()}",
         "customerId": user["_id"],
@@ -215,6 +219,7 @@ def _new_order_document(user: dict, shipping: dict, items: list[dict], subtotal:
         "phone": _safe_text(user.get("phone") or shipping.get("phone"), 30),
         "shipping": shipping,
         "items": items,
+        "requiresAvailabilityConfirmation": requires_confirmation,
         "subtotal": subtotal,
         "shippingCharge": 0,
         "tax": 0,

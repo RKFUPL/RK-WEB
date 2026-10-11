@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
-import { BarChart3, Bell, BookOpen, CalendarDays, ChevronRight, FileText, FolderKanban, HardDrive, LayoutDashboard, Mail, Megaphone, Menu, Package, Search, Settings, ShoppingBag, UserCircle, Users, X } from 'lucide-react';
+import { BarChart3, Bell, BookOpen, CalendarDays, ChevronRight, FileText, FolderKanban, HardDrive, LayoutDashboard, Mail, Megaphone, Menu, MessageSquareQuote, Package, Search, Settings, ShoppingBag, UserCircle, Users, X } from 'lucide-react';
 import { getCurrentUser, type AuthUser, type Role, type StaffPermission } from '@/lib/rbac';
 import { brandLogoUrl } from '@/lib/home-content';
 import { QuickCreate } from '@/components/admin/quick-create';
@@ -22,7 +22,7 @@ function dashboardGroups(role: Role, permissions: StaffPermission[] = []) {
   shared[1].items.push({ href: '/admin/products', label: 'Products', icon: Package });
   shared[1].items.push({ href: '/admin/collections', label: 'Collections', icon: FolderKanban });
   shared[2].items.push({ href: '/admin/marketing', label: 'Marketing', icon: Megaphone });
-  return [...shared, { label: 'Workspace', items: [{ href: '/admin/lookbooks', label: 'Lookbooks', icon: BookOpen }, { href: '/admin/integrations/email', label: 'Email / Zoho Mail', icon: Mail }, { href: '/admin/integrations/workdrive', label: 'WorkDrive Connect', icon: HardDrive }, { href: stockAppUrl, label: 'Stock Page', icon: Package, external: true }, { href: '/admin/users', label: 'Staff & access', icon: Users }, { href: '/admin/reports', label: 'Reports & analytics', icon: BarChart3 }, { href: '/admin/settings', label: 'Settings', icon: Settings }] }];
+  return [...shared, { label: 'Workspace', items: [{ href: '/admin/lookbooks', label: 'Lookbooks', icon: BookOpen }, { href: '/admin/testimonials', label: 'Testimonials', icon: MessageSquareQuote }, { href: '/admin/integrations/email', label: 'Email / Zoho Mail', icon: Mail }, { href: '/admin/integrations/workdrive', label: 'WorkDrive Connect', icon: HardDrive }, { href: stockAppUrl, label: 'Stock Page', icon: Package, external: true }, { href: '/admin/users', label: 'Staff & access', icon: Users }, { href: '/admin/reports', label: 'Reports & analytics', icon: BarChart3 }, { href: '/admin/settings', label: 'Settings', icon: Settings }] }];
 }
 
 function haptic(duration = 7) {
@@ -54,8 +54,8 @@ export function DashboardShell({ role, title, children }: { role: Role; title: s
     else setOpen((current) => !current);
   };
 
-  return <div className="admin-app flex min-h-screen bg-[#f5f6f8] text-[#20242b] dark:bg-[#101114] dark:text-[#f5f2ee]">
-    <aside aria-label={`${role} navigation`} className={`${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} ${open ? 'lg:w-[248px]' : 'lg:w-[96px]'} fixed inset-y-0 left-0 z-50 flex w-[272px] shrink-0 flex-col border-r border-black/[.07] bg-white px-4 py-5 shadow-2xl transition-[width,transform] duration-300 ease-out dark:border-white/[.08] dark:bg-[#17181c] lg:shadow-none`}>
+  return <div className="admin-app flex min-h-screen">
+    <aside aria-label={`${role} navigation`} className={`${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} ${open ? 'lg:w-[248px]' : 'lg:w-[88px]'} fixed inset-y-0 left-0 z-50 flex w-[272px] shrink-0 flex-col border-r border-[var(--admin-border)] bg-[color:var(--admin-surface)]/95 px-4 py-5 shadow-2xl backdrop-blur-xl transition-[width,transform] duration-300 ease-out lg:shadow-none`}>
       <div className="flex h-12 items-center justify-between px-2">
         <Link href="/" onClick={() => haptic()} className={`flex min-w-0 items-center gap-3 ${open ? '' : 'lg:w-full lg:justify-center'}`}><img src={brandLogoUrl} alt="RK home" className="rk-logo h-12 w-auto shrink-0 transition-transform duration-300 hover:scale-105" />{open ? <span className="truncate whitespace-nowrap text-[11px] font-medium uppercase tracking-[.28em] text-[#7d838d]">{role} studio</span> : null}</Link>
         <button type="button" onClick={() => { haptic(); setMobileOpen(false); }} aria-label="Close navigation" className="rounded-lg p-2 transition hover:bg-black/5 active:scale-90 dark:hover:bg-white/10 lg:hidden"><X size={18} /></button>
@@ -70,12 +70,12 @@ export function DashboardShell({ role, title, children }: { role: Role; title: s
 
     {mobileOpen ? <button type="button" aria-label="Close navigation" className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[1px] lg:hidden" onClick={() => setMobileOpen(false)} /> : null}
 
-    <div className={`${open ? 'lg:pl-[248px]' : 'lg:pl-[96px]'} w-full transition-[padding] duration-300 ease-out`}>
-      <header className="sticky top-0 z-30 flex h-[72px] items-center justify-between border-b border-black/[.07] bg-white/90 px-5 backdrop-blur-xl dark:border-white/[.08] dark:bg-[#17181c]/90 lg:px-8">
+    <div className={`${open ? 'lg:pl-[248px]' : 'lg:pl-[88px]'} w-full transition-[padding] duration-300 ease-out`}>
+      <header className="sticky top-0 z-30 flex h-[72px] items-center justify-between border-b border-[var(--admin-border)] bg-[color:var(--admin-surface)]/88 px-5 backdrop-blur-xl lg:px-8">
         <div className="flex items-center gap-3"><button type="button" onClick={toggleNavigation} aria-label={mobileOpen ? 'Close navigation' : open ? 'Collapse navigation' : 'Expand navigation'} className="rounded-lg p-2 transition hover:bg-black/5 active:scale-90 dark:hover:bg-white/10"><Menu size={20} /></button><label className="hidden h-9 w-[250px] items-center gap-2 rounded-lg border border-black/[.08] px-3 text-sm text-[#9aa0a8] transition focus-within:border-[#9a7a4d] sm:flex dark:border-white/[.1]"><Search size={16} /><input aria-label="Search dashboard" placeholder="Search anything..." className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-[#9aa0a8]" /></label></div>
         <div className="flex items-center gap-2 sm:gap-4"><span className="hidden items-center gap-2 text-xs text-[#777e87] md:flex"><CalendarDays size={16} />Live metrics</span><button type="button" title="No new notifications" aria-label="Notifications: none unread" className="rounded-lg p-2 text-[#7e858e] transition hover:bg-black/5 active:scale-90 dark:hover:bg-white/10"><Bell size={18} /></button><Link href="/profile" aria-label="Open user profile" onClick={() => haptic()} className="flex items-center gap-2 border-l border-black/[.08] pl-3 transition hover:text-[#9a7a4d] active:scale-[.98] dark:border-white/[.1]"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#d9b47b] text-xs font-semibold text-white">{displayName.slice(0, 1).toUpperCase()}</span><span className="hidden max-w-[170px] sm:block"><span className="block truncate text-sm font-medium leading-tight">{displayName}</span>{username ? <span className="mt-0.5 block truncate text-[11px] leading-tight text-[#8e949c]">{username}</span> : null}</span><ChevronRight size={14} className="text-[#8e949c] transition-transform group-hover:translate-x-0.5" /></Link></div>
       </header>
-      <main className="mx-auto max-w-[1600px] p-5 lg:p-8"><div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><p className="mb-2 text-xs font-medium uppercase tracking-[.18em] text-[#9a7a4d]">{role} workspace</p><h1 className="text-[30px] font-semibold tracking-[-.04em]">{title}</h1><p className="mt-1 text-sm text-[#858b94]">Here&apos;s what&apos;s happening with your store today.</p></div><QuickCreate pathname={pathname} role={role} /></div>{children}</main>
+      <main className="mx-auto max-w-[1680px] p-4 sm:p-6 lg:p-8"><div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><p className="mb-2 text-[10px] font-semibold uppercase tracking-[.22em] text-[var(--admin-gold)]">{role} workspace</p><h1 className="text-[clamp(2rem,3vw,2.75rem)] leading-none tracking-[-.035em]">{title}</h1><p className="mt-2 text-sm text-[var(--admin-muted)]">Here&apos;s what&apos;s happening with your store today.</p></div><QuickCreate pathname={pathname} role={role} /></div>{children}</main>
     </div>
   </div>;
 }

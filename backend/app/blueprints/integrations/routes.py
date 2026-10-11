@@ -13,7 +13,7 @@ from flask import Blueprint, current_app, jsonify, request
 from ...rbac import database
 from ...time_utils import json_value
 from ...credential_sync import consume_handoff, retry_pending, verify_handoff
-from ...catalog_sync_v1 import CatalogEventError, apply_incoming, manifest as catalog_manifest, queue_repair_events, classify_manifest_difference
+from ...catalog_sync_v1 import CatalogEventError, apply_incoming, manifest as catalog_manifest, queue_repair_events, classify_manifest_difference, rejection_ack
 
 
 integrations_bp = Blueprint("integrations", __name__)
@@ -205,10 +205,14 @@ def _catalog_event_required():
 def inbound_catalog_event():
     if not _catalog_event_required():
         return jsonify({"error": "Catalog event scope is not authorized."}), 403 if _connection_for_token() else 401
+    raw_event = request.get_json(silent=True) or {}
     try:
-        acknowledgement, status_code = apply_incoming(database(), request.get_json(silent=True) or {})
+        acknowledgement, status_code = apply_incoming(database(), raw_event)
     except CatalogEventError as error:
-        return jsonify({"schema_version": "catalog.sync.v1", "status": "INVALID", "message": str(error)}), 400
+        try:
+            return jsonify(rejection_ack(raw_event, str(error))), 400
+        except CatalogEventError:
+            return jsonify({"schema_version": "catalog.sync.v1", "status": "INVALID", "message": "Catalog event was rejected."}), 400
     except Exception:
         current_app.logger.exception("Unable to apply inbound catalog event")
         return jsonify({"schema_version": "catalog.sync.v1", "status": "REJECTED", "message": "Catalog event could not be applied."}), 503

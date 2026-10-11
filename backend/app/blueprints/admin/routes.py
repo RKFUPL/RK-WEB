@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import hashlib
 import re
 import secrets
 from urllib.parse import urlencode, urlparse
@@ -15,7 +16,7 @@ from ...time_utils import json_value as serialize_json_value
 from ...mail import SENDERS, safe_status, send_test_email, test_smtp_connection, validate_recipient
 from ...credential_sync import next_credential_version, sync_event
 from ...extensions import limiter
-from ...workdrive import WorkDriveFileNotFound, WorkDriveUnavailable, begin_oauth as begin_workdrive_oauth, complete_oauth as complete_workdrive_oauth, download_file, file_id_from_permalink, is_supported_permalink, oauth_configuration as workdrive_oauth_configuration, safe_status as workdrive_status, test_connection as test_workdrive_connection
+from ...workdrive import WorkDriveFileNotFound, WorkDriveUnavailable, begin_oauth as begin_workdrive_oauth, complete_oauth as complete_workdrive_oauth, download_file, external_share_id_from_permalink, file_id_from_permalink, is_supported_permalink, oauth_configuration as workdrive_oauth_configuration, safe_status as workdrive_status, test_connection as test_workdrive_connection
 
 
 def _password_hash(password: str) -> str:
@@ -218,6 +219,7 @@ def _ensure_dashboard_indexes(db) -> None:
     _ensure_index(db.users, [("createdAt", -1), ("role", 1)], "admin_users_created_role")
     _ensure_index(db.products, "stock", "admin_products_stock")
     _ensure_index(db.reviews, "createdAt", "admin_reviews_created")
+    _ensure_index(db.testimonials, [("status", 1), ("displayOrder", 1), ("createdAt", -1)], "admin_testimonials_status_order")
     _dashboard_indexes_ready = True
 
 
@@ -225,6 +227,153 @@ def ensure_dashboard_indexes(db) -> None:
     """Prepare dashboard indexes during app startup, not the first page load."""
     _ensure_dashboard_indexes(db)
     migrate_legacy_orders(db)
+
+
+TESTIMONIAL_STATUSES = {"draft", "published"}
+
+
+def _testimonial_view(item: dict) -> dict:
+    managed_media = item.get("imageMedia") if isinstance(item.get("imageMedia"), dict) else None
+    return {
+        "id": str(item["_id"]),
+        "displayName": item.get("displayName", ""),
+        "text": item.get("text", ""),
+        "imageUrl": item.get("imageUrl") or (f"/api/content/testimonials/{item['_id']}/image" if managed_media else None),
+        "imageMedia": ({
+            "id": str(managed_media.get("id") or ""),
+            "provider": "zoho_workdrive",
+            "permalink": str(managed_media.get("permalink") or ""),
+        } if managed_media else None),
+        "contextLabel": item.get("contextLabel") or None,
+        "relatedProductId": item.get("relatedProductId") or None,
+        "relatedCollectionId": item.get("relatedCollectionId") or None,
+        "status": item.get("status", "draft"),
+        "displayOrder": int(item.get("displayOrder") or 0),
+        "createdAt": serialize_json_value(item.get("createdAt")),
+        "updatedAt": serialize_json_value(item.get("updatedAt")),
+    }
+
+
+def _testimonial_payload(payload: dict, *, partial: bool = False):
+    values = {}
+    if not partial or "displayName" in payload:
+        name = str(payload.get("displayName") or "").strip()
+        if not name or len(name) > 100:
+            return None, "Display name is required and must be 100 characters or fewer."
+        values["displayName"] = name
+    if not partial or "text" in payload:
+        text = str(payload.get("text") or "").strip()
+        if not text or len(text) > 1200:
+            return None, "Testimonial text is required and must be 1,200 characters or fewer."
+        values["text"] = text
+    for field, limit in (("contextLabel", 120), ("relatedProductId", 120), ("relatedCollectionId", 120)):
+        if not partial or field in payload:
+            value = str(payload.get(field) or "").strip()
+            if len(value) > limit:
+                return None, f"{field} is too long."
+            values[field] = value or None
+    if not partial or "imageUrl" in payload:
+        image_url = str(payload.get("imageUrl") or "").strip()
+        if image_url:
+            parsed = urlparse(image_url)
+            if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+                return None, "Image URL must be a valid HTTPS URL without credentials or a fragment."
+            if "workdrive.zoho" in parsed.hostname.casefold():
+                return None, "Private WorkDrive links cannot be used as public image URLs. Paste the link into Managed WorkDrive image instead, or use an approved public Cloudinary HTTPS image URL."
+            approved_host = current_app.config.get("STOCK_INTEGRATION_CLOUDINARY_HOST", "res.cloudinary.com").casefold()
+            if parsed.hostname.casefold() != approved_host:
+                return None, "Public testimonial images must use the approved Cloudinary HTTPS host. Use Managed WorkDrive image for a private WorkDrive file."
+        values["imageUrl"] = image_url or None
+    if not partial or "imageMedia" in payload:
+        submitted_media = payload.get("imageMedia")
+        if submitted_media in (None, ""):
+            values["imageMedia"] = None
+        elif not isinstance(submitted_media, dict):
+            return None, "Managed image must be a valid WorkDrive media relationship."
+        else:
+            permalink = str(submitted_media.get("permalink") or "").strip()
+            resource_id = file_id_from_permalink(permalink) or external_share_id_from_permalink(permalink)
+            if not is_supported_permalink(permalink) or not resource_id:
+                return None, "Managed WorkDrive image must use an approved HTTPS workdrive.zoho.in/file/<id> or workdrive.zohoexternal.in/external/<share-id> link without credentials, query parameters, or fragments."
+            values["imageMedia"] = {
+                "id": hashlib.sha256(permalink.encode("utf-8")).hexdigest()[:32],
+                "provider": "zoho_workdrive",
+                "permalink": permalink,
+            }
+    resulting_public_url = values.get("imageUrl", payload.get("imageUrl"))
+    resulting_managed_media = values.get("imageMedia", payload.get("imageMedia"))
+    if resulting_public_url and resulting_managed_media:
+        return None, "Choose either a public image URL or one managed WorkDrive image, not both."
+    if values.get("imageUrl"):
+        values["imageMedia"] = None
+    if values.get("imageMedia"):
+        values["imageUrl"] = None
+    if not partial or "status" in payload:
+        status = str(payload.get("status") or "draft").strip().lower()
+        if status not in TESTIMONIAL_STATUSES:
+            return None, "Status must be draft or published."
+        values["status"] = status
+    if not partial or "displayOrder" in payload:
+        try:
+            order = int(payload.get("displayOrder") or 0)
+        except (TypeError, ValueError):
+            return None, "Display order must be a whole number."
+        if order < 0 or order > 10000:
+            return None, "Display order must be between 0 and 10,000."
+        values["displayOrder"] = order
+    return values, None
+
+
+@admin_bp.get("/testimonials")
+@requireAdmin
+def list_testimonials():
+    items = database().testimonials.find({}).sort([("displayOrder", 1), ("createdAt", -1)])
+    return jsonify({"items": [_testimonial_view(item) for item in items]}), 200
+
+
+@admin_bp.post("/testimonials")
+@requireAdmin
+def create_testimonial():
+    values, error = _testimonial_payload(request.get_json(silent=True) or {})
+    if error:
+        return jsonify({"error": error}), 400
+    now = datetime.now(timezone.utc)
+    actor = current_user() or {}
+    document = {**values, "createdAt": now, "updatedAt": now, "createdBy": actor.get("_id"), "updatedBy": actor.get("_id")}
+    result = database().testimonials.insert_one(document)
+    document["_id"] = result.inserted_id
+    return jsonify({"item": _testimonial_view(document)}), 201
+
+
+@admin_bp.patch("/testimonials/<testimonial_id>")
+@requireAdmin
+def update_testimonial(testimonial_id: str):
+    if not ObjectId.is_valid(testimonial_id):
+        return jsonify({"error": "Invalid testimonial id."}), 400
+    values, error = _testimonial_payload(request.get_json(silent=True) or {}, partial=True)
+    if error:
+        return jsonify({"error": error}), 400
+    if not values:
+        return jsonify({"error": "No testimonial changes were supplied."}), 400
+    actor = current_user() or {}
+    values.update({"updatedAt": datetime.now(timezone.utc), "updatedBy": actor.get("_id")})
+    item_id = ObjectId(testimonial_id)
+    result = database().testimonials.update_one({"_id": item_id}, {"$set": values})
+    if result.matched_count != 1:
+        return jsonify({"error": "Testimonial not found."}), 404
+    return jsonify({"item": _testimonial_view(database().testimonials.find_one({"_id": item_id}))}), 200
+
+
+@admin_bp.delete("/testimonials/<testimonial_id>")
+@requireAdmin
+def delete_testimonial(testimonial_id: str):
+    if not ObjectId.is_valid(testimonial_id):
+        return jsonify({"error": "Invalid testimonial id."}), 400
+    item_id = ObjectId(testimonial_id)
+    result = database().testimonials.delete_one({"_id": item_id})
+    if result.deleted_count != 1:
+        return jsonify({"error": "Testimonial not found."}), 404
+    return jsonify({"deletedId": testimonial_id}), 200
 
 
 def _user_view(user: dict) -> dict:

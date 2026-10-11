@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from copy import deepcopy
 import hashlib
 import re
 import secrets
@@ -56,12 +57,16 @@ def _normalize_catalog_media(items):
         media_type = str(item.get("type") or "image").lower()
         permalink = item.get("permalink")
         public_id = item.get("public_id")
-        if provider == "zoho_workdrive" or "/file/" in parsed.path and "workdrive.zoho" in (parsed.hostname or ""):
-            provider, permalink = "zoho_workdrive", url
-            if "/file/" not in parsed.path or parsed.scheme != "https":
-                # Preserve the legacy value locally but do not emit an invalid v1 event.
-                legacy.append(url)
-                continue
+        hostname = (parsed.hostname or "").lower()
+        looks_like_workdrive = provider == "zoho_workdrive" or hostname in {"workdrive.zoho.in", "workdrive.zohoexternal.in"}
+        if looks_like_workdrive:
+            parts = [part for part in parsed.path.split("/") if part]
+            if (parsed.scheme.lower() != "https" or hostname not in {"workdrive.zoho.in", "workdrive.zohoexternal.in"}
+                    or parsed.username or parsed.password or parsed.fragment or parsed.port not in (None, 443)
+                    or len(parts) != 2 or parts[0].lower() != "file"):
+                raise ValueError("WorkDrive photos must use an approved HTTPS /file/<id> permalink without credentials or fragments.")
+            provider, permalink = "zoho_workdrive", f"https://{hostname}/file/{parts[1]}"
+            url = permalink
         elif provider == "cloudinary" or (parsed.hostname or "").endswith("res.cloudinary.com"):
             provider = "cloudinary"
             if not public_id and "/upload/" in parsed.path:
@@ -73,12 +78,13 @@ def _normalize_catalog_media(items):
         else:
             legacy.append(url)
             continue
-        media_id = str(item.get("id") or hashlib.sha256(f"{provider}:{url}".encode()).hexdigest()[:32])
+        media_id = str(item.get("id") or item.get("media_id") or hashlib.sha256(f"{provider}:{url}".encode()).hexdigest()[:32])
         structured.append({
             **item, "id": media_id, "url": url, "provider": provider, "type": media_type,
             "permalink": permalink, "public_id": public_id, "source": item.get("source") or "rk-web",
             "owner_system": item.get("owner_system") or "rk-web", "position": position,
             "is_primary": bool(item.get("is_primary") or item.get("is_main") or position == 0),
+            "is_hover": bool(item.get("is_hover", False)),
             "is_main": bool(item.get("is_primary") or item.get("is_main") or position == 0),
         })
         legacy.append(url)
@@ -91,8 +97,15 @@ def _normalize_catalog_media(items):
 
 
 def _queue_media_delta(db, before, after, actor_id=None):
-    before_items = {str(item.get("id")): item for item in (before or []) if isinstance(item, dict) and item.get("id")}
-    after_items = {str(item.get("id")): item for item in (after or []) if isinstance(item, dict) and item.get("id")}
+    def media_items(value):
+        if isinstance(value, dict):
+            value = value.get("catalogMedia") or []
+        return value if isinstance(value, list) else []
+
+    before_media = media_items(before)
+    after_media = media_items(after)
+    before_items = {str(item.get("id") or item.get("media_id")): item for item in before_media if isinstance(item, dict) and (item.get("id") or item.get("media_id"))}
+    after_items = {str(item.get("id") or item.get("media_id")): item for item in after_media if isinstance(item, dict) and (item.get("id") or item.get("media_id"))}
     product_identity = {"origin_system": after.get("source_system") or "rk-web", "origin_id": str(after.get("source_id") or after["_id"])}
     emitted = []
     for media_id, item in after_items.items():
@@ -114,24 +127,136 @@ def _queue_media_delta(db, before, after, actor_id=None):
         if event_type:
             versions = dict(after.get("catalogVersions") or {}); version = int(versions.get("rk-web", 0)) + 1; versions["rk-web"] = version
             db.products.update_one({"_id": after["_id"]}, {"$set": {"catalogVersions": versions, "catalogVersion": version}})
-            payload = {key: item[key] for key in ("id", "provider", "type", "url", "public_id", "permalink", "source", "owner_system", "position", "is_primary", "is_main", "alt_text", "description") if item.get(key) is not None}
+            payload = {key: item[key] for key in ("id", "provider", "type", "url", "public_id", "permalink", "source", "owner_system", "position", "is_primary", "is_main", "is_hover", "alt_text", "description", "variant_id", "colour_slug", "colour") if item.get(key) is not None}
             payload.update({"media_id": media_id, "product_identity": product_identity})
-            emitted.append(enqueue_catalog_event(db, make_event(event_type, "media", media_id, version, payload, observed_versions=versions, identity={"origin_system": "rk-web", "origin_id": media_id}, actor_id=actor_id)))
+            media_identity = {"origin_system": item.get("owner_system") if item.get("owner_system") in {"rk-web", "rk-stock"} else "rk-web", "origin_id": media_id}
+            emitted.append(enqueue_catalog_event(db, make_event(event_type, "media", media_id, version, payload, observed_versions=versions, identity=media_identity, actor_id=actor_id)))
     for media_id, item in before_items.items():
         if media_id in after_items:
             continue
         versions = dict(after.get("catalogVersions") or {}); version = int(versions.get("rk-web", 0)) + 1; versions["rk-web"] = version
         db.products.update_one({"_id": after["_id"]}, {"$set": {"catalogVersions": versions, "catalogVersion": version}})
-        delete_payload = {"media_id": media_id, "owner_system": item.get("owner_system") or "rk-web", "provider": item.get("provider") or "cloudinary", "public_id": item.get("public_id") or media_id, "position": int(item.get("position", 0)), "is_primary": False, "product_identity": product_identity}
+        delete_payload = {"media_id": media_id, "owner_system": item.get("owner_system") or "rk-web", "provider": item.get("provider") or "cloudinary", "public_id": item.get("public_id") or media_id, "position": _integer(item.get("position"), 0), "is_primary": False, "product_identity": product_identity}
         for key in ("type", "permalink", "url"):
             if item.get(key) is not None:
                 delete_payload[key] = item[key]
-        emitted.append(enqueue_catalog_event(db, make_event("MEDIA_DELETED", "media", media_id, version, delete_payload, observed_versions=versions, identity={"origin_system": "rk-web", "origin_id": media_id}, actor_id=actor_id)))
-    before_order = [str(item.get("id")) for item in before or [] if isinstance(item, dict)]
-    after_order = [str(item.get("id")) for item in after or [] if isinstance(item, dict)]
+        media_identity = {"origin_system": item.get("owner_system") if item.get("owner_system") in {"rk-web", "rk-stock"} else "rk-web", "origin_id": media_id}
+        emitted.append(enqueue_catalog_event(db, make_event("MEDIA_DELETED", "media", media_id, version, delete_payload, observed_versions=versions, identity=media_identity, actor_id=actor_id)))
+    before_order = [str(item.get("id") or item.get("media_id")) for item in before_media if isinstance(item, dict)]
+    after_order = [str(item.get("id") or item.get("media_id")) for item in after_media if isinstance(item, dict)]
     if before_order != after_order and before_order and after_order:
         emitted.append(_queue_product_event(db, after, "PRODUCT_UPDATED", actor_id))
     return emitted
+
+
+def _variant_media_entries(variant):
+    """Turn variant gallery URLs into the existing catalog media relation shape."""
+    variant_id = str(variant.get("id") or "").strip()
+    if not variant_id:
+        return []
+    raw = [{**item, "url": item.get("permalink") or item.get("url"), "variant_id": variant_id,
+            "colour_slug": variant.get("colourSlug"), "colour": variant.get("colour")}
+           for item in (variant.get("imageMeta") or []) if isinstance(item, dict)] or [{"url": url, "variant_id": variant_id,
+            "colour_slug": variant.get("colourSlug"),
+            "colour": variant.get("colour")}
+           for url in variant.get("images") or [] if isinstance(url, str)]
+    entries, _ = _normalize_catalog_media(raw)
+    for entry in entries:
+        entry["id"] = hashlib.sha256(f"variant:{variant_id}:{entry['id']}".encode()).hexdigest()[:32]
+        entry["variant_id"] = variant_id
+        entry["colour_slug"] = str(variant.get("colourSlug") or "").strip()
+        entry["colour"] = str(variant.get("colour") or "").strip()
+    return entries
+
+
+def _sync_variant_media_catalog(product, variants):
+    existing = [item for item in product.get("catalogMedia") or []
+                if isinstance(item, dict) and not item.get("variant_id")]
+    variant_media = [entry for variant in variants for entry in _variant_media_entries(variant)]
+    return existing + variant_media
+
+
+def _replace_parent_catalog_media(product, parent_media):
+    """Replace only unassigned product media while preserving colour galleries."""
+    variant_media = [
+        dict(item)
+        for item in (product.get("catalogMedia") or [])
+        if isinstance(item, dict) and item.get("variant_id")
+    ]
+    return [dict(item) for item in parent_media if isinstance(item, dict) and not item.get("variant_id")] + variant_media
+
+
+def _media_relationship_id(item: dict) -> str:
+    return str(item.get("media_id") or item.get("id") or "").strip()
+
+
+def _remove_media_relationship(product: dict, media_id: str):
+    """Remove one local relationship without touching its provider asset."""
+    relationship_id = str(media_id or "").strip()
+    catalog_media = [dict(item) for item in (product.get("catalogMedia") or []) if isinstance(item, dict)]
+    target = next((item for item in catalog_media if _media_relationship_id(item) == relationship_id), None)
+    variants = [dict(item) for item in (product.get("variants") or []) if isinstance(item, dict)]
+
+    if target is None:
+        # Older variant records may have stable imageMeta IDs but no mirrored
+        # catalogMedia entry yet. Resolve only an exact ID owned by this product.
+        for variant in variants:
+            metadata = [dict(item) for item in (variant.get("imageMeta") or []) if isinstance(item, dict)]
+            matched = next((item for item in metadata if _media_relationship_id(item) == relationship_id), None)
+            if matched is not None:
+                generated = _variant_media_entries({**variant, "imageMeta": [matched], "images": []})
+                target = generated[0] if generated else {**matched, "variant_id": variant.get("id")}
+                break
+    if target is None:
+        return None
+
+    target_variant_id = str(target.get("variant_id") or "").strip()
+    target_url = str(target.get("permalink") or target.get("url") or "").strip()
+    updates: dict = {}
+    if target_variant_id:
+        selected_index = next((index for index, item in enumerate(variants) if str(item.get("id") or "") == target_variant_id), None)
+        if selected_index is None:
+            return None
+        selected = dict(variants[selected_index])
+        metadata = [dict(item) for item in (selected.get("imageMeta") or []) if isinstance(item, dict)]
+        remove_index = None
+        for index, item in enumerate(metadata):
+            generated = _variant_media_entries({**selected, "imageMeta": [item], "images": []})
+            generated_id = _media_relationship_id(generated[0]) if generated else ""
+            if relationship_id in {_media_relationship_id(item), generated_id}:
+                remove_index = index
+                break
+        if remove_index is None and target_url:
+            remove_index = next((index for index, item in enumerate(metadata) if str(item.get("permalink") or item.get("url") or "").strip() == target_url), None)
+        images = [str(item).strip() for item in (selected.get("images") or []) if isinstance(item, str) and str(item).strip()]
+        if remove_index is None and target_url:
+            remove_index = next((index for index, value in enumerate(images) if value == target_url), None)
+        if remove_index is None:
+            return None
+        if remove_index < len(metadata):
+            metadata.pop(remove_index)
+        if remove_index < len(images):
+            images.pop(remove_index)
+        for position, item in enumerate(metadata):
+            item["position"] = position
+        selected["imageMeta"] = metadata
+        selected["images"] = images
+        variants[selected_index] = selected
+        updates["variants"] = variants
+        updates["catalogMedia"] = _sync_variant_media_catalog(product, variants)
+    else:
+        remaining_catalog = [item for item in catalog_media if _media_relationship_id(item) != relationship_id]
+        if len(remaining_catalog) == len(catalog_media):
+            return None
+        updates["catalogMedia"] = remaining_catalog
+        remaining_urls = {
+            str(item.get("permalink") or item.get("url") or "").strip()
+            for item in remaining_catalog
+            if not item.get("variant_id")
+        }
+        parent_media = [str(item).strip() for item in (product.get("media") or []) if isinstance(item, str) and str(item).strip()]
+        updates["media"] = [value for value in parent_media if value != target_url or value in remaining_urls]
+    return updates
 
 
 def _queue_product_event(db, product: dict, event_type: str, actor_id=None):
@@ -238,14 +363,23 @@ def _document_view(document: dict, resource: str | None = None) -> dict:
                 # The listing only needs a lazy thumbnail. Full image arrays
                 # are fetched by the Manage images action on demand.
                 "images": [_json_value(images[0])] if images else [],
+                "imageMeta": _json_value(variant.get("imageMeta") or []),
             })
         attributes = document.get("attributes") if isinstance(document.get("attributes"), dict) else {}
         media = document.get("media") if isinstance(document.get("media"), list) else []
+        catalog_media = document.get("catalogMedia") if isinstance(document.get("catalogMedia"), list) else []
+        editable_media = [str(item.get("permalink") or item.get("secure_url") or item.get("url") or "").strip() for item in sorted((item for item in catalog_media if isinstance(item, dict)), key=lambda item: _integer(item.get("position"), 0))]
+        editable_media = [value for value in editable_media if value] or [str(value) for value in media if isinstance(value, str) and value]
         return {
             "id": str(document.get("_id")),
             "name": _json_value(document.get("name")),
+            "styleCode": _json_value(document.get("styleCode")),
+            "style": _json_value(document.get("style")),
+            "productCode": _json_value(document.get("productCode") or document.get("sku")),
+            "parentSku": _json_value(document.get("sku")),
             "sku": _json_value(document.get("sku")),
             "price": _json_value(document.get("price")),
+            "currency": _json_value(document.get("currency") or "INR"),
             "stock": _json_value(document.get("stock")),
             "status": _json_value(document.get("status")),
             "availability": _json_value(document.get("availability")),
@@ -254,9 +388,12 @@ def _document_view(document: dict, resource: str | None = None) -> dict:
             "sizeInventory": _json_value(document.get("sizeInventory") or []),
             "sizeInventoryConfigured": bool(document.get("sizeInventoryConfigured")),
             "sizeSystemEnabled": bool(document.get("sizeSystemEnabled")),
-            "attributes": {key: _json_value(attributes[key]) for key in ("sizes", "colors", "color") if key in attributes},
-            "media": [_json_value(media[0])] if media else [],
+            "attributes": _json_value(attributes),
+            "media": [_json_value(value) for value in editable_media[:12]],
+            "catalogMedia": _json_value(catalog_media),
             "variants": variants,
+            "createdAt": _json_value(document.get("createdAt")),
+            "updatedAt": _json_value(document.get("updatedAt")),
         }
     hidden = {"passwordHash", "otpHash", "otpExpiresAt", "otpAttempts"}
     return {
@@ -335,8 +472,15 @@ def _management_collection_payload(db, collection: dict) -> dict:
     assigned_ids = {product["id"] for product in detail["products"]}
     all_products = list(db.products.find({}).sort("createdAt", -1).limit(200))
     available_products = [product_view(product) for product in all_products if str(product["_id"]) not in assigned_ids]
+    managed_products = []
     for product in detail["products"]:
-        product["collectionIds"] = product_collection_ids(db, ObjectId(product["id"]))
+        product_id = ObjectId(product["id"])
+        document = db.products.find_one({"_id": product_id})
+        managed = _document_view(document, "products") if document else dict(product)
+        managed["displayOrder"] = product.get("displayOrder")
+        managed["collectionIds"] = product_collection_ids(db, product_id)
+        managed_products.append(managed)
+    detail["products"] = managed_products
     return {
         "collection": detail,
         "availableProducts": available_products,
@@ -645,7 +789,10 @@ def create_resource(resource: str):
         if db.products.find_one({"sku": sku}):
             return jsonify({"error": "That SKU already exists."}), 409
         raw_media = payload.get("media") if isinstance(payload.get("media"), list) else []
-        catalog_media, media = _normalize_catalog_media(raw_media)
+        try:
+            catalog_media, media = _normalize_catalog_media(raw_media)
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
         attributes = payload.get("attributes") if isinstance(payload.get("attributes"), dict) else {}
         tax_inclusive = bool(payload.get("taxInclusive") or payload.get("mrpIncludesGst"))
         document = {**common, "name": name, "styleCode": str(payload.get("styleCode") or "").strip().upper(), "style": str(payload.get("style") or "").strip(), "sku": sku, "price": price, "taxInclusive": tax_inclusive, "mrpIncludesGst": tax_inclusive, "stock": total_stock, "unallocatedStock": unallocated_stock, "sizeInventoryConfigured": size_enabled, "sizeSystemEnabled": size_enabled, "sizeInventory": size_inventory, "status": status, "availability": availability, "currency": "INR", "category": str(payload.get("category") or "").strip(), "description": str(payload.get("description") or "").strip(), "media": media[:12], "catalogMedia": catalog_media[:12], "attributes": attributes, "isActive": status != "archived"}
@@ -711,14 +858,17 @@ def create_resource(resource: str):
         _set_product_collections(db, document["_id"], requested_collections)
         document = sync_product_variants(db, document) or document
         _queue_product_event(db, document, "PRODUCT_CREATED", actor["_id"])
-        _queue_media_delta(db, {}, document, actor["_id"])
+        media_events = _queue_media_delta(db, {}, document, actor["_id"])
         for requested_collection in requested_collections:
             _queue_membership_event(db, document, requested_collection, "ADD", actor_id=actor["_id"])
     item = _document_view(document, "products" if resource == "products" else resource)
     if resource == "products":
         names = [str(collection.get("name") or "").strip() for collection in requested_collections]
         item.update({"collectionIds": [str(collection["_id"]) for collection in requested_collections], "collections": names, "collection": ", ".join(names)})
-    return jsonify({"item": item}), 201
+    response = {"item": item}
+    if resource == "products":
+        response["mediaSync"] = {"status": "queued" if media_events else "not_required", "eventCount": len(media_events)}
+    return jsonify(response), 201
 
 
 @staff_bp.patch("/resources/<resource>/<resource_id>")
@@ -840,9 +990,9 @@ def update_resource(resource: str, resource_id: str):
         # product can be marked sold out/custom order temporarily and later
         # returned to stock without losing its legacy or size allocation.
         reason = str(payload.get("reason") or payload.get("changeReason") or "").strip()[:240]
-        if (stock_changed or availability_changed or size_inventory_changed) and not reason:
-            return jsonify({"error": "Enter a reason for changing availability or quantity."}), 400
-        if stock_changed or availability_changed or size_inventory_changed:
+        if stock_changed and not reason:
+            return jsonify({"error": "Enter a reason for changing inventory quantities."}), 400
+        if stock_changed or size_inventory_changed:
             db.inventory_adjustments.insert_one({
                 "productId": object_id,
                 "before": before_stock,
@@ -852,8 +1002,8 @@ def update_resource(resource: str, resource_id: str):
                 "afterAvailability": updates.get("availability", current.get("availability")),
                 "beforeSizeInventory": current_size_inventory,
                 "afterSizeInventory": size_inventory,
-                "reason": reason,
-                "changeType": "size_inventory" if size_inventory_changed else "availability_and_stock" if stock_changed and availability_changed else "availability" if availability_changed else "stock",
+                "reason": reason or "Product size options updated.",
+                "changeType": "size_inventory" if size_inventory_changed else "availability_and_stock" if availability_changed else "stock",
                 "createdAt": now,
                 "createdBy": actor["_id"],
             })
@@ -863,9 +1013,15 @@ def update_resource(resource: str, resource_id: str):
             media = payload.get("media")
             if not isinstance(media, list) or len(media) > 12 or any(not isinstance(item, (str, dict)) for item in media):
                 return jsonify({"error": "Product media must contain up to 12 valid URLs or media records."}), 400
-            catalog_media, legacy_media = _normalize_catalog_media(media)
+            try:
+                catalog_media, legacy_media = _normalize_catalog_media(media)
+            except ValueError as error:
+                return jsonify({"error": str(error)}), 400
+            # This resource endpoint manages only the parent/product gallery.
+            # Colour galleries have their own variant endpoint and must survive
+            # ordinary product edits and guarded parent-media cleanup.
             updates["media"] = legacy_media[:12]
-            updates["catalogMedia"] = catalog_media[:12]
+            updates["catalogMedia"] = _replace_parent_catalog_media(current, catalog_media[:12])
         if "attributes" in payload:
             if not isinstance(payload.get("attributes"), dict):
                 return jsonify({"error": "Product attributes must be an object."}), 400
@@ -964,8 +1120,7 @@ def update_resource(resource: str, resource_id: str):
             category_version = int(category_versions.get("rk-web", 0)) + 1; category_versions["rk-web"] = category_version
             db.settings.update_one({"_id": "global"}, {"$set": {"catalogVersions": category_versions}}, upsert=True)
             enqueue_catalog_event(db, make_event("CATEGORY_UPDATED", "category", f"category:{category_slug}", category_version, {"name": category_name, "slug": category_slug, "active": True}, observed_versions=category_versions, identity={"origin_system": "rk-web", "origin_id": f"category:{category_slug}"}, actor_id=actor["_id"]))
-        if "media" in updates:
-            _queue_media_delta(db, current, updated_document, actor["_id"])
+        media_events = _queue_media_delta(db, current, updated_document, actor["_id"]) if "media" in updates else []
         if requested_collections is not None:
             selected_ids = {entry["_id"] for entry in requested_collections}
             for entry in requested_collections:
@@ -979,7 +1134,10 @@ def update_resource(resource: str, resource_id: str):
         assigned = list(db.collections.find({"productRefs.productId": object_id}, {"_id": 1, "name": 1}))
         names = sorted({str(entry.get("name") or "").strip() for entry in assigned if str(entry.get("name") or "").strip()}, key=str.casefold)
         item.update({"collectionIds": [str(entry["_id"]) for entry in assigned], "collections": names, "collection": ", ".join(names)})
-    return jsonify({"item": item}), 200
+    response = {"item": item}
+    if resource == "products" and "media" in updates:
+        response["mediaSync"] = {"status": "queued" if media_events else "unchanged", "eventCount": len(media_events)}
+    return jsonify(response), 200
 
 
 @staff_bp.get("/products/<product_id>/variants/<path:variant_id>")
@@ -1001,7 +1159,26 @@ def get_product_variant(product_id: str, variant_id: str):
         selected = find_variant(product, variant_id)
     if not selected:
         return jsonify({"error": "Variant not found."}), 404
-    return jsonify({"id": str(selected.get("id") or variant_id), "sku": selected.get("sku"), "images": [str(image).strip() for image in (selected.get("images") or []) if str(image).strip()]}), 200
+    return jsonify(_variant_gallery_payload(product, selected, variant_id)), 200
+
+
+def _variant_gallery_payload(product, selected, requested_id):
+    selected_id = str(selected.get("id") or requested_id)
+    images = [str(image).strip() for image in (selected.get("images") or []) if str(image).strip()]
+    image_meta = [dict(item) for item in (selected.get("imageMeta") or []) if isinstance(item, dict)]
+    if not image_meta:
+        image_meta = [
+            dict(item)
+            for item in sorted(
+                (item for item in (product.get("catalogMedia") or [])
+                 if isinstance(item, dict) and str(item.get("variant_id") or "") == selected_id),
+                key=lambda item: _integer(item.get("position"), 0),
+            )
+        ]
+    if not images:
+        images = [str(item.get("permalink") or item.get("url") or "").strip() for item in image_meta]
+        images = [image for image in images if image]
+    return {"id": selected_id, "sku": selected.get("sku"), "images": images, "imageMeta": image_meta}
 
 
 @staff_bp.patch("/products/<product_id>/variants/<path:variant_id>")
@@ -1041,11 +1218,33 @@ def update_product_variant(product_id: str, variant_id: str):
         if not isinstance(images, list) or len(images) > 12 or any(not isinstance(item, str) or len(item) > 2048 for item in images):
             return jsonify({"error": "Variant images must contain up to 12 valid URLs."}), 400
         updated_variant["images"] = [item.strip() for item in images if item.strip()]
+        if len(set(updated_variant["images"])) != len(updated_variant["images"]):
+            return jsonify({"error": "A colour gallery cannot contain duplicate image links."}), 400
+    if "imageMeta" in payload:
+        image_meta = payload.get("imageMeta")
+        if not isinstance(image_meta, list) or len(image_meta) > 12 or any(not isinstance(item, dict) for item in image_meta):
+            return jsonify({"error": "Variant image metadata is invalid."}), 400
+        if "images" in payload and len(image_meta) != len(updated_variant.get("images") or []):
+            return jsonify({"error": "Variant images and image metadata must have the same order and count."}), 400
+        if sum(item.get("is_primary") is True for item in image_meta) > 1 or sum(item.get("is_hover") is True for item in image_meta) > 1:
+            return jsonify({"error": "A colour gallery may have only one primary and one hover image."}), 400
+        metadata_ids = [str(item.get("id") or item.get("media_id") or "").strip() for item in image_meta]
+        if any(not item for item in metadata_ids) or len(set(metadata_ids)) != len(metadata_ids):
+            return jsonify({"error": "Every colour-gallery image must have a unique stable media id."}), 400
+        metadata_urls = [str(item.get("permalink") or item.get("url") or "").strip() for item in image_meta]
+        if "images" in payload and metadata_urls != updated_variant.get("images"):
+            return jsonify({"error": "Variant image metadata must match the image order exactly."}), 400
+        updated_variant["imageMeta"] = [dict(item, is_primary=bool(item.get("is_primary", False)), is_hover=bool(item.get("is_hover", False)), position=index) for index, item in enumerate(image_meta)]
+        try:
+            _variant_media_entries(updated_variant)
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
     if "price" in payload:
         price = _number(payload.get("price"))
         if price < 0:
             return jsonify({"error": "Variant price cannot be negative."}), 400
         updated_variant["price"] = price
+        updated_variant["priceMode"] = "override"
     if "sizeInventory" in payload:
         try:
             updated_variant["sizeInventory"] = normalise_size_inventory(payload.get("sizeInventory"))
@@ -1054,10 +1253,16 @@ def update_product_variant(product_id: str, variant_id: str):
 
     if updated_variant == variants[index]:
         return jsonify({"item": _document_view(product, "products")}), 200
+    before_product = dict(product)
+    before_product["variants"] = [dict(item) for item in variants]
     variants[index] = updated_variant
     now = datetime.now(timezone.utc)
     actor = current_user()
-    db.products.update_one({"_id": object_id}, {"$set": {"variants": variants, "updatedAt": now, "updatedBy": actor["_id"]}})
+    after_product = dict(product)
+    after_product["variants"] = variants
+    before_product["catalogMedia"] = list(product.get("catalogMedia") or [])
+    after_product["catalogMedia"] = _sync_variant_media_catalog(product, variants)
+    db.products.update_one({"_id": object_id}, {"$set": {"variants": variants, "catalogMedia": after_product["catalogMedia"], "updatedAt": now, "updatedBy": actor["_id"]}})
     if updated_variant.get("status") != selected.get("status"):
         db.variant_status_history.insert_one({
             "productId": object_id,
@@ -1069,7 +1274,52 @@ def update_product_variant(product_id: str, variant_id: str):
             "createdBy": actor["_id"],
         })
     current = sync_product_variants(db, db.products.find_one({"_id": object_id}), force=True)
+    _queue_media_delta(db, before_product, after_product, actor["_id"])
     return jsonify({"item": _document_view(current, "products")}), 200
+
+
+@staff_bp.delete("/products/<product_id>/media/<media_id>")
+@requireStaff
+def delete_product_media_relationship(product_id: str, media_id: str):
+    denied = _permission_error("products")
+    if denied:
+        return denied
+    object_id = _valid_id(product_id)
+    if not object_id:
+        return jsonify({"error": "Invalid product id."}), 400
+    relationship_id = str(media_id or "").strip()
+    if not relationship_id or len(relationship_id) > 160:
+        return jsonify({"error": "Invalid media relationship id."}), 400
+
+    db = database()
+    product = db.products.find_one({"_id": object_id})
+    if not product:
+        return jsonify({"error": "Product not found."}), 404
+    before_product = deepcopy(product)
+    updates = _remove_media_relationship(product, relationship_id)
+    if updates is None:
+        return jsonify({"error": "Media relationship not found for this product."}), 404
+
+    now = datetime.now(timezone.utc)
+    actor = current_user()
+    updates.update({"updatedAt": now, "updatedBy": actor["_id"]})
+    result = db.products.update_one(
+        {"_id": object_id, "$or": [
+            {"catalogMedia": {"$elemMatch": {"$or": [{"id": relationship_id}, {"media_id": relationship_id}]}}},
+            {"variants.imageMeta": {"$elemMatch": {"$or": [{"id": relationship_id}, {"media_id": relationship_id}]}}},
+        ]},
+        {"$set": updates},
+    )
+    if getattr(result, "matched_count", 1) != 1:
+        return jsonify({"error": "Media relationship changed before it could be removed. Reload and try again."}), 409
+
+    updated = db.products.find_one({"_id": object_id})
+    media_events = _queue_media_delta(db, before_product, updated, actor["_id"])
+    return jsonify({
+        "item": _document_view(updated, "products"),
+        "removedMediaId": relationship_id,
+        "mediaSync": {"status": "queued" if media_events else "unchanged", "eventCount": len(media_events)},
+    }), 200
 
 
 @staff_bp.delete("/resources/products/<product_id>")

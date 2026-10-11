@@ -319,39 +319,6 @@ export const brandStory = {
   cta: 'Read More',
 };
 
-export const testimonials = [
-  {
-    quote: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer vitae justo eget magna.',
-    name: 'Ananya S.',
-    role: 'Client',
-  },
-  {
-    quote: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt.',
-    name: 'Meher K.',
-    role: 'Client',
-  },
-  {
-    quote: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Ut enim ad minim veniam quis.',
-    name: 'Ritika P.',
-    role: 'Client',
-  },
-  {
-    quote: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Duis aute irure dolor in.',
-    name: 'Naina V.',
-    role: 'Client',
-  },
-  {
-    quote: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Excepteur sint occaecat cupidatat.',
-    name: 'Sana M.',
-    role: 'Client',
-  },
-  {
-    quote: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nunc dignissim, massa at.',
-    name: 'Diya R.',
-    role: 'Client',
-  },
-] as const;
-
 export const instagramItems = [
   'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg',
   'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg',

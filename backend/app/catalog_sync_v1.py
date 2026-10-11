@@ -77,14 +77,33 @@ def validate_event(event: dict, *, expected_source: str | None = None) -> dict:
         if provider == "zoho_workdrive":
             permalink = str(media.get("permalink") or "")
             parsed = urlsplit(permalink)
-            if parsed.scheme != "https" or "/file/" not in parsed.path or "/embed/" in parsed.path:
+            parts = [part for part in parsed.path.split("/") if part]
+            if parsed.scheme.lower() != "https" or parsed.hostname not in {"workdrive.zoho.in", "workdrive.zohoexternal.in"} or parsed.username or parsed.password or parsed.fragment or len(parts) != 2 or parts[0].lower() != "file":
                 raise CatalogEventError("WorkDrive media requires its canonical /file/ permalink.")
-        if isinstance(media.get("position", 0), bool) or not isinstance(media.get("position", 0), int) or media.get("position", 0) < 0 or not isinstance(media.get("is_primary", False), bool):
+        if isinstance(media.get("position", 0), bool) or not isinstance(media.get("position", 0), int) or media.get("position", 0) < 0 or not isinstance(media.get("is_primary", False), bool) or not isinstance(media.get("is_hover", False), bool):
             raise CatalogEventError("Invalid media position or primary state.")
+        for key in ("variant_id", "colour_slug", "colour"):
+            if media.get(key) is not None and (not isinstance(media.get(key), str) or len(media[key]) > 160):
+                raise CatalogEventError("Invalid colour media identity.")
     for key in ("event_id", "correlation_id"):
         try: uuid4().__class__(str(event[key]))
         except (ValueError, TypeError, AttributeError): raise CatalogEventError(f"Invalid {key}.")
     return event
+
+
+def rejection_ack(event: dict, message: str) -> dict:
+    """Return a correlated, non-success acknowledgement for a valid event."""
+    validated = validate_event(event, expected_source="rk-stock")
+    safe_message = " ".join(str(message or "").split())[:200] or "Catalog event was rejected."
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "status": "INVALID",
+        "event_id": validated["event_id"],
+        "entity_type": validated["entity_type"],
+        "source_id": validated["source_id"],
+        "entity_version": validated["entity_version"],
+        "message": safe_message,
+    }
 
 
 def ensure_indexes(db) -> None:
@@ -236,10 +255,25 @@ def _apply_payload(db, event, mapping):
         return product_id
     media = list((db.products.find_one({"_id": product_id}) or {}).get("catalogMedia") or [])
     media_id = str(payload.get("media_id") or "")
-    media = [item for item in media if str(item.get("media_id")) != media_id]
+    existing = next((item for item in media if str(item.get("media_id") or item.get("id")) == media_id), None)
+    if existing and existing.get("owner_system") not in {None, payload.get("owner_system")}:
+        raise CatalogEventError("Media ownership does not permit replacement or removal.")
+    media = [item for item in media if str(item.get("media_id") or item.get("id")) != media_id]
     if event["event_type"] != "MEDIA_DELETED": media.append(payload)
     media.sort(key=lambda item: int(item.get("position", 0)))
-    db.products.update_one({"_id": product_id}, {"$set": {"catalogMedia": media, "updatedAt": now()}})
+    updates = {"catalogMedia": media, "updatedAt": now()}
+    variant_id = str(payload.get("variant_id") or "").strip()
+    if variant_id:
+        document = db.products.find_one({"_id": product_id}, {"variants": 1}) or {}
+        variants = [dict(item) for item in document.get("variants") or [] if isinstance(item, dict)]
+        matching = [item for item in media if str(item.get("variant_id") or "") == variant_id]
+        for variant in variants:
+            if str(variant.get("id") or "") == variant_id:
+                variant["images"] = [str(item.get("permalink") or item.get("url") or "") for item in matching if str(item.get("permalink") or item.get("url") or "")]
+                variant["imageMeta"] = matching
+                break
+        updates["variants"] = variants
+    db.products.update_one({"_id": product_id}, {"$set": updates})
     return media_id
 
 
@@ -271,7 +305,7 @@ def manifest(db):
             product = db.products.find_one({"_id": ObjectId(local_id)}) or {}
             for media in product.get("catalogMedia") or product.get("media") or []:
                 if isinstance(media, dict) and media.get("media_id"):
-                    items.append({"entity_type": "media", "entity_identity": {"origin_system": media.get("owner_system") or mapping.get("origin_system"), "origin_id": str(media.get("media_id"))}, "product_identity": {"origin_system": mapping.get("origin_system"), "origin_id": mapping.get("origin_id")}, "versions": mapping.get("versions") or {}, "payload": {key: media[key] for key in ("media_id", "provider", "owner_system", "url", "permalink", "secure_url", "public_id", "position", "is_primary", "alt_text", "description", "asset_folder", "view") if media.get(key) is not None}})
+                    items.append({"entity_type": "media", "entity_identity": {"origin_system": media.get("owner_system") or mapping.get("origin_system"), "origin_id": str(media.get("media_id"))}, "product_identity": {"origin_system": mapping.get("origin_system"), "origin_id": mapping.get("origin_id")}, "versions": mapping.get("versions") or {}, "payload": {key: media[key] for key in ("media_id", "provider", "owner_system", "url", "permalink", "secure_url", "public_id", "position", "is_primary", "is_hover", "alt_text", "description", "asset_folder", "view") if media.get(key) is not None}})
         if mapping.get("entity_type") == "collection" and payload is not None:
             collection = db.collections.find_one({"_id": ObjectId(local_id)}) or {}
             collection_identity = {"origin_system": mapping.get("origin_system"), "origin_id": str(mapping.get("origin_id"))}

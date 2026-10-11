@@ -5,7 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { trackAnalyticsEvent } from '@/lib/analytics';
-import { availabilityLabels, inr, type CatalogProduct } from '@/lib/catalog';
+import { availabilityLabels, inr, type CatalogProduct, variantPrimaryAndHoverSources } from '@/lib/catalog';
 import { readWishlist, toggleWishlist, wishlistChangedEvent } from '@/lib/storefront-wishlist';
 import { cloudinaryImageUrl } from '@/lib/utils';
 
@@ -18,13 +18,12 @@ function productColourText(product: CatalogProduct) {
 export function CollectionProductCard({ product, href }: { product: CatalogProduct; href?: string }) {
   const [saved, setSaved] = useState(false);
   const route = href || `/products/${product.id}`;
-  const primaryImage = product.media?.[0];
-  const secondaryImage = product.media?.[1];
+  const defaultVariant = product.variants?.find((variant) => variant.status !== 'remove') || product.variants?.[0];
+  const { primary: primaryImage, hover: secondaryImage } = variantPrimaryAndHoverSources(product, defaultVariant);
   const primaryGridImage = cloudinaryImageUrl(primaryImage, 640);
   const secondaryGridImage = cloudinaryImageUrl(secondaryImage, 640);
   const sizeConfigured = product.sizeInventoryConfigured === true;
   const productColours = productColourText(product);
-  const defaultVariant = product.variants?.find((variant) => variant.status !== 'remove') || product.variants?.[0];
   const wishlistSku = defaultVariant?.sku || product.sku;
 
   useEffect(() => {

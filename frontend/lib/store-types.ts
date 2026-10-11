@@ -24,6 +24,8 @@ export type CartItem = {
   image?: string;
   stock?: number;
   availability?: string;
+  /** Verified fulfilment classification used by the shared shipping timeline resolver. */
+  shippingMode?: 'ready_to_wear' | 'made_to_order' | 'unknown';
   /** Explicitly distinguishes legacy product stock from size stock. */
   inventoryMode?: 'legacy' | 'size' | 'variant';
   /** Distinguishes a standard-size purchase from a submitted custom-size order. */

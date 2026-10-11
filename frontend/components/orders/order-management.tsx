@@ -8,7 +8,7 @@ import { fulfillmentLabels, inr, orderDate, paymentLabels, type FulfillmentStatu
 
 type Counts = { payment: Record<string, number>; fulfillment: Record<string, number> };
 const statuses: Array<[string, string]> = [['processing', 'Processing'], ['packed', 'Packed'], ['shipped', 'Shipped'], ['out_for_delivery', 'Out for delivery'], ['delivered', 'Delivered'], ['returns', 'Returns'], ['cancelled', 'Cancelled']];
-const fieldClass = 'rounded-lg border border-black/10 bg-white px-3 py-2.5 text-xs outline-none focus:border-[#9a7a4d] dark:border-white/10 dark:bg-[#121317]';
+const fieldClass = 'admin-field text-xs';
 
 function Pill({ value, type }: { value: string; type: 'payment' | 'fulfillment' }) {
   const good = value === 'paid' || value === 'delivered'; const bad = ['failed', 'cancelled', 'refunded'].includes(value);

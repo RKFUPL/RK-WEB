@@ -127,6 +127,9 @@ export function AakaarCollectionPage() {
   };
 
   const clearFilters = () => router.replace(pathname, { scroll: false });
+  const scrollToProducts = () => {
+    document.getElementById('aakaar-products')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   return <main className="min-h-screen bg-ivory text-charcoal">
     <AakaarLightModeStart />
@@ -139,10 +142,13 @@ export function AakaarCollectionPage() {
         <p className="mt-14 text-[0.62rem] uppercase tracking-[0.4em] text-gold">The complete collection</p>
         <h1 className="mt-5 font-aakaar text-[clamp(4rem,12vw,10rem)] leading-[0.78] tracking-[0.04em]">Aakaar</h1>
         <p className="mt-8 max-w-xl font-display text-xl italic leading-tight text-charcoal/65 dark:text-[#f5f2ee]/65 md:text-2xl">The Indian Collection, presented through twenty considered pieces.</p>
+        <button type="button" onClick={scrollToProducts} className="mt-8 inline-flex min-h-11 items-center justify-center gap-3 bg-charcoal px-6 py-3 text-[0.6rem] uppercase tracking-[0.28em] text-ivory transition duration-300 hover:bg-gold hover:text-ink active:translate-y-px focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-gold">
+          VIEW PRODUCTS <span aria-hidden="true" className="text-base leading-none">↓</span>
+        </button>
       </SectionShell>
     </section>
 
-    <section id="aakaar-products" className="border-b border-black/10 bg-ivory px-4 pb-24 pt-14 dark:border-white/10 sm:px-8 lg:px-12 lg:pt-20">
+    <section id="aakaar-products" className="scroll-mt-28 border-b border-black/10 bg-ivory px-4 pb-24 pt-14 dark:border-white/10 sm:px-8 lg:scroll-mt-32 lg:px-12 lg:pt-20">
       <div className="mx-auto max-w-[100rem]">
         <div className="flex flex-col justify-between gap-8 border-b border-black/10 pb-7 dark:border-white/15 md:flex-row md:items-end">
           <div>

@@ -3,14 +3,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { Expand, Minimize2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-
-const sizes = ['XS', 'S', 'M', 'L', 'XL'];
-const measurements = [
-  ['Bust', ['32', '34', '36', '38', '40']],
-  ['Waist', ['24', '26', '28', '30', '32']],
-  ['Hip', ['34', '36', '38', '40', '42']],
-  ['Shoulder', ['13.5', '14', '14.5', '15', '15.5']],
-] as const;
+import { pairedMeasurement, sizeGuideMeasurements, sizeGuideSizes } from '@/lib/size-guide';
 
 export function SizeChartPopover() {
   const [open, setOpen] = useState(false);
@@ -68,7 +61,7 @@ export function SizeChartPopover() {
             <div>
               <p className={`${expanded ? 'text-[0.72rem]' : 'text-[0.66rem]'} uppercase tracking-[0.3em] text-gold`}>RK size guide</p>
               <h2 id="rk-size-guide-title" className={`mt-2 font-display leading-none ${expanded ? 'text-4xl sm:text-5xl' : 'text-3xl sm:text-4xl'}`}>Women&apos;s measurements</h2>
-              <p className={`mt-3 uppercase tracking-[0.2em] text-charcoal/48 dark:text-white/50 ${expanded ? 'text-xs' : 'text-[0.68rem]'}`}>Measurements in inches</p>
+              <p className={`mt-3 uppercase tracking-[0.2em] text-charcoal/48 dark:text-white/50 ${expanded ? 'text-xs' : 'text-[0.68rem]'}`}>Measurements in inches and centimetres</p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <button type="button" onClick={() => setExpanded((current) => !current)} aria-label={expanded ? 'Return size guide to normal view' : 'Expand size guide'} className="inline-flex h-10 items-center gap-2 border border-black/15 px-3 text-[0.58rem] uppercase tracking-[0.18em] transition hover:border-gold hover:text-gold dark:border-white/20 sm:px-4">
@@ -83,13 +76,18 @@ export function SizeChartPopover() {
               <thead>
                 <tr className="border-b border-black/12 uppercase tracking-[0.2em] text-charcoal/52 dark:border-white/15 dark:text-white/55">
                   <th scope="col" className={`${expanded ? 'pb-5 pr-8 text-xs' : 'pb-4 pr-6 text-[0.68rem]'} font-normal`}>Size</th>
-                  {sizes.map((size) => <th key={size} scope="col" className={`${expanded ? 'px-4 pb-5 text-sm' : 'px-3 pb-4 text-xs'} text-center font-normal`}>{size}</th>)}
+                  {sizeGuideSizes.map((size) => <th key={size} scope="col" className={`${expanded ? 'px-4 pb-5 text-sm' : 'px-3 pb-4 text-xs'} text-center font-normal`}>{size}</th>)}
                 </tr>
               </thead>
               <tbody>
-                {measurements.map(([label, values]) => <tr key={label} className="border-b border-black/[.07] last:border-0 dark:border-white/10">
+                {sizeGuideMeasurements.map(({ label, inches }) => <tr key={label} className="border-b border-black/[.07] last:border-0 dark:border-white/10">
                   <th scope="row" className={`${expanded ? 'py-6 pr-8 text-sm' : 'py-5 pr-6 text-xs'} font-normal uppercase tracking-[0.16em] text-charcoal/60 dark:text-white/60`}>{label}</th>
-                  {values.map((value, index) => <td key={`${label}-${sizes[index]}`} className={`${expanded ? 'px-4 py-6 text-lg' : 'px-3 py-5 text-base'} text-center tabular-nums`}>{value}</td>)}
+                  {inches.map((value, index) => {
+                    const measurement = pairedMeasurement(value);
+                    return <td key={`${label}-${sizeGuideSizes[index]}`} className={`${expanded ? 'px-4 py-6' : 'px-3 py-5'} text-center tabular-nums`}>
+                      {measurement ? <><span className={`${expanded ? 'text-lg' : 'text-base'} block`}>{measurement.inches} <span className="text-[0.65em] text-charcoal/48 dark:text-white/50">in</span></span><span className="mt-1 block text-xs text-charcoal/55 dark:text-white/60">{measurement.centimetres} cm</span></> : <span aria-label="Measurement unavailable">—</span>}
+                    </td>;
+                  })}
                 </tr>)}
               </tbody>
             </table>

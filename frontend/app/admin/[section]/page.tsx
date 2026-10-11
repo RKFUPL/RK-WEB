@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AdminSettings } from '@/components/admin/admin-settings';
 import { AdminLookbooks } from '@/components/admin/admin-lookbooks';
 import { AdminProducts } from '@/components/admin/admin-products';
+import { AdminTestimonials } from '@/components/admin/admin-testimonials';
 import { CollectionManagementList } from '@/components/collections/collection-management-list';
 import { OperationsSection } from '@/components/staff/operations-section';
 import { OrderManagement } from '@/components/orders/order-management';
@@ -119,6 +120,7 @@ export default function AdminSection({ params }: { params: Promise<{ section: st
   if (section === 'collections') return <CollectionManagementList basePath="/admin/collections" />;
   if (section === 'orders') return <OrderManagement />;
   if (section === 'products') return <AdminProducts />;
+  if (section === 'testimonials') return <AdminTestimonials />;
   if (operationalSections.has(section)) return <OperationsSection section={section} />;
 
   const title = section.replaceAll('-', ' ');

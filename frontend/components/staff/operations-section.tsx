@@ -1,229 +1,1060 @@
-'use client';
+"use client";
 
-import { MoreHorizontal } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { apiBaseUrl, getCurrentUser, type Role, type StaffPermission } from '@/lib/rbac';
+import { MoreHorizontal } from "lucide-react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
+import {
+  apiBaseUrl,
+  getCurrentUser,
+  type Role,
+  type StaffPermission,
+} from "@/lib/rbac";
 
 type Item = Record<string, unknown> & { id: string };
-type Section = 'products' | 'inventory' | 'quotes' | 'orders' | 'customers';
+type Section = "products" | "inventory" | "quotes" | "orders" | "customers";
 type SizeEntry = { size: string; stock: number; enabled: boolean };
-type VariantStatus = 'active' | 'inactive' | 'remove';
-type AdminProductVariant = { id: string; sku: string; colour: string; status: VariantStatus; availabilityStatus?: 'IN_STOCK' | 'NO_STOCK'; images?: string[]; stock?: number; sizeInventory?: SizeEntry[] };
+type VariantStatus = "active" | "inactive" | "remove";
+type AdminProductVariant = {
+  id: string;
+  sku: string;
+  colour: string;
+  status: VariantStatus;
+  availabilityStatus?: "IN_STOCK" | "NO_STOCK";
+  images?: string[];
+  stock?: number;
+  sizeInventory?: SizeEntry[];
+};
 type CollectionOption = { id: string; name: string; slug: string };
 
 const permissions: Record<Section, StaffPermission> = {
-  products: 'products:manage', inventory: 'inventory:manage', quotes: 'quotes:manage', orders: 'orders:manage', customers: 'customers:manage',
+  products: "products:manage",
+  inventory: "inventory:manage",
+  quotes: "quotes:manage",
+  orders: "orders:manage",
+  customers: "customers:manage",
 };
 const columns: Record<Section, Array<[string, string]>> = {
-  products: [['name', 'Product & colour variants'], ['sku', 'Parent SKU'], ['price', 'Base price'], ['stock', 'Tracked stock'], ['sizeInventory', 'Size inventory by SKU'], ['availability', 'Variant status']],
-  inventory: [['name', 'Product'], ['sku', 'SKU'], ['stock', 'Available'], ['availability', 'Availability']],
-  quotes: [['quoteNumber', 'Quote'], ['customerName', 'Customer'], ['email', 'Email'], ['total', 'Total'], ['status', 'Status']],
-  orders: [['orderNumber', 'Order'], ['customerName', 'Customer'], ['email', 'Email'], ['total', 'Total'], ['status', 'Status']],
-  customers: [['displayName', 'Customer'], ['email', 'Email'], ['phone', 'Phone'], ['assignedStaffId', 'Assignment']],
+  products: [
+    ["name", "Product & colour variants"],
+    ["sku", "Parent SKU"],
+    ["price", "Base price"],
+    ["stock", "Tracked stock"],
+    ["sizeInventory", "Size inventory by SKU"],
+    ["availability", "Variant status"],
+  ],
+  inventory: [
+    ["name", "Product"],
+    ["sku", "SKU"],
+    ["stock", "Available"],
+    ["availability", "Availability"],
+  ],
+  quotes: [
+    ["quoteNumber", "Quote"],
+    ["customerName", "Customer"],
+    ["email", "Email"],
+    ["total", "Total"],
+    ["status", "Status"],
+  ],
+  orders: [
+    ["orderNumber", "Order"],
+    ["customerName", "Customer"],
+    ["email", "Email"],
+    ["total", "Total"],
+    ["status", "Status"],
+  ],
+  customers: [
+    ["displayName", "Customer"],
+    ["email", "Email"],
+    ["phone", "Phone"],
+    ["assignedStaffId", "Assignment"],
+  ],
 };
-const emptyForms: Record<Exclude<Section, 'inventory'>, Record<string, string>> = {
-  products: { name: '', sku: '', price: '', stock: '0', status: 'draft', availability: 'in_stock', description: '' },
-  quotes: { quoteNumber: '', customerName: '', email: '', total: '', status: 'draft', notes: '' },
-  orders: { orderNumber: '', customerName: '', email: '', total: '', status: 'pending' },
-  customers: { displayName: '', email: '', phone: '' },
+const emptyForms: Record<
+  Exclude<Section, "inventory">,
+  Record<string, string>
+> = {
+  products: {
+    name: "",
+    sku: "",
+    price: "",
+    stock: "0",
+    status: "draft",
+    availability: "in_stock",
+    description: "",
+  },
+  quotes: {
+    quoteNumber: "",
+    customerName: "",
+    email: "",
+    total: "",
+    status: "draft",
+    notes: "",
+  },
+  orders: {
+    orderNumber: "",
+    customerName: "",
+    email: "",
+    total: "",
+    status: "pending",
+  },
+  customers: { displayName: "", email: "", phone: "" },
 };
 
-const inputClass = 'w-full rounded-lg border border-black/10 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-[#9a7a4d] dark:border-white/10 dark:bg-[#121317]';
-const compactInputClass = 'h-8 w-12 rounded border border-black/10 bg-white px-1 text-center text-xs tabular-nums outline-none transition focus:border-[#9a7a4d] focus:ring-1 focus:ring-[#9a7a4d]/20 dark:border-white/10 dark:bg-[#121317]';
-const standardSizes = ['XS', 'S', 'M', 'L', 'XL'];
+const inputClass = "admin-field text-sm";
+const compactInputClass =
+  "h-8 w-12 rounded border border-black/10 bg-white px-1 text-center text-xs tabular-nums outline-none transition focus:border-[#9a7a4d] focus:ring-1 focus:ring-[#9a7a4d]/20 dark:border-white/10 dark:bg-[#121317]";
+const standardSizes = ["XS", "S", "M", "L", "XL"];
 
-function selectedCollectionIds(value: string | undefined) {
-  try { return Array.isArray(JSON.parse(value || '[]')) ? JSON.parse(value || '[]') as string[] : []; } catch { return []; }
+function mediaLinks(value: string | undefined) {
+  return (value || "")
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }
 
-function CollectionChoices({ collections, value, onChange }: { collections: CollectionOption[]; value: string | undefined; onChange: (value: string) => void }) {
+function mediaPayload(form: Record<string, string>) {
+  let records: Array<Record<string, unknown>> = [];
+  try {
+    const parsed = JSON.parse(form.mediaRecords || "[]");
+    if (Array.isArray(parsed)) records = parsed;
+  } catch {
+    records = [];
+  }
+  return mediaLinks(form.mediaLinks).map(
+    (link) =>
+      records.find((item) =>
+        [item.permalink, item.secure_url, item.url].some(
+          (value) => value === link,
+        ),
+      ) || link,
+  );
+}
+
+function WorkDriveLinksField({
+  value,
+  onChange,
+}: {
+  value: string | undefined;
+  onChange: (value: string) => void;
+}) {
+  const links = mediaLinks(value);
+  return (
+    <label className="text-[10px] uppercase tracking-[.16em] text-[#858b94] md:col-span-2">
+      Product photos · WorkDrive links
+      <textarea
+        value={value || ""}
+        onChange={(event) => onChange(event.target.value)}
+        rows={4}
+        placeholder={
+          "https://workdrive.zoho.in/file/...\nhttps://workdrive.zoho.in/file/..."
+        }
+        className={`${inputClass} mt-2 normal-case tracking-normal`}
+      />
+      <span className="mt-2 block normal-case tracking-normal">
+        One approved HTTPS /file/ link per line. Line order is photo order; the
+        first photo is primary. Private files render through the authenticated
+        product-media proxy after saving.
+      </span>
+      {links.length ? (
+        <span className="mt-2 block normal-case tracking-normal text-[#9a7a4d]">
+          {links.length} photo{links.length === 1 ? "" : "s"} ready to save.
+        </span>
+      ) : null}
+    </label>
+  );
+}
+
+function selectedCollectionIds(value: string | undefined) {
+  try {
+    return Array.isArray(JSON.parse(value || "[]"))
+      ? (JSON.parse(value || "[]") as string[])
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function CollectionChoices({
+  collections,
+  value,
+  onChange,
+}: {
+  collections: CollectionOption[];
+  value: string | undefined;
+  onChange: (value: string) => void;
+}) {
   const selected = selectedCollectionIds(value);
-  return <fieldset className="md:col-span-2"><legend className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Collections</legend><div className="mt-2 grid gap-2 rounded-lg border border-black/10 bg-white p-3 dark:border-white/10 dark:bg-[#121317] sm:grid-cols-2 lg:grid-cols-3">{collections.length ? collections.map((collection) => <label key={collection.id} className="flex items-center gap-2 text-xs text-[#6e747d]"><input type="checkbox" checked={selected.includes(collection.id)} onChange={(event) => onChange(JSON.stringify(event.target.checked ? [...selected, collection.id] : selected.filter((id) => id !== collection.id)))} />{collection.name}</label>) : <span className="text-xs text-[#8a9098]">No collections available.</span>}</div></fieldset>;
+  return (
+    <fieldset className="md:col-span-2">
+      <legend className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">
+        Collections
+      </legend>
+      <div className="mt-2 grid gap-2 rounded-lg border border-black/10 bg-white p-3 dark:border-white/10 dark:bg-[#121317] sm:grid-cols-2 lg:grid-cols-3">
+        {collections.length ? (
+          collections.map((collection) => (
+            <label
+              key={collection.id}
+              className="flex items-center gap-2 text-xs text-[#6e747d]"
+            >
+              <input
+                type="checkbox"
+                checked={selected.includes(collection.id)}
+                onChange={(event) =>
+                  onChange(
+                    JSON.stringify(
+                      event.target.checked
+                        ? [...selected, collection.id]
+                        : selected.filter((id) => id !== collection.id),
+                    ),
+                  )
+                }
+              />
+              {collection.name}
+            </label>
+          ))
+        ) : (
+          <span className="text-xs text-[#8a9098]">
+            No collections available.
+          </span>
+        )}
+      </div>
+    </fieldset>
+  );
 }
 
 function isSizeConfigured(item: Item) {
-  return item.sizeInventoryConfigured === true || item.sizeSystemEnabled === true;
+  return (
+    item.sizeInventoryConfigured === true || item.sizeSystemEnabled === true
+  );
 }
 
 function entriesFromValue(value: unknown): SizeEntry[] {
   const source = Array.isArray(value) ? value : [];
-  return standardSizes.map((size) => {
-    const entry = source.find((candidate) => candidate && typeof candidate === 'object' && String((candidate as Record<string, unknown>).size).toUpperCase() === size) as Record<string, unknown> | undefined;
+  const supplied = source
+    .map((candidate) =>
+      String(
+        candidate && typeof candidate === "object"
+          ? (candidate as Record<string, unknown>).size || ""
+          : "",
+      )
+        .trim()
+        .toUpperCase(),
+    )
+    .filter(Boolean);
+  const sizes = supplied.length
+    ? standardSizes.filter((size) => supplied.includes(size))
+    : standardSizes;
+  return sizes.map((size) => {
+    const entry = source.find(
+      (candidate) =>
+        candidate &&
+        typeof candidate === "object" &&
+        String((candidate as Record<string, unknown>).size).toUpperCase() ===
+          size,
+    ) as Record<string, unknown> | undefined;
     const stock = Number(entry?.stock ?? 0);
-    return { size, stock: Number.isFinite(stock) && stock >= 0 ? Math.floor(stock) : 0, enabled: entry?.enabled !== false };
+    return {
+      size,
+      stock: Number.isFinite(stock) && stock >= 0 ? Math.floor(stock) : 0,
+      enabled: entry?.enabled !== false,
+    };
   });
 }
 
 function entriesFromForm(form: Record<string, string>) {
-  try { return entriesFromValue(JSON.parse(form.sizeInventory || '[]')); } catch { return entriesFromValue([]); }
+  try {
+    return entriesFromValue(JSON.parse(form.sizeInventory || "[]"));
+  } catch {
+    return entriesFromValue([]);
+  }
 }
 
 function totalStock(entries: SizeEntry[]) {
-  return entries.reduce((total, entry) => total + (entry.enabled ? entry.stock : 0), 0);
+  return entries.reduce(
+    (total, entry) => total + (entry.enabled ? entry.stock : 0),
+    0,
+  );
 }
 
 function booleanValue(value: unknown) {
-  return typeof value === 'string' ? value.toLowerCase() === 'true' : Boolean(value);
+  return typeof value === "string"
+    ? value.toLowerCase() === "true"
+    : Boolean(value);
 }
 
 function currency(value: unknown) {
-  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(value ?? 0));
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(Number(value ?? 0));
 }
 
 function variantsFromItem(item: Item): AdminProductVariant[] {
   if (!Array.isArray(item.variants)) return [];
-  return item.variants.filter((variant): variant is AdminProductVariant => Boolean(
-    variant && typeof variant === 'object' && typeof (variant as AdminProductVariant).id === 'string',
-  ));
+  return item.variants.filter((variant): variant is AdminProductVariant =>
+    Boolean(
+      variant &&
+      typeof variant === "object" &&
+      typeof (variant as AdminProductVariant).id === "string",
+    ),
+  );
 }
 
 function productColourText(item: Item) {
-  const variantColours = variantsFromItem(item).filter((variant) => variant.status !== 'remove').map((variant) => variant.colour).filter(Boolean);
-  if (variantColours.length) return variantColours.join(', ');
-  const attributes = item.attributes && typeof item.attributes === 'object' ? item.attributes as Record<string, unknown> : {};
-  const value = Array.isArray(attributes.colors) && attributes.colors.length ? attributes.colors : attributes.color;
-  if (Array.isArray(value)) return value.filter(Boolean).map(String).join(', ');
-  return value ? String(value) : '';
+  const variantColours = variantsFromItem(item)
+    .filter((variant) => variant.status !== "remove")
+    .map((variant) => variant.colour)
+    .filter(Boolean);
+  if (variantColours.length) return variantColours.join(", ");
+  const attributes =
+    item.attributes && typeof item.attributes === "object"
+      ? (item.attributes as Record<string, unknown>)
+      : {};
+  const value =
+    Array.isArray(attributes.colors) && attributes.colors.length
+      ? attributes.colors
+      : attributes.color;
+  if (Array.isArray(value)) return value.filter(Boolean).map(String).join(", ");
+  return value ? String(value) : "";
 }
 
 function statusFor(item: Item) {
   const variants = variantsFromItem(item);
   if (variants.length) {
-    if (variants.every((variant) => variant.status === 'remove')) return { label: 'Removed', dot: 'bg-[#858b94]' };
-    if (variants.some((variant) => variant.status === 'active')) return { label: 'Active', dot: 'bg-emerald-600' };
-    return { label: 'Sold out', dot: 'bg-red-500' };
+    if (variants.every((variant) => variant.status === "remove"))
+      return { label: "Removed", dot: "bg-[#858b94]" };
+    if (variants.some((variant) => variant.status === "active"))
+      return { label: "Active", dot: "bg-emerald-600" };
+    return { label: "Sold out", dot: "bg-red-500" };
   }
-  const availability = String(item.availability ?? '').toLowerCase();
-  if (availability === 'sold_out') return { label: 'Sold out', dot: 'bg-red-500' };
-  if (availability === 'custom_order') return { label: 'Custom order', dot: 'bg-[#9a7a4d]' };
-  return { label: 'In stock', dot: 'bg-emerald-600' };
+  const availability = String(item.availability ?? "").toLowerCase();
+  if (availability === "sold_out")
+    return { label: "Sold out", dot: "bg-red-500" };
+  if (availability === "custom_order")
+    return { label: "Custom order", dot: "bg-[#9a7a4d]" };
+  return { label: "In stock", dot: "bg-emerald-600" };
 }
 
 function ProductThumbnail({ item }: { item: Item }) {
+  const [failed, setFailed] = useState(false);
   const media = Array.isArray(item.media) ? item.media : [];
-  const variantImage = variantsFromItem(item).find((variant) => variant.status !== 'remove' && variant.images?.length)?.images?.[0];
-  const image = typeof variantImage === 'string' ? variantImage : typeof media[0] === 'string' ? media[0] : '';
-  return <div className="h-12 w-10 shrink-0 overflow-hidden rounded-[10px] bg-[#eee8de] dark:bg-white/[.06]">{image ? <img src={image} alt="" loading="lazy" decoding="async" width={40} height={48} className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center text-[9px] uppercase tracking-[.12em] text-[#9a7a4d]">RK</div>}</div>;
+  const catalogMedia = Array.isArray(item.catalogMedia)
+    ? [...item.catalogMedia]
+        .filter((value): value is Record<string, unknown> =>
+          Boolean(value && typeof value === "object"),
+        )
+        .sort(
+          (left, right) =>
+            Number(left.position || 0) - Number(right.position || 0),
+        )
+    : [];
+  const primary =
+    catalogMedia.find((value) => value.is_primary === true) || catalogMedia[0];
+  const variantImage = variantsFromItem(item).find(
+    (variant) => variant.status !== "remove" && variant.images?.length,
+  )?.images?.[0];
+  const mediaId = String(primary?.media_id || primary?.id || "");
+  const structuredImage =
+    primary?.provider === "zoho_workdrive" && mediaId
+      ? `${apiBaseUrl}/api/catalog/products/${encodeURIComponent(item.id)}/media/${encodeURIComponent(mediaId)}`
+      : String(primary?.secure_url || primary?.url || "");
+  const image =
+    structuredImage ||
+    (typeof variantImage === "string"
+      ? variantImage
+      : typeof media[0] === "string"
+        ? media[0]
+        : "");
+  useEffect(() => setFailed(false), [image]);
+  return (
+    <div className="h-12 w-10 shrink-0 overflow-hidden rounded-[10px] bg-[#eee8de] dark:bg-white/[.06]">
+      {image && !failed ? (
+        <img
+          src={image}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          width={40}
+          height={48}
+          onError={() => setFailed(true)}
+          className="h-full w-full object-cover"
+        />
+      ) : (
+        <div className="grid h-full place-items-center text-[9px] uppercase tracking-[.12em] text-[#9a7a4d]">
+          {failed ? "N/A" : "RK"}
+        </div>
+      )}
+    </div>
+  );
 }
 
-function VariantStatusControls({ item, busy, onChange }: { item: Item; busy: boolean; onChange: (variantId: string, status: VariantStatus) => void }) {
+function VariantStatusControls({
+  item,
+  busy,
+  onChange,
+}: {
+  item: Item;
+  busy: boolean;
+  onChange: (variantId: string, status: VariantStatus) => void;
+}) {
   const variants = variantsFromItem(item);
   if (!variants.length) return null;
-  return <div className="mt-2 space-y-1.5 border-t border-black/[.06] pt-2 dark:border-white/[.08]">
-    {variants.map((variant) => <div key={variant.id} className="flex min-w-[17rem] items-center justify-between gap-2 text-[9px]">
-      <span className="min-w-0"><span className="font-medium uppercase tracking-[.1em] text-[#9a7a4d]">{variant.colour || 'Default'}</span><span className="ml-2 text-[#858b94]">{variant.sku}</span></span>
-      <select aria-label={`Status for ${variant.sku}`} value={variant.status} disabled={busy} onChange={(event) => onChange(variant.id, event.target.value as VariantStatus)} className="rounded border border-black/10 bg-white px-2 py-1 text-[9px] uppercase tracking-[.08em] dark:border-white/10 dark:bg-[#121317]">
+  return (
+    <div className="mt-2 space-y-1.5 border-t border-black/[.06] pt-2 dark:border-white/[.08]">
+      {variants.map((variant) => (
+        <div
+          key={variant.id}
+          className="flex min-w-[17rem] items-center justify-between gap-2 text-[9px]"
+        >
+          <span className="min-w-0">
+            <span className="font-medium uppercase tracking-[.1em] text-[#9a7a4d]">
+              {variant.colour || "Default"}
+            </span>
+            <span className="ml-2 text-[#858b94]">{variant.sku}</span>
+          </span>
+          <select
+            aria-label={`Status for ${variant.sku}`}
+            value={variant.status}
+            disabled={busy}
+            onChange={(event) =>
+              onChange(variant.id, event.target.value as VariantStatus)
+            }
+            className="rounded border border-black/10 bg-white px-2 py-1 text-[9px] uppercase tracking-[.08em] dark:border-white/10 dark:bg-[#121317]"
+          >
         <option value="active">Active</option>
         <option value="inactive">Inactive</option>
         <option value="remove">Remove</option>
       </select>
-    </div>)}
-  </div>;
-}
-
-function ProductSizeCell({ entries, allocationTarget, onChange }: { entries: SizeEntry[]; allocationTarget: number; onChange: (size: string, value: string) => void }) {
-  const allocated = totalStock(entries);
-  return <div className="w-full min-w-0 max-w-[20rem]">
-    <div className="grid grid-cols-5 gap-1.5">
-      {entries.map((entry) => <label key={entry.size} className="min-w-0 text-center text-[9px] uppercase tracking-[.12em] text-[#858b94]"><span className="block pb-1">{entry.size}</span><input aria-label={`${entry.size} stock`} type="number" min={0} step={1} value={entry.stock} onChange={(event) => onChange(entry.size, event.target.value)} className={`${compactInputClass} w-full`} /></label>)}
+        </div>
+      ))}
     </div>
-    <p className={`mt-2 text-[10px] tabular-nums ${allocated === allocationTarget ? 'text-emerald-700' : 'text-[#9a7a4d]'}`}>{allocated} / {allocationTarget} allocated</p>
-  </div>;
+  );
 }
 
-function VariantSizeCells({ variants, busy, onChange }: { variants: AdminProductVariant[]; busy: boolean; onChange: (variantId: string, size: string, value: string) => void }) {
-  if (!variants.length) return <span className="text-xs text-[#858b94]">No colour SKUs</span>;
-  return <div className="w-full min-w-0 space-y-4">
-    {variants.filter((variant) => variant.status !== 'remove').map((variant) => {
+function ProductSizeCell({
+  entries,
+  allocationTarget,
+  onChange,
+}: {
+  entries: SizeEntry[];
+  allocationTarget: number;
+  onChange: (size: string, value: string) => void;
+}) {
+  const allocated = totalStock(entries);
+  return (
+    <div className="w-full min-w-0 max-w-[20rem]">
+    <div className="grid grid-cols-5 gap-1.5">
+        {entries.map((entry) => (
+          <label
+            key={entry.size}
+            className="min-w-0 text-center text-[9px] uppercase tracking-[.12em] text-[#858b94]"
+          >
+            <span className="block pb-1">{entry.size}</span>
+            <input
+              aria-label={`${entry.size} stock`}
+              type="number"
+              min={0}
+              step={1}
+              value={entry.stock}
+              onChange={(event) => onChange(entry.size, event.target.value)}
+              className={`${compactInputClass} w-full`}
+            />
+          </label>
+        ))}
+    </div>
+      <p
+        className={`mt-2 text-[10px] tabular-nums ${allocated === allocationTarget ? "text-emerald-700" : "text-[#9a7a4d]"}`}
+      >
+        {allocated} / {allocationTarget} allocated
+      </p>
+    </div>
+  );
+}
+
+function VariantSizeCells({
+  variants,
+  busy,
+  onChange,
+}: {
+  variants: AdminProductVariant[];
+  busy: boolean;
+  onChange: (variantId: string, size: string, value: string) => void;
+}) {
+  if (!variants.length)
+    return <span className="text-xs text-[#858b94]">No colour SKUs</span>;
+  return (
+    <div className="w-full min-w-0 space-y-4">
+      {variants
+        .filter((variant) => variant.status !== "remove")
+        .map((variant) => {
       const entries = entriesFromValue(variant.sizeInventory);
-      return <div key={variant.id} className="border-b border-black/[.06] pb-3 last:border-b-0 last:pb-0 dark:border-white/[.08]">
+          return (
+            <div
+              key={variant.id}
+              className="border-b border-black/[.06] pb-3 last:border-b-0 last:pb-0 dark:border-white/[.08]"
+            >
         <div className="mb-2 flex items-center gap-2 text-[9px] uppercase tracking-[.1em]">
-          <span className="font-medium text-[#9a7a4d]">{variant.colour || 'Default'}</span>
+                <span className="font-medium text-[#9a7a4d]">
+                  {variant.colour || "Default"}
+                </span>
           <span className="text-[#858b94]">{variant.sku}</span>
         </div>
-        <ProductSizeCell entries={entries} allocationTarget={variant.stock ?? totalStock(entries)} onChange={(size, value) => onChange(variant.id, size, value)} />
-      </div>;
+              <ProductSizeCell
+                entries={entries}
+                allocationTarget={variant.stock ?? totalStock(entries)}
+                onChange={(size, value) => onChange(variant.id, size, value)}
+              />
+            </div>
+          );
     })}
-  </div>;
+    </div>
+  );
 }
 
-const ProductCard = memo(function ProductCard({ item, busy, onStatusChange, onSizeChange, onEdit, onArchive, onDelete, onImageChange, onLoadImages }: {
+const ProductCard = memo(function ProductCard({
+  item,
+  busy,
+  onStatusChange,
+  onSizeChange,
+  onEdit,
+  onArchive,
+  onDelete,
+  onImageChange,
+  onLoadImages,
+}: {
   item: Item;
   busy: boolean;
-  onStatusChange: (productId: string, variantId: string, status: VariantStatus) => void;
-  onSizeChange: (productId: string, variantId: string, size: string, value: string) => void;
+  onStatusChange: (
+    productId: string,
+    variantId: string,
+    status: VariantStatus,
+  ) => void;
+  onSizeChange: (
+    productId: string,
+    variantId: string,
+    size: string,
+    value: string,
+  ) => void;
   onEdit: (item: Item) => void;
   onArchive: (item: Item) => void;
   onDelete: (item: Item) => void;
-  onImageChange: (productId: string, variantId: string, images: string[]) => Promise<void>;
+  onImageChange: (
+    productId: string,
+    variantId: string,
+    images: string[],
+  ) => Promise<void>;
   onLoadImages: (productId: string, variantId: string) => Promise<string[]>;
 }) {
   const [openAction, setOpenAction] = useState<string | null>(null);
-  const [imageEditor, setImageEditor] = useState<{ productId: string; variantId: string; sku: string; images: string[] } | null>(null);
-  const [imageDraft, setImageDraft] = useState('');
+  const [imageEditor, setImageEditor] = useState<{
+    productId: string;
+    variantId: string;
+    sku: string;
+    images: string[];
+  } | null>(null);
+  const [imageDraft, setImageDraft] = useState("");
   const [imageLoading, setImageLoading] = useState(false);
-  const variants = variantsFromItem(item).filter((variant) => variant.status !== 'remove');
-  return <article className="w-full min-w-0 max-w-full overflow-visible rounded-xl border border-black/[.08] bg-[#fffdf9] dark:border-white/[.08] dark:bg-white/[.02]">
+  const variants = variantsFromItem(item).filter(
+    (variant) => variant.status !== "remove",
+  );
+  return (
+    <article className="w-full min-w-0 max-w-full overflow-visible rounded-xl border border-black/[.08] bg-[#fffdf9] dark:border-white/[.08] dark:bg-white/[.02]">
         <header className="relative flex flex-wrap items-baseline justify-between gap-3 border-b border-black/[.07] px-5 py-4 pr-16 dark:border-white/[.08]">
           <div className="flex min-w-0 items-center gap-3">
             <ProductThumbnail item={item} />
-            <div className="min-w-0"><h3 className="text-lg font-medium text-[#20242b] dark:text-white">{String(item.name ?? 'Unnamed product')}</h3><p className="mt-1 text-[10px] uppercase tracking-[.16em] text-[#858b94]">{String(item.category || 'Couture')} · Parent SKU {String(item.sku || '—')}</p></div>
+          <div className="min-w-0">
+            <h3 className="text-lg font-medium text-[#20242b] dark:text-white">
+              {String(item.name ?? "Unnamed product")}
+            </h3>
+            <p className="mt-1 text-[10px] uppercase tracking-[.16em] text-[#858b94]">
+              {String(item.category || "Couture")} · Parent SKU{" "}
+              {String(item.sku || "—")}
+            </p>
           </div>
-          <p className="text-sm tabular-nums text-[#6e747d]">Base price · {currency(item.price)}</p>
-          <div className="absolute right-5 top-4"><button type="button" title={`Actions for ${String(item.name || 'product')}`} aria-label={`Actions for ${String(item.name || 'product')}`} onClick={() => setOpenAction((current) => current === `${item.id}:parent` ? null : `${item.id}:parent`)} className="grid h-8 w-8 place-items-center rounded-full border border-black/10 text-[#858b94] transition hover:border-[#9a7a4d] hover:text-[#9a7a4d]"><MoreHorizontal size={16} /></button>{openAction === `${item.id}:parent` ? <div className="absolute right-0 top-10 z-30 w-48 rounded-lg border border-black/10 bg-white p-1 text-xs shadow-lg dark:border-white/10 dark:bg-[#191a1f]"><button type="button" onClick={() => { setOpenAction(null); onEdit(item); }} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">Edit product</button><a href={`/products/${item.id}`} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">View product</a><button type="button" onClick={() => { setOpenAction(null); onArchive(item); }} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">Archive product</button><button type="button" onClick={() => { setOpenAction(null); onDelete(item); }} className="block w-full rounded px-3 py-2 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30">Delete permanently</button></div> : null}</div>
+        </div>
+        <p className="text-sm tabular-nums text-[#6e747d]">
+          Base price · {currency(item.price)}
+        </p>
+        <div className="absolute right-5 top-4">
+          <button
+            type="button"
+            title={`Actions for ${String(item.name || "product")}`}
+            aria-label={`Actions for ${String(item.name || "product")}`}
+            onClick={() =>
+              setOpenAction((current) =>
+                current === `${item.id}:parent` ? null : `${item.id}:parent`,
+              )
+            }
+            className="grid h-8 w-8 place-items-center rounded-full border border-black/10 text-[#858b94] transition hover:border-[#9a7a4d] hover:text-[#9a7a4d]"
+          >
+            <MoreHorizontal size={16} />
+          </button>
+          {openAction === `${item.id}:parent` ? (
+            <div className="absolute right-0 top-10 z-30 w-48 rounded-lg border border-black/10 bg-white p-1 text-xs shadow-lg dark:border-white/10 dark:bg-[#191a1f]">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenAction(null);
+                  onEdit(item);
+                }}
+                className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]"
+              >
+                Edit product
+              </button>
+              <a
+                href={`/products/${item.id}`}
+                className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]"
+              >
+                View product
+              </a>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenAction(null);
+                  onArchive(item);
+                }}
+                className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]"
+              >
+                Archive product
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenAction(null);
+                  onDelete(item);
+                }}
+                className="block w-full rounded px-3 py-2 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
+              >
+                Delete permanently
+              </button>
+            </div>
+          ) : null}
+          </div>
         </header>
-        <div className="hidden min-w-0 grid-cols-[minmax(8rem,1.2fr)_minmax(9rem,1.2fr)_minmax(14rem,2fr)_minmax(6.5rem,.6fr)_2rem] gap-4 px-5 py-3 text-[9px] uppercase tracking-[.16em] text-[#858b94] md:grid"><span>Colour variant</span><span>SKU</span><span>Size inventory · total</span><span>Status</span><span /></div>
-        {imageEditor?.productId === item.id ? <div className="border-b border-black/[.06] bg-[#faf8f4] px-5 py-4 dark:border-white/[.08] dark:bg-white/[.03]"><p className="text-[9px] uppercase tracking-[.16em] text-[#9a7a4d]">Manage images · {imageEditor.sku}</p><textarea value={imageDraft} disabled={imageLoading} onChange={(event) => setImageDraft(event.target.value)} rows={3} placeholder="Paste image URLs, separated by commas" className="mt-3 w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-xs outline-none focus:border-[#9a7a4d] disabled:opacity-60 dark:border-white/10 dark:bg-[#121317]" /><div className="mt-3 flex justify-end gap-2"><button type="button" onClick={() => setImageEditor(null)} className="rounded-lg border border-black/10 px-3 py-2 text-[10px] uppercase tracking-[.12em]">Cancel</button><button type="button" disabled={busy || imageLoading || !imageDraft.trim() || imageDraft.startsWith('Unable to')} onClick={() => { const editor = imageEditor; if (!editor) return; void onImageChange(editor.productId, editor.variantId, imageDraft.split(',').map((url) => url.trim()).filter(Boolean)).then(() => setImageEditor(null)); }} className="rounded-lg bg-[#24211e] px-3 py-2 text-[10px] uppercase tracking-[.12em] text-white disabled:opacity-40">{imageLoading ? 'Loading…' : 'Save images'}</button></div></div> : null}
+      <div className="hidden min-w-0 grid-cols-[minmax(8rem,1.2fr)_minmax(9rem,1.2fr)_minmax(14rem,2fr)_minmax(6.5rem,.6fr)_2rem] gap-4 px-5 py-3 text-[9px] uppercase tracking-[.16em] text-[#858b94] md:grid">
+        <span>Colour variant</span>
+        <span>SKU</span>
+        <span>Size inventory · total</span>
+        <span>Status</span>
+        <span />
+      </div>
+      {imageEditor?.productId === item.id ? (
+        <div className="border-b border-black/[.06] bg-[#faf8f4] px-5 py-4 dark:border-white/[.08] dark:bg-white/[.03]">
+          <p className="text-[9px] uppercase tracking-[.16em] text-[#9a7a4d]">
+            Manage images · {imageEditor.sku}
+          </p>
+          <textarea
+            value={imageDraft}
+            disabled={imageLoading}
+            onChange={(event) => setImageDraft(event.target.value)}
+            rows={3}
+            placeholder="Paste image URLs, separated by commas"
+            className="mt-3 w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-xs outline-none focus:border-[#9a7a4d] disabled:opacity-60 dark:border-white/10 dark:bg-[#121317]"
+          />
+          <div className="mt-3 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setImageEditor(null)}
+              className="rounded-lg border border-black/10 px-3 py-2 text-[10px] uppercase tracking-[.12em]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={
+                busy ||
+                imageLoading ||
+                !imageDraft.trim() ||
+                imageDraft.startsWith("Unable to")
+              }
+              onClick={() => {
+                const editor = imageEditor;
+                if (!editor) return;
+                void onImageChange(
+                  editor.productId,
+                  editor.variantId,
+                  imageDraft
+                    .split(",")
+                    .map((url) => url.trim())
+                    .filter(Boolean),
+                ).then(() => setImageEditor(null));
+              }}
+              className="rounded-lg bg-[#24211e] px-3 py-2 text-[10px] uppercase tracking-[.12em] text-white disabled:opacity-40"
+            >
+              {imageLoading ? "Loading…" : "Save images"}
+            </button>
+          </div>
+        </div>
+      ) : null}
         <div className="divide-y divide-black/[.06] dark:divide-white/[.08]">
-          {variants.length ? variants.map((variant) => {
+        {variants.length ? (
+          variants.map((variant) => {
             const entries = entriesFromValue(variant.sizeInventory);
             const actionKey = `${item.id}:${variant.id}`;
-            return <div key={variant.id} className="grid min-w-0 max-w-full gap-4 px-5 py-4 md:grid-cols-[minmax(8rem,1.2fr)_minmax(9rem,1.2fr)_minmax(14rem,2fr)_minmax(6.5rem,.6fr)_2rem] md:items-center">
-              <div className="min-w-0"><p className="break-words font-medium uppercase tracking-[.1em] text-[#9a7a4d]">{variant.colour || 'Default'}</p><p className="mt-1 text-[10px] text-[#858b94] md:hidden">{variant.sku}</p></div>
-              <p className="min-w-0 break-words text-xs text-[#6e747d]">{variant.sku}</p>
-              <div><p className="mb-2 text-[9px] uppercase tracking-[.14em] text-[#858b94] md:hidden">Size inventory · total {variant.stock ?? totalStock(entries)}</p><ProductSizeCell entries={entries} allocationTarget={variant.stock ?? totalStock(entries)} onChange={(size, value) => onSizeChange(item.id, variant.id, size, value)} /></div>
-              <select aria-label={`Status for ${variant.sku}`} value={variant.status} disabled={busy} onChange={(event) => onStatusChange(item.id, variant.id, event.target.value as VariantStatus)} className="w-fit rounded border border-black/10 bg-white px-2 py-1.5 text-[9px] uppercase tracking-[.08em] dark:border-white/10 dark:bg-[#121317]"><option value="active">In Stock</option><option value="inactive">No Stock</option><option value="remove">Remove</option></select>
-              <div className="relative justify-self-start md:justify-self-end"><button type="button" title={`Actions for ${variant.sku}`} aria-label={`Actions for ${variant.sku}`} onClick={() => setOpenAction((current) => current === actionKey ? null : actionKey)} className="grid h-8 w-8 place-items-center rounded-full border border-black/10 text-[#858b94] transition hover:border-[#9a7a4d] hover:text-[#9a7a4d]"><MoreHorizontal size={16} /></button>{openAction === actionKey ? <div className="absolute right-0 top-10 z-20 w-44 rounded-lg border border-black/10 bg-white p-1 text-xs shadow-lg dark:border-white/10 dark:bg-[#191a1f]"><button type="button" onClick={() => { setOpenAction(null); onEdit(item); }} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">Edit product</button><a href={`/products/${item.id}`} className="block rounded px-3 py-2 hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">View {variant.sku}</a><button type="button" onClick={() => { setOpenAction(null); setImageLoading(true); setImageEditor({ productId: item.id, variantId: variant.id, sku: variant.sku, images: [] }); setImageDraft(''); void onLoadImages(item.id, variant.id).then((images) => { setImageEditor((current) => current ? { ...current, images } : current); setImageDraft(images.join(',\n')); }).catch(() => setImageDraft('Unable to load image URLs.')).finally(() => setImageLoading(false)); }} className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]">Manage images</button><button type="button" onClick={() => { setOpenAction(null); onDelete(item); }} className="block w-full rounded px-3 py-2 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30">Delete product</button></div> : null}</div>
-            </div>;
-          }) : <p className="px-5 py-5 text-sm text-[#858b94]">No visible colour variants.</p>}
-        </div>
-  </article>;
+            return (
+              <div
+                key={variant.id}
+                className="grid min-w-0 max-w-full gap-4 px-5 py-4 md:grid-cols-[minmax(8rem,1.2fr)_minmax(9rem,1.2fr)_minmax(14rem,2fr)_minmax(6.5rem,.6fr)_2rem] md:items-center"
+              >
+                <div className="min-w-0">
+                  <p className="break-words font-medium uppercase tracking-[.1em] text-[#9a7a4d]">
+                    {variant.colour || "Default"}
+                  </p>
+                  <p className="mt-1 text-[10px] text-[#858b94] md:hidden">
+                    {variant.sku}
+                  </p>
+                </div>
+                <p className="min-w-0 break-words text-xs text-[#6e747d]">
+                  {variant.sku}
+                </p>
+                <div>
+                  <p className="mb-2 text-[9px] uppercase tracking-[.14em] text-[#858b94] md:hidden">
+                    Size inventory · total{" "}
+                    {variant.stock ?? totalStock(entries)}
+                  </p>
+                  <ProductSizeCell
+                    entries={entries}
+                    allocationTarget={variant.stock ?? totalStock(entries)}
+                    onChange={(size, value) =>
+                      onSizeChange(item.id, variant.id, size, value)
+                    }
+                  />
+                </div>
+                <select
+                  aria-label={`Status for ${variant.sku}`}
+                  value={variant.status}
+                  disabled={busy}
+                  onChange={(event) =>
+                    onStatusChange(
+                      item.id,
+                      variant.id,
+                      event.target.value as VariantStatus,
+                    )
+                  }
+                  className="w-fit rounded border border-black/10 bg-white px-2 py-1.5 text-[9px] uppercase tracking-[.08em] dark:border-white/10 dark:bg-[#121317]"
+                >
+                  <option value="active">In Stock</option>
+                  <option value="inactive">No Stock</option>
+                  <option value="remove">Remove</option>
+                </select>
+                <div className="relative justify-self-start md:justify-self-end">
+                  <button
+                    type="button"
+                    title={`Actions for ${variant.sku}`}
+                    aria-label={`Actions for ${variant.sku}`}
+                    onClick={() =>
+                      setOpenAction((current) =>
+                        current === actionKey ? null : actionKey,
+                      )
+                    }
+                    className="grid h-8 w-8 place-items-center rounded-full border border-black/10 text-[#858b94] transition hover:border-[#9a7a4d] hover:text-[#9a7a4d]"
+                  >
+                    <MoreHorizontal size={16} />
+                  </button>
+                  {openAction === actionKey ? (
+                    <div className="absolute right-0 top-10 z-20 w-44 rounded-lg border border-black/10 bg-white p-1 text-xs shadow-lg dark:border-white/10 dark:bg-[#191a1f]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpenAction(null);
+                          onEdit(item);
+                        }}
+                        className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]"
+                      >
+                        Edit product
+                      </button>
+                      <a
+                        href={`/products/${item.id}`}
+                        className="block rounded px-3 py-2 hover:bg-[#faf8f4] dark:hover:bg-white/[.06]"
+                      >
+                        View {variant.sku}
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpenAction(null);
+                          setImageLoading(true);
+                          setImageEditor({
+                            productId: item.id,
+                            variantId: variant.id,
+                            sku: variant.sku,
+                            images: [],
+                          });
+                          setImageDraft("");
+                          void onLoadImages(item.id, variant.id)
+                            .then((images) => {
+                              setImageEditor((current) =>
+                                current ? { ...current, images } : current,
+                              );
+                              setImageDraft(images.join(",\n"));
+                            })
+                            .catch(() =>
+                              setImageDraft("Unable to load image URLs."),
+                            )
+                            .finally(() => setImageLoading(false));
+                        }}
+                        className="block w-full rounded px-3 py-2 text-left hover:bg-[#faf8f4] dark:hover:bg-white/[.06]"
+                      >
+                        Manage images
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpenAction(null);
+                          onDelete(item);
+                        }}
+                        className="block w-full rounded px-3 py-2 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
+                      >
+                        Delete product
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })
+        ) : (
+          <p className="px-5 py-5 text-sm text-[#858b94]">
+            No visible colour variants.
+          </p>
+        )}
+      </div>
+    </article>
+  );
 });
 
-function ProductVariantGroups({ items, busy, onStatusChange, onSizeChange, onEdit, onArchive, onDelete, onImageChange, onLoadImages }: {
+function ProductVariantGroups({
+  items,
+  busy,
+  onStatusChange,
+  onSizeChange,
+  onEdit,
+  onArchive,
+  onDelete,
+  onImageChange,
+  onLoadImages,
+}: {
   items: Item[];
   busy: boolean;
-  onStatusChange: (productId: string, variantId: string, status: VariantStatus) => void;
-  onSizeChange: (productId: string, variantId: string, size: string, value: string) => void;
+  onStatusChange: (
+    productId: string,
+    variantId: string,
+    status: VariantStatus,
+  ) => void;
+  onSizeChange: (
+    productId: string,
+    variantId: string,
+    size: string,
+    value: string,
+  ) => void;
   onEdit: (item: Item) => void;
   onArchive: (item: Item) => void;
   onDelete: (item: Item) => void;
-  onImageChange: (productId: string, variantId: string, images: string[]) => Promise<void>;
+  onImageChange: (
+    productId: string,
+    variantId: string,
+    images: string[],
+  ) => Promise<void>;
   onLoadImages: (productId: string, variantId: string) => Promise<string[]>;
 }) {
-  return <div className="mt-7 w-full min-w-0 space-y-5">{items.map((item) => <ProductCard key={item.id} item={item} busy={busy} onStatusChange={onStatusChange} onSizeChange={onSizeChange} onEdit={onEdit} onArchive={onArchive} onDelete={onDelete} onImageChange={onImageChange} onLoadImages={onLoadImages} />)}</div>;
+  return (
+    <div className="mt-7 w-full min-w-0 space-y-5">
+      {items.map((item) => (
+        <ProductCard
+          key={item.id}
+          item={item}
+          busy={busy}
+          onStatusChange={onStatusChange}
+          onSizeChange={onSizeChange}
+          onEdit={onEdit}
+          onArchive={onArchive}
+          onDelete={onDelete}
+          onImageChange={onImageChange}
+          onLoadImages={onLoadImages}
+        />
+      ))}
+    </div>
+  );
 }
 
 function formatValue(key: string, value: unknown) {
-  if (key === 'price' || key === 'total') return currency(value);
-  if (key === 'assignedStaffId') return value ? 'Assigned to you' : 'Unassigned';
-  if (key === 'availability') return ({ in_stock: 'In Stock', custom_order: 'Custom Order', sold_out: 'Out of Stock' } as Record<string, string>)[String(value)] ?? '—';
-  return value === null || value === undefined || value === '' ? '—' : String(value);
+  if (key === "price" || key === "total") return currency(value);
+  if (key === "assignedStaffId")
+    return value ? "Assigned to you" : "Unassigned";
+  if (key === "availability")
+    return (
+      (
+        {
+          in_stock: "In Stock",
+          custom_order: "Custom Order",
+          sold_out: "Out of Stock",
+        } as Record<string, string>
+      )[String(value)] ?? "—"
+    );
+  return value === null || value === undefined || value === ""
+    ? "—"
+    : String(value);
 }
 
-function CreateForm({ section, initial, collections, busy, onCancel, onSave }: { section: Exclude<Section, 'inventory'>; initial: Record<string, string>; collections: CollectionOption[]; busy: boolean; onCancel: () => void; onSave: (form: Record<string, string>) => Promise<void> }) {
+function CreateForm({
+  section,
+  initial,
+  collections,
+  busy,
+  onCancel,
+  onSave,
+}: {
+  section: Exclude<Section, "inventory">;
+  initial: Record<string, string>;
+  collections: CollectionOption[];
+  busy: boolean;
+  onCancel: () => void;
+  onSave: (form: Record<string, string>) => Promise<void>;
+}) {
   const [form, setForm] = useState(initial);
-  const field = (name: string, label: string, type = 'text') => <label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">{label}<input required={name !== 'orderNumber' && name !== 'quoteNumber' && name !== 'description' && name !== 'notes'} type={type} min={type === 'number' ? 0 : undefined} value={form[name] ?? ''} onChange={(event) => setForm((current) => ({ ...current, [name]: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`} /></label>;
-  return <form onSubmit={(event: FormEvent) => { event.preventDefault(); void onSave(form); }} className="mt-6 rounded-xl border border-[#9a7a4d]/20 bg-[#faf8f4] p-5 dark:bg-white/[.03]"><div className="grid gap-4 md:grid-cols-2">{section === 'products' ? <>{field('name', 'Product name')}{field('sku', 'SKU')}{field('price', 'Price', 'number')}{field('stock', 'Opening stock', 'number')}<CollectionChoices collections={collections} value={form.collectionIds} onChange={(value) => setForm((current) => ({ ...current, collectionIds: value }))} />{field('description', 'Description')}<label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Workflow status<select value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`}><option value="draft">Draft</option><option value="active">Active</option><option value="archived">Archived</option></select></label><label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Availability<select value={form.availability} onChange={(event) => setForm((current) => ({ ...current, availability: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`}><option value="in_stock">In Stock</option><option value="custom_order">Custom Order</option><option value="sold_out">Out of Stock</option></select></label></> : section === 'customers' ? <>{field('displayName', 'Full name')}{field('email', 'Email', 'email')}{field('phone', 'Phone number')}</> : <>{field(section === 'quotes' ? 'quoteNumber' : 'orderNumber', `${section === 'quotes' ? 'Quote' : 'Order'} number · optional`)}{field('customerName', 'Customer name')}{field('email', 'Customer email', 'email')}{field('total', 'Total', 'number')}{section === 'quotes' ? field('notes', 'Notes') : null}</>}</div><div className="mt-5 flex justify-end gap-3"><button type="button" onClick={onCancel} className="rounded-lg border border-black/10 px-4 py-2 text-xs">Cancel</button><button disabled={busy} className="rounded-lg bg-[#24211e] px-4 py-2 text-xs text-white disabled:opacity-40">{busy ? 'Saving…' : `Save ${section.slice(0, -1)}`}</button></div></form>;
+  const field = (name: string, label: string, type = "text") => (
+    <label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">
+      {label}
+      <input
+        required={
+          name !== "orderNumber" &&
+          name !== "quoteNumber" &&
+          name !== "description" &&
+          name !== "notes"
+        }
+        type={type}
+        min={type === "number" ? 0 : undefined}
+        value={form[name] ?? ""}
+        onChange={(event) =>
+          setForm((current) => ({ ...current, [name]: event.target.value }))
+        }
+        className={`${inputClass} mt-2 normal-case tracking-normal`}
+      />
+    </label>
+  );
+  return (
+    <form
+      onSubmit={(event: FormEvent) => {
+        event.preventDefault();
+        void onSave(form);
+      }}
+      className="mt-6 rounded-xl border border-[#9a7a4d]/20 bg-[#faf8f4] p-5 dark:bg-white/[.03]"
+    >
+      <div className="grid gap-4 md:grid-cols-2">
+        {section === "products" ? (
+          <>
+            {field("name", "Product name")}
+            {field("sku", "SKU")}
+            {field("price", "Price", "number")}
+            {field("stock", "Opening stock", "number")}
+            <CollectionChoices
+              collections={collections}
+              value={form.collectionIds}
+              onChange={(value) =>
+                setForm((current) => ({ ...current, collectionIds: value }))
+              }
+            />
+            {field("description", "Description")}
+            <WorkDriveLinksField
+              value={form.mediaLinks}
+              onChange={(value) =>
+                setForm((current) => ({ ...current, mediaLinks: value }))
+              }
+            />
+            <label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">
+              Workflow status
+              <select
+                value={form.status}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    status: event.target.value,
+                  }))
+                }
+                className={`${inputClass} mt-2 normal-case tracking-normal`}
+              >
+                <option value="draft">Draft</option>
+                <option value="active">Active</option>
+                <option value="archived">Archived</option>
+              </select>
+            </label>
+            <label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">
+              Availability
+              <select
+                value={form.availability}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    availability: event.target.value,
+                  }))
+                }
+                className={`${inputClass} mt-2 normal-case tracking-normal`}
+              >
+                <option value="in_stock">In Stock</option>
+                <option value="custom_order">Custom Order</option>
+                <option value="sold_out">Out of Stock</option>
+              </select>
+            </label>
+          </>
+        ) : section === "customers" ? (
+          <>
+            {field("displayName", "Full name")}
+            {field("email", "Email", "email")}
+            {field("phone", "Phone number")}
+          </>
+        ) : (
+          <>
+            {field(
+              section === "quotes" ? "quoteNumber" : "orderNumber",
+              `${section === "quotes" ? "Quote" : "Order"} number · optional`,
+            )}
+            {field("customerName", "Customer name")}
+            {field("email", "Customer email", "email")}
+            {field("total", "Total", "number")}
+            {section === "quotes" ? field("notes", "Notes") : null}
+          </>
+        )}
+      </div>
+      <div className="mt-5 flex justify-end gap-3">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-lg border border-black/10 px-4 py-2 text-xs"
+        >
+          Cancel
+        </button>
+        <button
+          disabled={busy}
+          className="rounded-lg bg-[#24211e] px-4 py-2 text-xs text-white disabled:opacity-40"
+        >
+          {busy ? "Saving…" : `Save ${section.slice(0, -1)}`}
+        </button>
+      </div>
+    </form>
+  );
 }
 
-export function OperationsSection({ section: rawSection }: { section: string }) {
+export function OperationsSection({
+  section: rawSection,
+}: {
+  section: string;
+}) {
   const section = rawSection as Section;
   const supported = section in permissions;
   const [items, setItems] = useState<Item[]>([]);
   const [allowed, setAllowed] = useState(false);
-  const [userRole, setUserRole] = useState<Role>('staff');
-  const [staffUsers, setStaffUsers] = useState<Array<{ id: string; displayName?: string; email?: string }>>([]);
+  const [userRole, setUserRole] = useState<Role>("staff");
+  const [staffUsers, setStaffUsers] = useState<
+    Array<{ id: string; displayName?: string; email?: string }>
+  >([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -235,244 +1066,728 @@ export function OperationsSection({ section: rawSection }: { section: string }) 
   const [openActions, setOpenActions] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Record<string, string>>({});
   const [adjustments, setAdjustments] = useState<Record<string, string>>({});
-  const [adjustmentReasons, setAdjustmentReasons] = useState<Record<string, string>>({});
-  const [search, setSearch] = useState('');
-  const [selectedCollection, setSelectedCollection] = useState('ALL');
+  const [adjustmentReasons, setAdjustmentReasons] = useState<
+    Record<string, string>
+  >({});
+  const [search, setSearch] = useState("");
+  const [selectedCollection, setSelectedCollection] = useState("ALL");
   const [collections, setCollections] = useState<CollectionOption[]>([]);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const token = () => window.localStorage.getItem('rk_access_token') ?? '';
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const token = () => window.localStorage.getItem("rk_access_token") ?? "";
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
-  const load = useCallback(async (page = 1, append = false) => {
-    const response = await fetch(`${apiBaseUrl}/api/staff/resources/${section}?page=${page}&limit=100`, { headers: { Authorization: `Bearer ${token()}` }, cache: 'no-store' });
+  const load = useCallback(
+    async (page = 1, append = false) => {
+      const response = await fetch(
+        `${apiBaseUrl}/api/staff/resources/${section}?page=${page}&limit=100`,
+        { headers: { Authorization: `Bearer ${token()}` }, cache: "no-store" },
+      );
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error ?? 'Unable to load this workspace.');
+      if (!response.ok)
+        throw new Error(payload.error ?? "Unable to load this workspace.");
     const nextItems = (payload.items as Item[]) || [];
-    setItems((current) => append ? [...current, ...nextItems] : nextItems);
+      setItems((current) => (append ? [...current, ...nextItems] : nextItems));
     setHasMore(Boolean(payload.hasMore));
     setTotalItems(Number(payload.total ?? nextItems.length));
     if (!append) setRenderLimit(50);
-  }, [section]);
+    },
+    [section],
+  );
 
   useEffect(() => {
-    if (!supported) { setLoading(false); return; }
+    if (!supported) {
+      setLoading(false);
+      return;
+    }
     getCurrentUser().then(async (user) => {
       if (user) setUserRole(user.role);
-      const canUse = user?.role === 'admin' || (user?.role === 'staff' && section !== 'customers' && Boolean(user?.permissions?.includes(permissions[section])));
+      const canUse =
+        user?.role === "admin" ||
+        (user?.role === "staff" &&
+          section !== "customers" &&
+          Boolean(user?.permissions?.includes(permissions[section])));
       setAllowed(canUse);
-      if (canUse) try {
+      if (canUse)
+        try {
         await load();
-        if (section === 'products') {
-          const response = await fetch(`${apiBaseUrl}/api/staff/collections`, { headers: { Authorization: `Bearer ${token()}` }, cache: 'no-store' });
+          if (section === "products") {
+            const response = await fetch(
+              `${apiBaseUrl}/api/staff/collections`,
+              {
+                headers: { Authorization: `Bearer ${token()}` },
+                cache: "no-store",
+              },
+            );
           const payload = await response.json();
-          if (!response.ok) throw new Error(payload.error ?? 'Unable to load collections.');
+            if (!response.ok)
+              throw new Error(payload.error ?? "Unable to load collections.");
           setCollections((payload.collections as CollectionOption[]) || []);
         }
-        if (user?.role === 'admin' && section === 'customers') {
-          const response = await fetch(`${apiBaseUrl}/api/admin/users`, { headers: { Authorization: `Bearer ${token()}` }, cache: 'no-store' });
+          if (user?.role === "admin" && section === "customers") {
+            const response = await fetch(`${apiBaseUrl}/api/admin/users`, {
+              headers: { Authorization: `Bearer ${token()}` },
+              cache: "no-store",
+            });
           const payload = await response.json();
-          if (response.ok) setStaffUsers((payload.users as Array<{ id: string; role: Role; isActive: boolean; displayName?: string; email?: string }>).filter((entry) => entry.role === 'staff' && entry.isActive));
+            if (response.ok)
+              setStaffUsers(
+                (
+                  payload.users as Array<{
+                    id: string;
+                    role: Role;
+                    isActive: boolean;
+                    displayName?: string;
+                    email?: string;
+                  }>
+                ).filter((entry) => entry.role === "staff" && entry.isActive),
+              );
+          }
+        } catch (requestError) {
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Unable to load this workspace.",
+          );
         }
-      } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to load this workspace.'); }
       setLoading(false);
     });
   }, [load, section, supported]);
 
   const create = async (form: Record<string, string>) => {
-    setBusy(true); setError('');
+    setBusy(true);
+    setError("");
     try {
-      const requestBody = section === 'products' ? { ...form, collectionIds: selectedCollectionIds(form.collectionIds) } : form;
-      const response = await fetch(`${apiBaseUrl}/api/staff/resources/${section}`, { method: 'POST', headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
+      const requestBody =
+        section === "products"
+          ? (() => {
+              const {
+                mediaLinks: _links,
+                mediaRecords: _records,
+                ...fields
+              } = form;
+              return {
+                ...fields,
+                media: mediaPayload(form),
+                collectionIds: selectedCollectionIds(form.collectionIds),
+              };
+            })()
+          : form;
+      const response = await fetch(
+        `${apiBaseUrl}/api/staff/resources/${section}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token()}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(requestBody),
+        },
+      );
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error ?? 'Unable to create this record.');
-      setItems((current) => [payload.item, ...current]); setTotalItems((current) => current + 1); setCreating(false); setMessage('Created successfully.');
-    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to create this record.'); }
-    finally { setBusy(false); }
+      if (!response.ok)
+        throw new Error(payload.error ?? "Unable to create this record.");
+      setItems((current) => [payload.item, ...current]);
+      setTotalItems((current) => current + 1);
+      setCreating(false);
+      setMessage(
+        payload.mediaSync?.status === "queued"
+          ? "Created successfully. Product photos are pending catalog synchronization."
+          : "Created successfully.",
+      );
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to create this record.",
+      );
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const editableFields = useMemo(() => section === 'products' ? ['name', 'sku', 'price', 'stock', 'availability', 'status', 'description'] : section === 'customers' ? ['displayName', 'email', 'phone'] : section === 'orders' ? ['customerName', 'email', 'total'] : section === 'quotes' ? ['customerName', 'email', 'total', 'notes'] : [], [section]);
-  const beginEdit = useCallback((item: Item) => {
-    const availability = String(item.availability ?? 'in_stock').toLowerCase();
-    const values = Object.fromEntries(editableFields.map((key) => [key, String(item[key] ?? '')]));
+  const editableFields = useMemo(
+    () =>
+      section === "products"
+        ? [
+            "name",
+            "sku",
+            "price",
+            "stock",
+            "availability",
+            "status",
+            "description",
+          ]
+        : section === "customers"
+          ? ["displayName", "email", "phone"]
+          : section === "orders"
+            ? ["customerName", "email", "total"]
+            : section === "quotes"
+              ? ["customerName", "email", "total", "notes"]
+              : [],
+    [section],
+  );
+  const beginEdit = useCallback(
+    (item: Item) => {
+      const availability = String(
+        item.availability ?? "in_stock",
+      ).toLowerCase();
+      const values = Object.fromEntries(
+        editableFields.map((key) => [key, String(item[key] ?? "")]),
+      );
     setEditing(item.id);
-    setEditForm({ ...values, availability, collectionIds: JSON.stringify(item.collectionIds ?? []), stock: String(item.stock ?? '0'), legacyStock: String(item.stock ?? 0), sizeInventory: JSON.stringify(item.sizeInventory ?? []), sizeSystemEnabled: String(Boolean(item.sizeSystemEnabled)), sizeInventoryConfigured: String(Boolean(item.sizeInventoryConfigured ?? item.sizeSystemEnabled)), changeReason: '' });
-  }, [editableFields]);
+      setEditForm({
+        ...values,
+        availability,
+        mediaLinks: (Array.isArray(item.media) ? item.media : [])
+          .filter((value): value is string => typeof value === "string")
+          .join("\n"),
+        mediaRecords: JSON.stringify(
+          Array.isArray(item.catalogMedia) ? item.catalogMedia : [],
+        ),
+        collectionIds: JSON.stringify(item.collectionIds ?? []),
+        stock: String(item.stock ?? "0"),
+        legacyStock: String(item.stock ?? 0),
+        sizeInventory: JSON.stringify(item.sizeInventory ?? []),
+        sizeSystemEnabled: String(Boolean(item.sizeSystemEnabled)),
+        sizeInventoryConfigured: String(
+          Boolean(item.sizeInventoryConfigured ?? item.sizeSystemEnabled),
+        ),
+        changeReason: "",
+      });
+    },
+    [editableFields],
+  );
 
   const updateProductSize = (item: Item, size: string, rawValue: string) => {
     const value = Number(rawValue);
-    if (!Number.isInteger(value) || value < 0) { setError('Size quantities must be whole numbers greater than or equal to 0.'); return; }
-    const base = editing === item.id ? editForm : {
-      name: String(item.name ?? ''), sku: String(item.sku ?? ''), price: String(item.price ?? ''), stock: String(item.stock ?? 0), availability: String(item.availability ?? 'in_stock'), status: String(item.status ?? ''), description: String(item.description ?? ''), legacyStock: String(item.stock ?? 0), sizeInventory: JSON.stringify(item.sizeInventory ?? []), sizeSystemEnabled: String(Boolean(item.sizeSystemEnabled)), sizeInventoryConfigured: String(Boolean(item.sizeInventoryConfigured ?? item.sizeSystemEnabled)), changeReason: '',
+    if (!Number.isInteger(value) || value < 0) {
+      setError(
+        "Size quantities must be whole numbers greater than or equal to 0.",
+      );
+      return;
+    }
+    const base =
+      editing === item.id
+        ? editForm
+        : {
+            name: String(item.name ?? ""),
+            sku: String(item.sku ?? ""),
+            price: String(item.price ?? ""),
+            stock: String(item.stock ?? 0),
+            availability: String(item.availability ?? "in_stock"),
+            status: String(item.status ?? ""),
+            description: String(item.description ?? ""),
+            legacyStock: String(item.stock ?? 0),
+            sizeInventory: JSON.stringify(item.sizeInventory ?? []),
+            sizeSystemEnabled: String(Boolean(item.sizeSystemEnabled)),
+            sizeInventoryConfigured: String(
+              Boolean(item.sizeInventoryConfigured ?? item.sizeSystemEnabled),
+            ),
+            changeReason: "",
     };
-    const entries = editing === item.id ? entriesFromForm(base) : (isSizeConfigured(item) ? entriesFromValue(item.sizeInventory) : entriesFromValue([]));
-    const next = entries.map((entry) => entry.size === size ? { ...entry, stock: value } : entry);
+    const entries =
+      editing === item.id
+        ? entriesFromForm(base)
+        : isSizeConfigured(item)
+          ? entriesFromValue(item.sizeInventory)
+          : entriesFromValue([]);
+    const next = entries.map((entry) =>
+      entry.size === size ? { ...entry, stock: value } : entry,
+    );
     const total = totalStock(next);
     setEditing(item.id);
-    setEditForm({ ...base, sizeInventoryConfigured: 'true', sizeSystemEnabled: 'true', sizeInventory: JSON.stringify(next), stock: String(total) });
-    setError('');
+    setEditForm({
+      ...base,
+      sizeInventoryConfigured: "true",
+      sizeSystemEnabled: "true",
+      sizeInventory: JSON.stringify(next),
+      stock: String(total),
+    });
+    setError("");
   };
 
-  const patch = useCallback(async (id: string, updates: Record<string, unknown>, success = 'Updated successfully.') => {
+  const patch = useCallback(
+    async (
+      id: string,
+      updates: Record<string, unknown>,
+      success = "Updated successfully.",
+    ) => {
     const current = itemsRef.current.find((item) => item.id === id);
     let normalizedUpdates = { ...updates };
-    if (section === 'products' && current) {
-      const configured = normalizedUpdates.sizeInventoryConfigured !== undefined
+      const inventoryKeysPresent = [
+        "stock",
+        "sizeInventory",
+        "sizeInventoryConfigured",
+        "sizeSystemEnabled",
+        "availability",
+      ].some((key) => key in normalizedUpdates);
+      if (section === "products" && current && inventoryKeysPresent) {
+        const configured =
+          normalizedUpdates.sizeInventoryConfigured !== undefined
         ? booleanValue(normalizedUpdates.sizeInventoryConfigured)
         : normalizedUpdates.sizeSystemEnabled !== undefined
           ? booleanValue(normalizedUpdates.sizeSystemEnabled)
           : isSizeConfigured(current);
-      const entries = configured ? (typeof normalizedUpdates.sizeInventory === 'string' ? entriesFromForm(normalizedUpdates as Record<string, string>) : entriesFromValue(normalizedUpdates.sizeInventory ?? current.sizeInventory)) : [];
-      const total = configured ? totalStock(entries) : Number(normalizedUpdates.stock ?? current.stock ?? 0);
-      if (entries.some((entry) => entry.stock < 0)) { setError('Size quantities cannot be negative.'); return; }
-      normalizedUpdates = { ...normalizedUpdates, sizeInventoryConfigured: configured, sizeSystemEnabled: configured };
+        const entries = configured
+          ? typeof normalizedUpdates.sizeInventory === "string"
+            ? entriesFromForm(normalizedUpdates as Record<string, string>)
+            : entriesFromValue(
+                normalizedUpdates.sizeInventory ?? current.sizeInventory,
+              )
+          : [];
+        const total = configured
+          ? totalStock(entries)
+          : Number(normalizedUpdates.stock ?? current.stock ?? 0);
+        if (entries.some((entry) => entry.stock < 0)) {
+          setError("Size quantities cannot be negative.");
+          return;
+        }
+        normalizedUpdates = {
+          ...normalizedUpdates,
+          sizeInventoryConfigured: configured,
+          sizeSystemEnabled: configured,
+        };
       if (configured) {
-        normalizedUpdates = { ...normalizedUpdates, sizeInventoryConfigured: true, sizeSystemEnabled: true, sizeInventory: entries, stock: total };
-        if (!isSizeConfigured(current) && total !== Number(current.stock ?? 0)) { setError(`Allocate all ${Number(current.stock ?? 0)} existing units before saving this row.`); return; }
+          normalizedUpdates = {
+            ...normalizedUpdates,
+            sizeInventoryConfigured: true,
+            sizeSystemEnabled: true,
+            sizeInventory: entries,
+            stock: total,
+          };
+          if (
+            !isSizeConfigured(current) &&
+            total !== Number(current.stock ?? 0)
+          ) {
+            setError(
+              `Allocate all ${Number(current.stock ?? 0)} existing units before saving this row.`,
+            );
+            return;
+          }
+        }
+        const changed =
+          configured !== isSizeConfigured(current) ||
+          JSON.stringify(entries) !==
+            JSON.stringify(entriesFromValue(current.sizeInventory)) ||
+          total !== Number(current.stock ?? 0) ||
+          normalizedUpdates.availability !== current.availability;
+        if (
+          changed &&
+          !String(
+            normalizedUpdates.reason ?? normalizedUpdates.changeReason ?? "",
+          ).trim()
+        ) {
+          const reason =
+            window.prompt("Reason for this inventory change:")?.trim() ?? "";
+          if (!reason) {
+            setError("A reason is required before saving inventory changes.");
+            return;
       }
-      const changed = configured !== isSizeConfigured(current) || JSON.stringify(entries) !== JSON.stringify(entriesFromValue(current.sizeInventory)) || total !== Number(current.stock ?? 0) || normalizedUpdates.availability !== current.availability;
-      if (changed && !String(normalizedUpdates.reason ?? normalizedUpdates.changeReason ?? '').trim()) {
-        const reason = window.prompt('Reason for this inventory change:')?.trim() ?? '';
-        if (!reason) { setError('A reason is required before saving inventory changes.'); return; }
         normalizedUpdates.reason = reason;
       }
     }
-    setBusy(true); setError('');
+      setBusy(true);
+      setError("");
     try {
-      const requestUpdates = section === 'products' && typeof normalizedUpdates.sizeInventory === 'string' ? { ...normalizedUpdates, sizeInventory: (() => { try { return JSON.parse(String(normalizedUpdates.sizeInventory)); } catch { return []; } })() } : normalizedUpdates;
-      const response = await fetch(`${apiBaseUrl}/api/staff/resources/${section}/${id}`, { method: 'PATCH', headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(requestUpdates) });
+        const requestUpdates =
+          section === "products" &&
+          typeof normalizedUpdates.sizeInventory === "string"
+            ? {
+                ...normalizedUpdates,
+                sizeInventory: (() => {
+                  try {
+                    return JSON.parse(String(normalizedUpdates.sizeInventory));
+                  } catch {
+                    return [];
+                  }
+                })(),
+              }
+            : normalizedUpdates;
+        const response = await fetch(
+          `${apiBaseUrl}/api/staff/resources/${section}/${id}`,
+          {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bearer ${token()}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(requestUpdates),
+          },
+        );
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error ?? 'Unable to update this record.');
-      setItems((currentItems) => section === 'products' && normalizedUpdates.status === 'archived' ? currentItems.filter((item) => item.id !== id) : currentItems.map((item) => item.id === id ? { ...item, ...payload.item } : item)); setEditing(null); setEditForm({}); setMessage(success);
-    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to update this record.'); }
-    finally { setBusy(false); }
-  }, [section]);
+        if (!response.ok)
+          throw new Error(payload.error ?? "Unable to update this record.");
+        const syncMessage =
+          payload.mediaSync?.status === "queued"
+            ? "Product updated. Product photos are pending catalog synchronization."
+            : payload.mediaSync?.status === "unchanged"
+              ? "Product updated. Product photos were unchanged."
+              : success;
+        setItems((currentItems) =>
+          section === "products" && normalizedUpdates.status === "archived"
+            ? currentItems.filter((item) => item.id !== id)
+            : currentItems.map((item) =>
+                item.id === id ? { ...item, ...payload.item } : item,
+              ),
+        );
+        setEditing(null);
+        setEditForm({});
+        setMessage(syncMessage);
+      } catch (requestError) {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Unable to update this record.",
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [section],
+  );
 
-  const patchVariantStatus = useCallback(async (productId: string, variantId: string, status: VariantStatus) => {
-    setBusy(true); setError(''); setMessage('');
+  const patchVariantStatus = useCallback(
+    async (productId: string, variantId: string, status: VariantStatus) => {
+      setBusy(true);
+      setError("");
+      setMessage("");
     try {
-      const response = await fetch(`${apiBaseUrl}/api/staff/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' },
+        const response = await fetch(
+          `${apiBaseUrl}/api/staff/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}`,
+          {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bearer ${token()}`,
+              "Content-Type": "application/json",
+            },
         body: JSON.stringify({ status }),
-      });
+          },
+        );
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error ?? 'Unable to update the variant status.');
-      setItems((current) => current.map((item) => item.id === productId ? { ...item, ...payload.item } : item));
+        if (!response.ok)
+          throw new Error(
+            payload.error ?? "Unable to update the variant status.",
+          );
+        setItems((current) =>
+          current.map((item) =>
+            item.id === productId ? { ...item, ...payload.item } : item,
+          ),
+        );
       setMessage(`Variant set to ${status.toUpperCase()}.`);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unable to update the variant status.');
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Unable to update the variant status.",
+        );
+    } finally {
+      setBusy(false);
+    }
+    },
+    [],
+  );
+
+  const patchVariantSize = useCallback(
+    async (
+      productId: string,
+      variantId: string,
+      size: string,
+      rawValue: string,
+    ) => {
+    const value = Number(rawValue);
+      if (!Number.isInteger(value) || value < 0) {
+        setError(
+          "Size quantities must be whole numbers greater than or equal to 0.",
+        );
+        return;
+      }
+    const current = itemsRef.current.find((item) => item.id === productId);
+      const variant = current
+        ? variantsFromItem(current).find((entry) => entry.id === variantId)
+        : undefined;
+    if (!current || !variant) return;
+      const next = entriesFromValue(variant.sizeInventory).map((entry) =>
+        entry.size === size ? { ...entry, stock: value } : entry,
+      );
+      setBusy(true);
+      setError("");
+      setMessage("");
+    try {
+        const response = await fetch(
+          `${apiBaseUrl}/api/staff/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}`,
+          {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bearer ${token()}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ sizeInventory: next }),
+          },
+        );
+      const payload = await response.json();
+        if (!response.ok)
+          throw new Error(
+            payload.error ?? "Unable to update the variant size inventory.",
+          );
+        setItems((currentItems) =>
+          currentItems.map((item) =>
+            item.id === productId ? { ...item, ...payload.item } : item,
+          ),
+        );
+      setMessage(`${variant.sku} ${size} quantity updated.`);
+    } catch (requestError) {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Unable to update the variant size inventory.",
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [],
+  );
+
+  const patchVariantImages = useCallback(
+    async (productId: string, variantId: string, images: string[]) => {
+      setBusy(true);
+      setError("");
+      setMessage("");
+    try {
+        const response = await fetch(
+          `${apiBaseUrl}/api/staff/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}`,
+          {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bearer ${token()}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ images }),
+          },
+        );
+      const payload = await response.json();
+        if (!response.ok)
+          throw new Error(payload.error ?? "Unable to update variant images.");
+        setItems((currentItems) =>
+          currentItems.map((item) =>
+            item.id === productId ? { ...item, ...payload.item } : item,
+          ),
+        );
+        setMessage("Variant images updated.");
+    } catch (requestError) {
+        const status =
+          requestError instanceof Error
+            ? requestError.message
+            : "Unable to update variant images.";
+      setError(status);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [],
+  );
+
+  const loadVariantImages = useCallback(
+    async (productId: string, variantId: string) => {
+      const response = await fetch(
+        `${apiBaseUrl}/api/staff/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}`,
+        { headers: { Authorization: `Bearer ${token()}` }, cache: "no-store" },
+      );
+    const payload = await response.json();
+      if (!response.ok)
+        throw new Error(payload.error ?? "Unable to load variant images.");
+      return Array.isArray(payload.images)
+        ? payload.images.filter(
+            (image: unknown): image is string => typeof image === "string",
+          )
+        : [];
+    },
+    [],
+  );
+
+  const archiveProduct = useCallback(
+    (item: Item) => {
+      if (
+        !window.confirm(
+          `Archive ${String(item.name || "this product")}? It will be hidden but kept in the database.`,
+        )
+      )
+        return;
+      void patch(
+        item.id,
+        {
+          status: "archived",
+          reason: "Product archived from the admin dashboard.",
+        },
+        "Product archived.",
+      );
+    },
+    [patch],
+  );
+
+  const deleteProduct = useCallback(async (item: Item) => {
+    if (
+      !window.confirm(
+        `Permanently delete ${String(item.name || "this product")} and all colour variants? This cannot be undone.`,
+      )
+    )
+      return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/staff/resources/products/${encodeURIComponent(item.id)}`,
+        { method: "DELETE", headers: { Authorization: `Bearer ${token()}` } },
+      );
+      const payload = await response.json();
+      if (!response.ok)
+        throw new Error(
+          payload.error ?? "Unable to permanently delete this product.",
+        );
+      setItems((current) => current.filter((entry) => entry.id !== item.id));
+      setTotalItems((current) => Math.max(0, current - 1));
+      setMessage("Product permanently deleted.");
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to permanently delete this product.",
+      );
     } finally {
       setBusy(false);
     }
   }, []);
 
-  const patchVariantSize = useCallback(async (productId: string, variantId: string, size: string, rawValue: string) => {
-    const value = Number(rawValue);
-    if (!Number.isInteger(value) || value < 0) { setError('Size quantities must be whole numbers greater than or equal to 0.'); return; }
-    const current = itemsRef.current.find((item) => item.id === productId);
-    const variant = current ? variantsFromItem(current).find((entry) => entry.id === variantId) : undefined;
-    if (!current || !variant) return;
-    const next = entriesFromValue(variant.sizeInventory).map((entry) => entry.size === size ? { ...entry, stock: value } : entry);
-    setBusy(true); setError(''); setMessage('');
-    try {
-      const response = await fetch(`${apiBaseUrl}/api/staff/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}`, {
-        method: 'PATCH', headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ sizeInventory: next }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error ?? 'Unable to update the variant size inventory.');
-      setItems((currentItems) => currentItems.map((item) => item.id === productId ? { ...item, ...payload.item } : item));
-      setMessage(`${variant.sku} ${size} quantity updated.`);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unable to update the variant size inventory.');
-    } finally { setBusy(false); }
-  }, []);
-
-  const patchVariantImages = useCallback(async (productId: string, variantId: string, images: string[]) => {
-    setBusy(true); setError(''); setMessage('');
-    try {
-      const response = await fetch(`${apiBaseUrl}/api/staff/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}`, {
-        method: 'PATCH', headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ images }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error ?? 'Unable to update variant images.');
-      setItems((currentItems) => currentItems.map((item) => item.id === productId ? { ...item, ...payload.item } : item));
-      setMessage('Variant images updated.');
-    } catch (requestError) {
-      const status = requestError instanceof Error ? requestError.message : 'Unable to update variant images.';
-      setError(status);
-    } finally { setBusy(false); }
-  }, []);
-
-  const loadVariantImages = useCallback(async (productId: string, variantId: string) => {
-    const response = await fetch(`${apiBaseUrl}/api/staff/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}`, { headers: { Authorization: `Bearer ${token()}` }, cache: 'no-store' });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error ?? 'Unable to load variant images.');
-    return Array.isArray(payload.images) ? payload.images.filter((image: unknown): image is string => typeof image === 'string') : [];
-  }, []);
-
-  const archiveProduct = useCallback((item: Item) => {
-    if (!window.confirm(`Archive ${String(item.name || 'this product')}? It will be hidden but kept in the database.`)) return;
-    void patch(item.id, { status: 'archived', reason: 'Product archived from the admin dashboard.' }, 'Product archived.');
-  }, [patch]);
-
-  const deleteProduct = useCallback(async (item: Item) => {
-    if (!window.confirm(`Permanently delete ${String(item.name || 'this product')} and all colour variants? This cannot be undone.`)) return;
-    setBusy(true); setError(''); setMessage('');
-    try {
-      const response = await fetch(`${apiBaseUrl}/api/staff/resources/products/${encodeURIComponent(item.id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token()}` } });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error ?? 'Unable to permanently delete this product.');
-      setItems((current) => current.filter((entry) => entry.id !== item.id)); setTotalItems((current) => Math.max(0, current - 1));
-      setMessage('Product permanently deleted.');
-    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to permanently delete this product.'); }
-    finally { setBusy(false); }
-  }, []);
-
   const convertQuote = async (id: string) => {
-    setBusy(true); setError('');
+    setBusy(true);
+    setError("");
     try {
-      const response = await fetch(`${apiBaseUrl}/api/staff/quotes/${id}/convert`, { method: 'POST', headers: { Authorization: `Bearer ${token()}` } });
+      const response = await fetch(
+        `${apiBaseUrl}/api/staff/quotes/${id}/convert`,
+        { method: "POST", headers: { Authorization: `Bearer ${token()}` } },
+      );
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error ?? 'Unable to convert this quote.');
-      setItems((current) => current.map((item) => item.id === id ? { ...item, status: 'converted', orderId: payload.item.id } : item)); setMessage(`Quote converted to order ${payload.item.orderNumber}.`);
-    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to convert this quote.'); }
-    finally { setBusy(false); }
+      if (!response.ok)
+        throw new Error(payload.error ?? "Unable to convert this quote.");
+      setItems((current) =>
+        current.map((item) =>
+          item.id === id
+            ? { ...item, status: "converted", orderId: payload.item.id }
+            : item,
+        ),
+      );
+      setMessage(`Quote converted to order ${payload.item.orderNumber}.`);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to convert this quote.",
+      );
+    } finally {
+      setBusy(false);
+    }
   };
 
   const assignCustomer = async (id: string, staffId: string) => {
-    setBusy(true); setError('');
+    setBusy(true);
+    setError("");
     try {
-      const response = await fetch(`${apiBaseUrl}/api/admin/customers/${id}/assignment`, { method: 'PATCH', headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ staffId: staffId || null }) });
+      const response = await fetch(
+        `${apiBaseUrl}/api/admin/customers/${id}/assignment`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token()}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ staffId: staffId || null }),
+        },
+      );
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error ?? 'Unable to update assignment.');
-      setItems((current) => current.map((item) => item.id === id ? { ...item, assignedStaffId: payload.user.assignedStaffId } : item)); setMessage('Customer assignment updated.');
-    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Unable to update assignment.'); }
-    finally { setBusy(false); }
+      if (!response.ok)
+        throw new Error(payload.error ?? "Unable to update assignment.");
+      setItems((current) =>
+        current.map((item) =>
+          item.id === id
+            ? { ...item, assignedStaffId: payload.user.assignedStaffId }
+            : item,
+        ),
+      );
+      setMessage("Customer assignment updated.");
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to update assignment.",
+      );
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const draftFor = (item: Item) => editing === item.id ? entriesFromForm(editForm) : (isSizeConfigured(item) ? entriesFromValue(item.sizeInventory) : entriesFromValue([]));
-  const totalFor = (item: Item) => editing === item.id && editForm.sizeInventoryConfigured === 'true' ? totalStock(draftFor(item)) : isSizeConfigured(item) ? totalStock(draftFor(item)) : Number(item.stock ?? 0);
-  const allocationTargetFor = (item: Item) => editing === item.id && editForm.sizeInventoryConfigured === 'true' && !isSizeConfigured(item) ? Number(editForm.legacyStock ?? item.stock ?? 0) : totalFor(item);
-  const title = section.replaceAll('-', ' ');
+  const draftFor = (item: Item) =>
+    editing === item.id
+      ? entriesFromForm(editForm)
+      : isSizeConfigured(item)
+        ? entriesFromValue(item.sizeInventory)
+        : entriesFromValue([]);
+  const totalFor = (item: Item) =>
+    editing === item.id && editForm.sizeInventoryConfigured === "true"
+      ? totalStock(draftFor(item))
+      : isSizeConfigured(item)
+        ? totalStock(draftFor(item))
+        : Number(item.stock ?? 0);
+  const allocationTargetFor = (item: Item) =>
+    editing === item.id &&
+    editForm.sizeInventoryConfigured === "true" &&
+    !isSizeConfigured(item)
+      ? Number(editForm.legacyStock ?? item.stock ?? 0)
+      : totalFor(item);
+  const title = section.replaceAll("-", " ");
   const collectionOptions = useMemo(() => {
-    if (section !== 'products' && section !== 'inventory') return [];
-    return [...new Set(items.flatMap((item) => {
-      const values = Array.isArray(item.collections) ? item.collections : [item.collection];
-      return values.map((value) => String(value || '').trim()).filter(Boolean);
-    }))].sort((left, right) => left.localeCompare(right));
+    if (section !== "products" && section !== "inventory") return [];
+    return [
+      ...new Set(
+        items.flatMap((item) => {
+          const values = Array.isArray(item.collections)
+            ? item.collections
+            : [item.collection];
+          return values
+            .map((value) => String(value || "").trim())
+            .filter(Boolean);
+        }),
+      ),
+    ].sort((left, right) => left.localeCompare(right));
   }, [items, section]);
   const visibleItems = useMemo(() => {
-    if (section !== 'products' && section !== 'inventory') return items;
+    if (section !== "products" && section !== "inventory") return items;
     const query = search.trim().toLowerCase();
     return items.filter((item) => {
-      const collections = Array.isArray(item.collections) ? item.collections.map(String) : [String(item.collection || '')];
-      if (selectedCollection !== 'ALL' && !collections.some((value) => value === selectedCollection)) return false;
+      const collections = Array.isArray(item.collections)
+        ? item.collections.map(String)
+        : [String(item.collection || "")];
+      if (
+        selectedCollection !== "ALL" &&
+        !collections.some((value) => value === selectedCollection)
+      )
+        return false;
       if (!query) return true;
       const variants = variantsFromItem(item);
-      const values = [item.name, item.sku, item.collection, ...collections, ...variants.flatMap((variant) => [variant.sku, variant.colour])];
-      return values.some((value) => String(value || '').toLowerCase().includes(query));
+      const values = [
+        item.name,
+        item.sku,
+        item.collection,
+        ...collections,
+        ...variants.flatMap((variant) => [variant.sku, variant.colour]),
+      ];
+      return values.some((value) =>
+        String(value || "")
+          .toLowerCase()
+          .includes(query),
+      );
     });
   }, [items, search, section, selectedCollection]);
 
@@ -487,47 +1802,614 @@ export function OperationsSection({ section: rawSection }: { section: string }) 
     try {
       await load(Math.floor(items.length / 100) + 1, true);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unable to load more records.');
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load more records.",
+      );
     } finally {
       setLoadingMore(false);
     }
-  }, [hasMore, items.length, load, loadingMore, renderLimit, visibleItems.length]);
-  const renderedItems = useMemo(() => visibleItems.slice(0, renderLimit), [renderLimit, visibleItems]);
+  }, [
+    hasMore,
+    items.length,
+    load,
+    loadingMore,
+    renderLimit,
+    visibleItems.length,
+  ]);
+  const renderedItems = useMemo(
+    () => visibleItems.slice(0, renderLimit),
+    [renderLimit, visibleItems],
+  );
 
-  if (loading) return <p className="mt-10 text-sm text-[#858b94]">Loading secure workspace…</p>;
-  if (!supported) return <section className="mt-10 rounded-2xl border border-black/[.06] bg-white p-8"><h2 className="text-xl font-semibold">Module unavailable</h2></section>;
-  if (!allowed) return <section className="mt-10 rounded-2xl border border-black/[.06] bg-white p-8"><h2 className="text-xl font-semibold capitalize">{title}</h2><p className="mt-3 text-sm text-[#858b94]">An administrator has not granted this capability.</p></section>;
+  if (loading)
+    return (
+      <p className="mt-10 text-sm text-[#858b94]">Loading secure workspace…</p>
+    );
+  if (!supported)
+    return (
+      <section className="admin-panel mt-8 p-8">
+        <h2 className="text-xl font-semibold">Module unavailable</h2>
+      </section>
+    );
+  if (!allowed)
+    return (
+      <section className="admin-panel mt-8 p-8">
+        <h2 className="text-xl font-semibold capitalize">{title}</h2>
+        <p className="mt-3 text-sm text-[#858b94]">
+          An administrator has not granted this capability.
+        </p>
+      </section>
+    );
 
-  return <section className="mt-10 rounded-2xl border border-black/[.06] bg-white p-6 shadow-[0_4px_20px_rgba(25,31,38,.035)] dark:border-white/[.08] dark:bg-[#191a1f] md:p-8">
-    <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-[10px] uppercase tracking-[.2em] text-[#9a7a4d]">Operations</p><h2 className="mt-2 text-2xl font-semibold capitalize">{title}</h2></div><div className="flex flex-wrap gap-2"><div className="flex"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={section === 'products' || section === 'inventory' ? 'Search products, SKU…' : 'Search'} className="rounded-lg border border-black/10 px-3 py-2 text-xs outline-none" />{search ? <button type="button" aria-label="Clear search" onClick={() => setSearch('')} className="-ml-8 px-2 text-sm text-[#858b94]">×</button> : null}</div>{section === 'products' || section === 'inventory' ? <select value={selectedCollection} onChange={(event) => setSelectedCollection(event.target.value)} aria-label="Filter by collection" className="rounded-lg border border-black/10 bg-white px-3 py-2 text-xs dark:border-white/10 dark:bg-[#121317]"><option value="ALL">All Collections</option>{collectionOptions.map((collection) => <option key={collection} value={collection}>{collection}</option>)}</select> : null}{section !== 'inventory' ? <button type="button" onClick={() => setCreating((current) => !current)} className="rounded-lg bg-[#24211e] px-4 py-2 text-xs text-white transition hover:bg-[#9a7a4d]">{creating ? 'Close' : `Create ${section.slice(0, -1)}`}</button> : null}</div></div>
-    {message ? <p className="mt-4 text-sm text-emerald-700">{message}</p> : null}{error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
-    {creating && section !== 'inventory' ? <CreateForm section={section as Exclude<Section, 'inventory'>} initial={{ ...emptyForms[section as Exclude<Section, 'inventory'>], ...(section === 'products' ? { collectionIds: '[]' } : {}) }} collections={collections} busy={busy} onCancel={() => setCreating(false)} onSave={create} /> : null}
-    {section === 'products' && editing ? <div className="mt-6 rounded-xl border border-[#9a7a4d]/20 bg-[#faf8f4] p-5 dark:bg-white/[.03]"><p className="text-[10px] uppercase tracking-[.16em] text-[#9a7a4d]">Edit product</p><div className="mt-4 grid gap-4 md:grid-cols-2"><label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Product name<input value={editForm.name ?? ''} onChange={(event) => setEditForm((current) => ({ ...current, name: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`} /></label><label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Parent SKU<input value={editForm.sku ?? ''} onChange={(event) => setEditForm((current) => ({ ...current, sku: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`} /></label><label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Base price<input type="number" min={0} value={editForm.price ?? ''} onChange={(event) => setEditForm((current) => ({ ...current, price: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`} /></label><label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Availability<select value={editForm.availability ?? 'in_stock'} onChange={(event) => setEditForm((current) => ({ ...current, availability: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`}><option value="in_stock">In Stock</option><option value="custom_order">Custom Order</option><option value="sold_out">No Stock</option></select></label><CollectionChoices collections={collections} value={editForm.collectionIds} onChange={(value) => setEditForm((current) => ({ ...current, collectionIds: value }))} /><label className="text-[10px] uppercase tracking-[.16em] text-[#858b94] md:col-span-2">Description<textarea value={editForm.description ?? ''} onChange={(event) => setEditForm((current) => ({ ...current, description: event.target.value }))} rows={3} className={`${inputClass} mt-2 normal-case tracking-normal`} /></label></div><div className="mt-5 flex justify-end gap-3"><button type="button" onClick={() => { setEditing(null); setEditForm({}); }} className="rounded-lg border border-black/10 px-4 py-2 text-xs">Cancel</button><button type="button" disabled={busy} onClick={() => void patch(editing, { ...editForm, collectionIds: selectedCollectionIds(editForm.collectionIds) }, 'Product updated.')} className="rounded-lg bg-[#24211e] px-4 py-2 text-xs text-white disabled:opacity-40">{busy ? 'Saving…' : 'Save product'}</button></div></div> : null}
-    {(section === 'orders' || section === 'quotes') && items.length ? <div className="mt-6 rounded-xl border border-black/[.06] bg-[#faf8f4] p-4 dark:bg-white/[.03]"><div className="flex flex-wrap items-center gap-3"><label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">Edit details<select value={editing ?? ''} onChange={(event) => { const item = items.find((entry) => entry.id === event.target.value); if (item) beginEdit(item); else setEditing(null); }} className="ml-3 rounded-lg border border-black/10 bg-white px-3 py-2 text-xs normal-case tracking-normal"><option value="">Choose {section.slice(0, -1)}</option>{items.filter((item) => item.status !== 'converted').map((item) => <option key={item.id} value={item.id}>{String(item[section === 'orders' ? 'orderNumber' : 'quoteNumber'] ?? item.id)}</option>)}</select></label></div>{editing ? <div className="mt-4 grid gap-3 md:grid-cols-4">{editableFields.map((key) => <label key={key} className="text-[10px] uppercase tracking-[.14em] text-[#858b94]">{key.replaceAll(/([A-Z])/g, ' $1')}<input type={key === 'total' ? 'number' : 'text'} min={key === 'total' ? 0 : undefined} value={editForm[key] ?? ''} onChange={(event) => setEditForm((current) => ({ ...current, [key]: event.target.value }))} className={`${inputClass} mt-2 normal-case tracking-normal`} /></label>)}<div className="flex items-end gap-2"><button disabled={busy} onClick={() => void patch(editing, editForm)} className="rounded-lg bg-[#24211e] px-4 py-2.5 text-xs text-white disabled:opacity-40">Save details</button><button onClick={() => setEditing(null)} className="rounded-lg border border-black/10 px-4 py-2.5 text-xs">Cancel</button></div></div> : null}</div> : null}
-    {renderedItems.length ? section === 'products' ? <ProductVariantGroups items={renderedItems} busy={busy} onStatusChange={patchVariantStatus} onSizeChange={patchVariantSize} onEdit={beginEdit} onArchive={archiveProduct} onDelete={deleteProduct} onImageChange={patchVariantImages} onLoadImages={loadVariantImages} /> : <div className="mt-7 w-full min-w-0 overflow-x-auto"><table className="w-full min-w-0 table-fixed text-left text-sm"><thead className="border-b border-black/10 text-[10px] uppercase tracking-[.16em] text-[#858b94]"><tr>{columns[section].map(([, label]) => <th key={label} className="pb-4 pr-4">{label}</th>)}<th className="pb-4">Actions</th></tr></thead><tbody>{renderedItems.map((item) => {
+  return (
+    <section className="admin-panel mt-8 p-6 md:p-8">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[.2em] text-[var(--admin-gold)]">
+            Operations
+          </p>
+          <h2 className="mt-2 text-3xl capitalize">{title}</h2>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <div className="flex">
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={
+                section === "products" || section === "inventory"
+                  ? "Search products, SKU…"
+                  : "Search"
+              }
+              className="rounded-lg border border-black/10 px-3 py-2 text-xs outline-none"
+            />
+            {search ? (
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => setSearch("")}
+                className="-ml-8 px-2 text-sm text-[#858b94]"
+              >
+                ×
+              </button>
+            ) : null}
+          </div>
+          {section === "products" || section === "inventory" ? (
+            <select
+              value={selectedCollection}
+              onChange={(event) => setSelectedCollection(event.target.value)}
+              aria-label="Filter by collection"
+              className="rounded-lg border border-black/10 bg-white px-3 py-2 text-xs dark:border-white/10 dark:bg-[#121317]"
+            >
+              <option value="ALL">All Collections</option>
+              {collectionOptions.map((collection) => (
+                <option key={collection} value={collection}>
+                  {collection}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          {section !== "inventory" ? (
+            <button
+              type="button"
+              onClick={() => setCreating((current) => !current)}
+              className="rounded-lg bg-[#24211e] px-4 py-2 text-xs text-white transition hover:bg-[#9a7a4d]"
+            >
+              {creating ? "Close" : `Create ${section.slice(0, -1)}`}
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {message ? (
+        <p className="mt-4 text-sm text-emerald-700">{message}</p>
+      ) : null}
+      {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
+      {creating && section !== "inventory" ? (
+        <CreateForm
+          section={section as Exclude<Section, "inventory">}
+          initial={{
+            ...emptyForms[section as Exclude<Section, "inventory">],
+            ...(section === "products" ? { collectionIds: "[]" } : {}),
+          }}
+          collections={collections}
+          busy={busy}
+          onCancel={() => setCreating(false)}
+          onSave={create}
+        />
+      ) : null}
+      {section === "products" && editing ? (
+        <div className="mt-6 rounded-xl border border-[#9a7a4d]/20 bg-[#faf8f4] p-5 dark:bg-white/[.03]">
+          <p className="text-[10px] uppercase tracking-[.16em] text-[#9a7a4d]">
+            Edit product
+          </p>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">
+              Product name
+              <input
+                value={editForm.name ?? ""}
+                onChange={(event) =>
+                  setEditForm((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
+                }
+                className={`${inputClass} mt-2 normal-case tracking-normal`}
+              />
+            </label>
+            <label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">
+              Parent SKU
+              <input
+                value={editForm.sku ?? ""}
+                onChange={(event) =>
+                  setEditForm((current) => ({
+                    ...current,
+                    sku: event.target.value,
+                  }))
+                }
+                className={`${inputClass} mt-2 normal-case tracking-normal`}
+              />
+            </label>
+            <label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">
+              Base price
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                required
+                value={editForm.price ?? ""}
+                onChange={(event) =>
+                  setEditForm((current) => ({
+                    ...current,
+                    price: event.target.value,
+                  }))
+                }
+                className={`${inputClass} mt-2 normal-case tracking-normal`}
+              />
+            </label>
+            <CollectionChoices
+              collections={collections}
+              value={editForm.collectionIds}
+              onChange={(value) =>
+                setEditForm((current) => ({ ...current, collectionIds: value }))
+              }
+            />
+            <label className="text-[10px] uppercase tracking-[.16em] text-[#858b94] md:col-span-2">
+              Description
+              <textarea
+                value={editForm.description ?? ""}
+                onChange={(event) =>
+                  setEditForm((current) => ({
+                    ...current,
+                    description: event.target.value,
+                  }))
+                }
+                rows={3}
+                className={`${inputClass} mt-2 normal-case tracking-normal`}
+              />
+            </label>
+            <WorkDriveLinksField
+              value={editForm.mediaLinks}
+              onChange={(value) =>
+                setEditForm((current) => ({ ...current, mediaLinks: value }))
+              }
+            />
+          </div>
+          <p className="mt-4 text-xs text-[#858b94]">
+            Stock and availability are changed separately in Inventory so
+            audited adjustments still require a reason.
+          </p>
+          <div className="mt-5 flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setEditing(null);
+                setEditForm({});
+              }}
+              className="rounded-lg border border-black/10 px-4 py-2 text-xs"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                const {
+                  mediaLinks: _links,
+                  mediaRecords: _records,
+                  stock: _stock,
+                  legacyStock: _legacyStock,
+                  sizeInventory: _sizeInventory,
+                  sizeInventoryConfigured: _configured,
+                  sizeSystemEnabled: _sizeSystem,
+                  availability: _availability,
+                  changeReason: _changeReason,
+                  collectionIds: _collectionIds,
+                  ...fields
+                } = editForm;
+                void patch(
+                  editing,
+                  {
+                    ...fields,
+                    media: mediaPayload(editForm),
+                    collectionIds: selectedCollectionIds(
+                      editForm.collectionIds,
+                    ),
+                  },
+                  "Product updated. Photos are saved and queued for catalog synchronization.",
+                );
+              }}
+              className="rounded-lg bg-[#24211e] px-4 py-2 text-xs text-white disabled:opacity-40"
+            >
+              {busy ? "Saving…" : "Save product"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {(section === "orders" || section === "quotes") && items.length ? (
+        <div className="mt-6 rounded-xl border border-black/[.06] bg-[#faf8f4] p-4 dark:bg-white/[.03]">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="text-[10px] uppercase tracking-[.16em] text-[#858b94]">
+              Edit details
+              <select
+                value={editing ?? ""}
+                onChange={(event) => {
+                  const item = items.find(
+                    (entry) => entry.id === event.target.value,
+                  );
+                  if (item) beginEdit(item);
+                  else setEditing(null);
+                }}
+                className="ml-3 rounded-lg border border-black/10 bg-white px-3 py-2 text-xs normal-case tracking-normal"
+              >
+                <option value="">Choose {section.slice(0, -1)}</option>
+                {items
+                  .filter((item) => item.status !== "converted")
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {String(
+                        item[
+                          section === "orders" ? "orderNumber" : "quoteNumber"
+                        ] ?? item.id,
+                      )}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          </div>
+          {editing ? (
+            <div className="mt-4 grid gap-3 md:grid-cols-4">
+              {editableFields.map((key) => (
+                <label
+                  key={key}
+                  className="text-[10px] uppercase tracking-[.14em] text-[#858b94]"
+                >
+                  {key.replaceAll(/([A-Z])/g, " $1")}
+                  <input
+                    type={key === "total" ? "number" : "text"}
+                    min={key === "total" ? 0 : undefined}
+                    value={editForm[key] ?? ""}
+                    onChange={(event) =>
+                      setEditForm((current) => ({
+                        ...current,
+                        [key]: event.target.value,
+                      }))
+                    }
+                    className={`${inputClass} mt-2 normal-case tracking-normal`}
+                  />
+                </label>
+              ))}
+              <div className="flex items-end gap-2">
+                <button
+                  disabled={busy}
+                  onClick={() => void patch(editing, editForm)}
+                  className="rounded-lg bg-[#24211e] px-4 py-2.5 text-xs text-white disabled:opacity-40"
+                >
+                  Save details
+                </button>
+                <button
+                  onClick={() => setEditing(null)}
+                  className="rounded-lg border border-black/10 px-4 py-2.5 text-xs"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {renderedItems.length ? (
+        section === "products" ? (
+          <ProductVariantGroups
+            items={renderedItems}
+            busy={busy}
+            onStatusChange={patchVariantStatus}
+            onSizeChange={patchVariantSize}
+            onEdit={beginEdit}
+            onArchive={archiveProduct}
+            onDelete={deleteProduct}
+            onImageChange={patchVariantImages}
+            onLoadImages={loadVariantImages}
+          />
+        ) : (
+          <div className="mt-7 w-full min-w-0 overflow-x-auto">
+            <table className="w-full min-w-0 table-fixed text-left text-sm">
+              <thead className="border-b border-black/10 text-[10px] uppercase tracking-[.16em] text-[#858b94]">
+                <tr>
+                  {columns[section].map(([, label]) => (
+                    <th key={label} className="pb-4 pr-4">
+                      {label}
+                    </th>
+                  ))}
+                  <th className="pb-4">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {renderedItems.map((item) => {
       const product: boolean = false;
       const entries = product ? draftFor(item) : [];
       const total = product ? totalFor(item) : 0;
-      const status = product ? statusFor({ ...item, availability: editing === item.id ? editForm.availability : item.availability }) : null;
-      const productColours = product ? productColourText(item) : '';
-      return <tr key={item.id} className="border-b border-black/[.06] align-middle last:border-b-0">
-        {columns[section].map(([key]) => <td key={key} className={`py-4 pr-4 text-[#6e747d] ${product && key === 'sizeInventory' ? 'align-top' : ''}`}>
-          {product && key === 'name' ? <div className="flex min-w-[19rem] items-start gap-3"><ProductThumbnail item={item} /><div className="min-w-0"><p className="flex min-w-0 items-baseline gap-2"><span className="truncate font-medium text-[#20242b] dark:text-white">{String(item.name ?? 'Unnamed product')}</span>{productColours ? <span title={productColours} className="max-w-[9rem] shrink-0 truncate text-[9px] uppercase tracking-[.1em] text-[#9a7a4d]">· {productColours}</span> : null}</p><p className="mt-1 text-[10px] text-[#858b94]">{String(item.category || 'Couture')}</p><VariantStatusControls item={item} busy={busy} onChange={(variantId, variantStatus) => void patchVariantStatus(item.id, variantId, variantStatus)} /></div></div>
-            : product && key === 'price' ? <span className="whitespace-nowrap tabular-nums">{currency(item.price)}</span>
-            : product && key === 'stock' ? <span className="text-base font-medium tabular-nums text-[#20242b] dark:text-white">{total}</span>
-            : product && key === 'sizeInventory' ? <VariantSizeCells variants={variantsFromItem(item)} busy={busy} onChange={(variantId, size, value) => void patchVariantSize(item.id, variantId, size, value)} />
-            : product && key === 'availability' && status ? <span className="inline-flex items-center gap-2 whitespace-nowrap text-xs"><span className={`h-2 w-2 rounded-full ${status.dot}`} />{status.label}</span>
-            : key === 'assignedStaffId' && userRole === 'admin' ? <select value={String(item.assignedStaffId ?? '')} disabled={busy} onChange={(event) => void assignCustomer(item.id, event.target.value)} className="max-w-44 rounded border border-black/10 bg-white px-2 py-1.5 text-xs"><option value="">Unassigned</option>{staffUsers.map((staff) => <option key={staff.id} value={staff.id}>{staff.displayName || staff.email || 'Staff member'}</option>)}</select>
-            : editing === item.id && editableFields.includes(key) ? <input type={key === 'price' || key === 'stock' ? 'number' : 'text'} min={key === 'price' || key === 'stock' ? 0 : undefined} value={editForm[key] ?? ''} onChange={(event) => setEditForm((current) => ({ ...current, [key]: event.target.value }))} className="w-36 border-b border-black/15 bg-transparent py-1 outline-none" />
-            : formatValue(key, item[key])}
-        </td>)}
-        <td className="py-4"><div className="flex min-w-[8rem] flex-wrap items-center gap-2">
-          {section === 'inventory' ? <><input type="number" value={adjustments[item.id] ?? ''} onChange={(event) => setAdjustments((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="+ / -" className="w-20 rounded border border-black/10 px-2 py-1.5 text-xs" /><input value={adjustmentReasons[item.id] ?? ''} onChange={(event) => setAdjustmentReasons((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="Reason" aria-label="Reason for inventory change" className="w-32 rounded border border-black/10 px-2 py-1.5 text-xs" /><button type="button" disabled={busy || !adjustments[item.id] || !adjustmentReasons[item.id]?.trim()} onClick={() => void patch(item.id, { adjustment: Number(adjustments[item.id]), reason: adjustmentReasons[item.id] }, 'Inventory adjusted.')} className="text-[10px] uppercase tracking-[.12em] text-[#9a7a4d] disabled:opacity-30">{busy ? 'Saving…' : 'Adjust'}</button></>
-            : section === 'orders' || section === 'quotes' ? <><select value={String(item.status ?? '')} disabled={busy || item.status === 'converted'} onChange={(event) => void patch(item.id, { status: event.target.value })} className="rounded border border-black/10 bg-white px-2 py-1.5 text-xs capitalize"><option value="draft">Draft</option>{section === 'quotes' ? <><option value="sent">Sent</option><option value="accepted">Accepted</option><option value="rejected">Rejected</option><option value="converted">Converted</option></> : <><option value="pending">Pending</option><option value="confirmed">Confirmed</option><option value="processing">Processing</option><option value="fulfilled">Fulfilled</option><option value="cancelled">Cancelled</option></>}</select>{section === 'quotes' && item.status !== 'converted' ? <button disabled={busy} onClick={() => void convertQuote(item.id)} className="text-[10px] uppercase tracking-[.12em] text-[#9a7a4d]">Convert</button> : null}</>
-             : <button onClick={() => beginEdit(item)} className="text-[10px] uppercase tracking-[.12em] text-[#9a7a4d]">Edit</button>}
-        </div></td>
-      </tr>;
-    })}</tbody></table></div> : <div className="mt-8 rounded-xl border border-dashed border-black/10 p-10 text-center text-sm text-[#858b94]">{search || selectedCollection !== 'ALL' ? `No ${section === 'inventory' ? 'inventory items' : 'products'} found${search ? ` for “${search}”` : ''}${selectedCollection !== 'ALL' ? ` in “${selectedCollection}”` : ''}.` : `No ${title} found.`}</div>}
-    {(renderedItems.length < visibleItems.length || hasMore) ? <div className="mt-6 flex flex-wrap items-center justify-between gap-3 text-xs text-[#858b94]"><span>Showing {renderedItems.length} of {totalItems || visibleItems.length} loaded records{hasMore ? ' · more available' : ''}</span><button type="button" onClick={() => void loadMore()} disabled={loadingMore} className="rounded-lg border border-black/10 px-3 py-2 text-[10px] uppercase tracking-[.12em] text-[#9a7a4d] disabled:opacity-40">{loadingMore ? 'Loadingâ€¦' : 'Load more'}</button></div> : null}
-  </section>;
+                  const status = product
+                    ? statusFor({
+                        ...item,
+                        availability:
+                          editing === item.id
+                            ? editForm.availability
+                            : item.availability,
+                      })
+                    : null;
+                  const productColours = product ? productColourText(item) : "";
+                  return (
+                    <tr
+                      key={item.id}
+                      className="border-b border-black/[.06] align-middle last:border-b-0"
+                    >
+                      {columns[section].map(([key]) => (
+                        <td
+                          key={key}
+                          className={`py-4 pr-4 text-[#6e747d] ${product && key === "sizeInventory" ? "align-top" : ""}`}
+                        >
+                          {product && key === "name" ? (
+                            <div className="flex min-w-[19rem] items-start gap-3">
+                              <ProductThumbnail item={item} />
+                              <div className="min-w-0">
+                                <p className="flex min-w-0 items-baseline gap-2">
+                                  <span className="truncate font-medium text-[#20242b] dark:text-white">
+                                    {String(item.name ?? "Unnamed product")}
+                                  </span>
+                                  {productColours ? (
+                                    <span
+                                      title={productColours}
+                                      className="max-w-[9rem] shrink-0 truncate text-[9px] uppercase tracking-[.1em] text-[#9a7a4d]"
+                                    >
+                                      · {productColours}
+                                    </span>
+                                  ) : null}
+                                </p>
+                                <p className="mt-1 text-[10px] text-[#858b94]">
+                                  {String(item.category || "Couture")}
+                                </p>
+                                <VariantStatusControls
+                                  item={item}
+                                  busy={busy}
+                                  onChange={(variantId, variantStatus) =>
+                                    void patchVariantStatus(
+                                      item.id,
+                                      variantId,
+                                      variantStatus,
+                                    )
+                                  }
+                                />
+                              </div>
+                            </div>
+                          ) : product && key === "price" ? (
+                            <span className="whitespace-nowrap tabular-nums">
+                              {currency(item.price)}
+                            </span>
+                          ) : product && key === "stock" ? (
+                            <span className="text-base font-medium tabular-nums text-[#20242b] dark:text-white">
+                              {total}
+                            </span>
+                          ) : product && key === "sizeInventory" ? (
+                            <VariantSizeCells
+                              variants={variantsFromItem(item)}
+                              busy={busy}
+                              onChange={(variantId, size, value) =>
+                                void patchVariantSize(
+                                  item.id,
+                                  variantId,
+                                  size,
+                                  value,
+                                )
+                              }
+                            />
+                          ) : product && key === "availability" && status ? (
+                            <span className="inline-flex items-center gap-2 whitespace-nowrap text-xs">
+                              <span
+                                className={`h-2 w-2 rounded-full ${status.dot}`}
+                              />
+                              {status.label}
+                            </span>
+                          ) : key === "assignedStaffId" &&
+                            userRole === "admin" ? (
+                            <select
+                              value={String(item.assignedStaffId ?? "")}
+                              disabled={busy}
+                              onChange={(event) =>
+                                void assignCustomer(item.id, event.target.value)
+                              }
+                              className="max-w-44 rounded border border-black/10 bg-white px-2 py-1.5 text-xs"
+                            >
+                              <option value="">Unassigned</option>
+                              {staffUsers.map((staff) => (
+                                <option key={staff.id} value={staff.id}>
+                                  {staff.displayName ||
+                                    staff.email ||
+                                    "Staff member"}
+                                </option>
+                              ))}
+                            </select>
+                          ) : editing === item.id &&
+                            editableFields.includes(key) ? (
+                            <input
+                              type={
+                                key === "price" || key === "stock"
+                                  ? "number"
+                                  : "text"
+                              }
+                              min={
+                                key === "price" || key === "stock"
+                                  ? 0
+                                  : undefined
+                              }
+                              value={editForm[key] ?? ""}
+                              onChange={(event) =>
+                                setEditForm((current) => ({
+                                  ...current,
+                                  [key]: event.target.value,
+                                }))
+                              }
+                              className="w-36 border-b border-black/15 bg-transparent py-1 outline-none"
+                            />
+                          ) : (
+                            formatValue(key, item[key])
+                          )}
+                        </td>
+                      ))}
+                      <td className="py-4">
+                        <div className="flex min-w-[8rem] flex-wrap items-center gap-2">
+                          {section === "inventory" ? (
+                            <>
+                              <input
+                                type="number"
+                                value={adjustments[item.id] ?? ""}
+                                onChange={(event) =>
+                                  setAdjustments((current) => ({
+                                    ...current,
+                                    [item.id]: event.target.value,
+                                  }))
+                                }
+                                placeholder="+ / -"
+                                className="w-20 rounded border border-black/10 px-2 py-1.5 text-xs"
+                              />
+                              <input
+                                value={adjustmentReasons[item.id] ?? ""}
+                                onChange={(event) =>
+                                  setAdjustmentReasons((current) => ({
+                                    ...current,
+                                    [item.id]: event.target.value,
+                                  }))
+                                }
+                                placeholder="Reason"
+                                aria-label="Reason for inventory change"
+                                className="w-32 rounded border border-black/10 px-2 py-1.5 text-xs"
+                              />
+                              <button
+                                type="button"
+                                disabled={
+                                  busy ||
+                                  !adjustments[item.id] ||
+                                  !adjustmentReasons[item.id]?.trim()
+                                }
+                                onClick={() =>
+                                  void patch(
+                                    item.id,
+                                    {
+                                      adjustment: Number(adjustments[item.id]),
+                                      reason: adjustmentReasons[item.id],
+                                    },
+                                    "Inventory adjusted.",
+                                  )
+                                }
+                                className="text-[10px] uppercase tracking-[.12em] text-[#9a7a4d] disabled:opacity-30"
+                              >
+                                {busy ? "Saving…" : "Adjust"}
+                              </button>
+                            </>
+                          ) : section === "orders" || section === "quotes" ? (
+                            <>
+                              <select
+                                value={String(item.status ?? "")}
+                                disabled={busy || item.status === "converted"}
+                                onChange={(event) =>
+                                  void patch(item.id, {
+                                    status: event.target.value,
+                                  })
+                                }
+                                className="rounded border border-black/10 bg-white px-2 py-1.5 text-xs capitalize"
+                              >
+                                <option value="draft">Draft</option>
+                                {section === "quotes" ? (
+                                  <>
+                                    <option value="sent">Sent</option>
+                                    <option value="accepted">Accepted</option>
+                                    <option value="rejected">Rejected</option>
+                                    <option value="converted">Converted</option>
+                                  </>
+                                ) : (
+                                  <>
+                                    <option value="pending">Pending</option>
+                                    <option value="confirmed">Confirmed</option>
+                                    <option value="processing">
+                                      Processing
+                                    </option>
+                                    <option value="fulfilled">Fulfilled</option>
+                                    <option value="cancelled">Cancelled</option>
+                                  </>
+                                )}
+                              </select>
+                              {section === "quotes" &&
+                              item.status !== "converted" ? (
+                                <button
+                                  disabled={busy}
+                                  onClick={() => void convertQuote(item.id)}
+                                  className="text-[10px] uppercase tracking-[.12em] text-[#9a7a4d]"
+                                >
+                                  Convert
+                                </button>
+                              ) : null}
+                            </>
+                          ) : (
+                            <button
+                              onClick={() => beginEdit(item)}
+                              className="text-[10px] uppercase tracking-[.12em] text-[#9a7a4d]"
+                            >
+                              Edit
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )
+      ) : (
+        <div className="mt-8 rounded-xl border border-dashed border-black/10 p-10 text-center text-sm text-[#858b94]">
+          {search || selectedCollection !== "ALL"
+            ? `No ${section === "inventory" ? "inventory items" : "products"} found${search ? ` for “${search}”` : ""}${selectedCollection !== "ALL" ? ` in “${selectedCollection}”` : ""}.`
+            : `No ${title} found.`}
+        </div>
+      )}
+      {renderedItems.length < visibleItems.length || hasMore ? (
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 text-xs text-[#858b94]">
+          <span>
+            Showing {renderedItems.length} of{" "}
+            {totalItems || visibleItems.length} loaded records
+            {hasMore ? " · more available" : ""}
+          </span>
+          <button
+            type="button"
+            onClick={() => void loadMore()}
+            disabled={loadingMore}
+            className="rounded-lg border border-black/10 px-3 py-2 text-[10px] uppercase tracking-[.12em] text-[#9a7a4d] disabled:opacity-40"
+          >
+            {loadingMore ? "Loading…" : "Load more"}
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
 }

@@ -1135,6 +1135,17 @@ def collection_product_documents(
     return matched
 
 
+def collection_product_count(db, collection: dict, *, style: str = "", colour: str = "") -> int:
+    """Count only products the storefront can actually render for this collection."""
+    return sum(
+        1
+        for product, _order in collection_product_documents(db, collection, style=style, colour=colour)
+        if product.get("status") != "archived"
+        and product.get("isActive") is not False
+        and product_has_visible_variants(product)
+    )
+
+
 def _safe_public_image_url(value: object) -> str | None:
     """Return browser-renderable image URLs without exposing WorkDrive permalinks."""
     url = str(value or "").strip()
@@ -1164,8 +1175,9 @@ def public_catalog_media(product: dict) -> list[dict]:
         record = {
             key: _json_value(item[key])
             for key in (
-                "media_id", "id", "provider", "owner_system", "public_id", "position",
-                "is_primary", "alt_text", "description", "asset_folder", "view", "type",
+                "media_id", "id", "provider", "owner_system", "public_id", "position", "variant_id", "colour_slug", "colour",
+                "is_primary", "is_hover", "alt_text", "description", "asset_folder", "view", "type",
+                "variant_id", "colour_slug", "colour",
             )
             if item.get(key) is not None
         }
@@ -1174,25 +1186,54 @@ def public_catalog_media(product: dict) -> list[dict]:
             render_url = _safe_public_image_url(item.get("secure_url") or item.get("url"))
         else:
             permalink = str(item.get("permalink") or "")
+            parsed = urlparse(permalink)
             render_url = (
                 f"/api/catalog/products/{product_id}/media/{media_id}"
-                if product_id and permalink.startswith("https://workdrive.zoho.in/file/") and "/embed/" not in permalink
+                if product_id
+                and parsed.scheme == "https"
+                and parsed.hostname in {"workdrive.zoho.in", "workdrive.zohoexternal.in"}
+                and parsed.path.startswith("/file/")
+                and not parsed.username
+                and not parsed.password
+                and not parsed.fragment
                 else None
             )
         if render_url:
             record["renderUrl"] = render_url
         records.append(record)
-    records.sort(key=lambda item: (not bool(item.get("is_primary")), int(item.get("position") or 0), item["media_id"]))
+    def media_position(item: dict) -> int:
+        try:
+            return int(item.get("position") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    records.sort(key=lambda item: (not bool(item.get("is_primary")), media_position(item), item["media_id"]))
     return records
 
 
 def public_product_media(product: dict, *, selected_variant: dict | None = None, media_limit: int | None = None) -> list[str]:
-    """Resolve variant, legacy product, then structured catalog media in order."""
+    """Resolve only the selected gallery, with safe legacy fallback."""
     candidates = []
+    selected_id = str((selected_variant or {}).get("id") or "")
     if selected_variant:
         candidates.extend(selected_variant.get("images") or [])
-    candidates.extend(product.get("media") or [])
-    candidates.extend(item.get("renderUrl") for item in public_catalog_media(product))
+    structured = public_catalog_media(product)
+    selected_structured = [item for item in structured if str(item.get("variant_id") or "") == selected_id]
+    has_selected_gallery = bool(selected_structured or (selected_variant and selected_variant.get("images")))
+    has_any_variant_gallery = any(item.get("variant_id") for item in structured) or any(
+        (variant.get("images") or variant.get("imageMeta"))
+        for variant in product.get("variants") or []
+        if isinstance(variant, dict)
+    )
+    if not selected_variant or (not has_selected_gallery and not has_any_variant_gallery):
+        candidates.extend(product.get("media") or [])
+    candidates.extend(
+        item.get("renderUrl")
+        for item in structured
+        if str(item.get("variant_id") or "") == selected_id
+        or (not selected_variant and not item.get("variant_id"))
+        or (selected_variant and not has_any_variant_gallery and not item.get("variant_id"))
+    )
     resolved = []
     for candidate in candidates:
         url = _safe_public_image_url(candidate)
@@ -1201,8 +1242,32 @@ def public_product_media(product: dict, *, selected_variant: dict | None = None,
     return resolved[:media_limit] if media_limit is not None else resolved
 
 
+def _attach_public_variant_media(variants: list[dict], structured: list[dict]) -> list[dict]:
+    """Attach only each variant's browser-safe structured media to that variant."""
+    by_variant = {}
+    for item in structured:
+        variant_id = str(item.get("variant_id") or "")
+        render_url = item.get("renderUrl")
+        if variant_id and render_url:
+            by_variant.setdefault(variant_id, []).append(item)
+    for variant in variants:
+        items = by_variant.get(str(variant.get("id") or ""), [])
+        if items:
+            variant["images"] = [item["renderUrl"] for item in items]
+            variant["imageMeta"] = [
+                {**dict(item), "renderUrl": item["renderUrl"]}
+                for item in items
+            ]
+        else:
+            variant["images"] = [url for url in (_safe_public_image_url(value) for value in variant.get("images") or []) if url]
+            variant["imageMeta"] = []
+    return variants
+
+
 def product_view(product: dict, *, display_order: int | None = None, media_limit: int | None = None) -> dict:
-    public_variants = [public_variant_view(variant, media_limit=media_limit) for variant in visible_variants(product)]
+    public_variants = [public_variant_view(variant, parent_price=product.get("price"), media_limit=media_limit) for variant in visible_variants(product)]
+    structured_media = public_catalog_media(product)
+    _attach_public_variant_media(public_variants, structured_media)
     selected_variant = next((variant for variant in public_variants if variant["status"] == "active"), None) or (public_variants[0] if public_variants else None)
     configured = bool(selected_variant) or has_size_system(product)
     size_inventory = selected_variant["sizeInventory"] if selected_variant else product_size_inventory(product) if configured else []
@@ -1245,7 +1310,7 @@ def product_view(product: dict, *, display_order: int | None = None, media_limit
         "category": product.get("category"),
         "description": product.get("description"),
         "media": selected_media,
-        "catalogMedia": public_catalog_media(product),
+        "catalogMedia": structured_media,
         "variants": public_variants,
         "attributes": public_attributes,
         "isDummy": bool(product.get("isDummy")),
@@ -1267,13 +1332,15 @@ def product_view(product: dict, *, display_order: int | None = None, media_limit
 
 def product_card_view(product: dict, *, display_order: int | None = None, media_limit: int = 2) -> dict:
     """Return only the fields needed by the public collection product grid."""
-    variants = [public_variant_view(variant, media_limit=media_limit) for variant in visible_variants(product)]
+    variants = [public_variant_view(variant, parent_price=product.get("price"), media_limit=media_limit) for variant in visible_variants(product)]
+    structured_media = public_catalog_media(product)
+    _attach_public_variant_media(variants, structured_media)
     selected_variant = next((variant for variant in variants if variant["status"] == "active"), None) or (variants[0] if variants else None)
     card_variants = []
     for variant in variants:
         card_variant = {
             key: variant[key]
-            for key in ("id", "sku", "colour", "colourSlug", "images", "status", "availabilityStatus", "price", "currency", "stock")
+            for key in ("id", "sku", "colour", "colourSlug", "images", "imageMeta", "status", "availabilityStatus", "price", "currency", "stock")
             if key in variant
         }
         if variant is selected_variant:
@@ -1306,8 +1373,10 @@ def product_card_view(product: dict, *, display_order: int | None = None, media_
         "sizeInventoryConfigured": configured,
         "sizeInventory": _json_value(size_inventory),
         "category": product.get("category"),
+        "createdAt": _json_value(product.get("createdAt")),
+        "updatedAt": _json_value(product.get("updatedAt")),
         "media": public_product_media(product, selected_variant=selected_variant, media_limit=media_limit),
-        "catalogMedia": public_catalog_media(product),
+        "catalogMedia": structured_media,
         "attributes": {
             key: _json_value(attributes[key]) for key in ("sizes", "colors", "color") if key in attributes
         },

@@ -26,6 +26,7 @@ from .time_utils import as_utc_datetime, isoformat_utc, json_value as serialize_
 PAYMENT_STATUSES = ("pending", "paid", "failed", "refunded")
 FULFILLMENT_STATUSES = (
     "order_placed",
+    "awaiting_confirmation",
     "confirmed",
     "processing",
     "packed",
@@ -39,14 +40,15 @@ FULFILLMENT_STATUSES = (
 )
 RETURN_FULFILLMENT_STATUSES = ("return_requested", "returned", "refunded")
 ACTIVE_FULFILLMENT_STATUSES = {
-    "order_placed", "confirmed", "processing", "packed", "shipped", "out_for_delivery"
+    "order_placed", "awaiting_confirmation", "confirmed", "processing", "packed", "shipped", "out_for_delivery"
 }
 FULFILLMENT_SEQUENCE = (
-    "order_placed", "confirmed", "processing", "packed", "shipped", "out_for_delivery", "delivered"
+    "order_placed", "awaiting_confirmation", "confirmed", "processing", "packed", "shipped", "out_for_delivery", "delivered"
 )
 
 STATUS_LABELS = {
     "order_placed": "Order placed",
+    "awaiting_confirmation": "Awaiting availability confirmation",
     "payment_confirmed": "Payment confirmed",
     "payment_failed": "Payment failed",
     "confirmed": "Order confirmed",
@@ -64,6 +66,7 @@ STATUS_LABELS = {
 
 VALID_TRANSITIONS = {
     "order_placed": {"confirmed", "cancelled"},
+    "awaiting_confirmation": {"confirmed", "cancelled"},
     "confirmed": {"processing", "cancelled"},
     "processing": {"packed", "cancelled"},
     "packed": {"shipped", "cancelled"},
@@ -77,6 +80,7 @@ VALID_TRANSITIONS = {
 }
 
 DEFAULT_NOTES = {
+    "awaiting_confirmation": "Your requested size is being confirmed by the RK team.",
     "confirmed": "Your order has been confirmed.",
     "processing": "Your order is being prepared by the RK team.",
     "packed": "Packed and ready for dispatch.",
@@ -96,6 +100,24 @@ class OrderTransitionError(ValueError):
 
 class OrderTransitionConflict(RuntimeError):
     """Raised when another request changed an order during an update."""
+
+
+REJECTION_REASONS = {
+    "requested_size_unavailable",
+    "fabric_or_material_unavailable",
+    "production_or_fulfilment_limitation",
+    "other",
+}
+
+
+def rejection_decision(payload: dict) -> tuple[str, str]:
+    reason = safe_text(payload.get("rejectionReason"), 80).lower().replace(" ", "_")
+    explanation = safe_text(payload.get("rejectionExplanation"), 500)
+    if reason not in REJECTION_REASONS:
+        raise OrderTransitionError("Choose a valid rejection reason.")
+    if reason == "other" and not explanation:
+        raise OrderTransitionError("Enter an explanation when the rejection reason is Other.")
+    return reason, explanation
 
 
 def _iso(value: datetime) -> str:
@@ -262,14 +284,15 @@ def ensure_order_indexes(database) -> None:
 def payment_confirmation_changes(order: dict, payment_id: str, source: str, signature: str, now: datetime) -> tuple[dict, list[dict]]:
     normalized = normalisation_updates(order)
     payment = {**normalized["payment"], "status": "paid", "razorpayPaymentId": payment_id, "verifiedAt": now}
-    fulfillment = {**normalized["fulfillment"], "status": "confirmed"}
+    target = "awaiting_confirmation" if order.get("requiresAvailabilityConfirmation") else "confirmed"
+    fulfillment = {**normalized["fulfillment"], "status": target}
     events = [
         timeline_event("payment_confirmed", now, actor_view("system", name="Razorpay"), "Payment confirmed."),
-        timeline_event("confirmed", now + timedelta(microseconds=1), actor_view("system", name="RK checkout"), DEFAULT_NOTES["confirmed"]),
+        timeline_event(target, now + timedelta(microseconds=1), actor_view("system", name="RK checkout"), DEFAULT_NOTES[target]),
     ]
     fields = {
-        "status": "confirmed",
-        "fulfillmentStatus": "confirmed",
+        "status": target,
+        "fulfillmentStatus": target,
         "fulfillment": fulfillment,
         "payment": payment,
         "paymentStatus": "paid",
@@ -479,6 +502,12 @@ def apply_transition(database, order: dict, target_status: str, actor_type: str,
     requested_customer_note = safe_text(payload.get("customerNote"), 500)
     customer_note = requested_customer_note if send_customer_notification or actor_type == "customer" else ""
     internal_note = safe_text(payload.get("internalNote") or payload.get("note") or payload.get("shippingNote"), 500)
+    rejection_reason = ""
+    rejection_explanation = ""
+    if current == "awaiting_confirmation" and target == "cancelled":
+        rejection_reason, rejection_explanation = rejection_decision(payload)
+        customer_note = rejection_explanation or rejection_reason.replace("_", " ").capitalize()
+        internal_note = customer_note
     if actor_type != "customer" and not send_customer_notification and requested_customer_note:
         internal_note = internal_note or requested_customer_note
     note = customer_note or (internal_note if actor_type == "customer" else DEFAULT_NOTES.get(target, ""))
@@ -509,6 +538,14 @@ def apply_transition(database, order: dict, target_status: str, actor_type: str,
         "status": target,
         "updatedAt": now,
     }
+    if current == "awaiting_confirmation" and target in {"confirmed", "cancelled"}:
+        fields["availabilityDecision"] = {
+            "status": "accepted" if target == "confirmed" else "rejected",
+            "reason": rejection_reason or None,
+            "explanation": rejection_explanation or None,
+            "decidedAt": now,
+            "decidedBy": str((actor_user or {}).get("_id") or ""),
+        }
     if target == "refunded":
         payment = dict(order.get("payment") or {})
         payment["status"] = "refunded"
@@ -586,7 +623,7 @@ def order_view(order: dict, include_private_payment: bool = False) -> dict:
         timeline = [{key: value for key, value in event.items() if key not in {"internalNote", "notifyCustomer"}} for event in timeline]
     fields = (
         "orderNumber", "customerName", "email", "phone", "shipping", "items", "subtotal", "shippingCharge",
-        "tax", "discount", "total", "amountPaise", "currency", "confirmationEmail", "createdAt", "updatedAt",
+        "tax", "discount", "total", "amountPaise", "currency", "confirmationEmail", "requiresAvailabilityConfirmation", "availabilityDecision", "createdAt", "updatedAt",
     )
     view = {"id": str(order["_id"]), **{key: json_value(order.get(key)) for key in fields if key in order}}
     view.update({

@@ -18,10 +18,13 @@ export function CollectionDetailPage({ collection }: { collection: CollectionPag
   const [managedCollection, setManagedCollection] = useState<StorefrontCollection | null>(null);
   const [lookbookUrls, setLookbookUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [collectionError, setCollectionError] = useState('');
 
   useEffect(() => {
     let active = true;
     setLoading(true);
+    setCollectionError('');
+    setManagedCollection(null);
     fetch(`${apiBaseUrl}/api/catalog/collections/${encodeURIComponent(slug)}`)
       .then(async (response) => {
         const payload = await response.json();
@@ -29,7 +32,7 @@ export function CollectionDetailPage({ collection }: { collection: CollectionPag
         return payload.collection as StorefrontCollection;
       })
       .then((payload) => { if (active) setManagedCollection(payload); })
-      .catch(() => undefined)
+      .catch((requestError) => { if (active) setCollectionError(requestError instanceof Error ? requestError.message : 'Unable to load collection.'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [slug]);
@@ -100,11 +103,11 @@ export function CollectionDetailPage({ collection }: { collection: CollectionPag
       title="AAKAAR"
       eyebrow="WELCOME TO OUR NEWEST COLLECTION OF"
       introAboveTitle
-      ctaLabel="View more"
+      ctaLabel="VIEW PRODUCTS"
       onCtaClick={scrollToProducts}
       secondaryHref={lookbookHref || undefined}
-    /> : <CollectionHero collection={displayCollection} hero={hero} titleStyle={{ fontFamily: 'RK Anamika, var(--font-display), serif' }} ctaHref={lookbookHref || undefined} />}
-    <StorefrontCollectionProducts collection={displayCollection} loading={loading} />
+    /> : <CollectionHero collection={displayCollection} hero={hero} titleStyle={{ fontFamily: 'RK Anamika, var(--font-display), serif' }} ctaHref={lookbookHref || undefined} onProductsClick={scrollToProducts} />}
+    <StorefrontCollectionProducts collection={displayCollection} loading={loading} error={collectionError} />
     <Footer />
   </main>;
 }

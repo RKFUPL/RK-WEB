@@ -4,10 +4,12 @@ import { Image as ImageIcon, Minus, Plus, ShoppingBag, X } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { StickyHeader } from '@/components/home/sticky-header';
+import { ShippingTimeline } from '@/components/commerce/shipping-timeline';
 import { cartLineKey, getCartSubtotal } from '@/lib/cart';
 import { inr } from '@/lib/catalog';
 import { cartChangedEvent, readStoredCart, removeStoredCartItem, updateStoredCartQuantity, updateStoredCartSize } from '@/lib/storefront-cart';
 import type { Cart, CartItem } from '@/lib/store-types';
+import { cartItemShippingTimeline } from '@/lib/shipping-timeline';
 
 function SizeSelector({ item, lineKey }: { item: CartItem; lineKey: string }) {
   if (item.customSize || !item.sizeOptions?.length) return null;
@@ -70,6 +72,7 @@ export default function BagPage() {
               <p className="font-display text-xl sm:text-2xl">{item.name}</p>
               <VariantDetails item={item} />
               <SizeSelector item={item} lineKey={lineKey} />
+              <ShippingTimeline timeline={cartItemShippingTimeline(item)} compact />
               <div className="mt-4 flex items-center gap-3">
                 <span className="text-xs text-charcoal/65">Quantity</span>
                 <div className="flex items-center border border-black/15">

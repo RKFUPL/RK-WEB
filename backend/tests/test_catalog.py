@@ -5,13 +5,64 @@ from unittest.mock import ANY, MagicMock, patch
 from bson import ObjectId
 from flask import Flask
 
-from app.catalog import AAKAAR_COLLECTION_SEED, AAKAAR_PRODUCT_SEEDS, ANAMIKA_PRODUCT_SEEDS, HASTAKALA_PRODUCT_SEEDS, NORMAL_COLLECTIONS, PRODUCT_SEEDS, _ensure_compatible_index, _product_seed_document, collection_hero, collection_view, ensure_catalog_seed, is_excluded_collection, is_runway_collection, product_card_view, product_view
-from app.blueprints.catalog.routes import catalog_bp
+from app.catalog import AAKAAR_COLLECTION_SEED, AAKAAR_PRODUCT_SEEDS, ANAMIKA_PRODUCT_SEEDS, HASTAKALA_PRODUCT_SEEDS, NORMAL_COLLECTIONS, PRODUCT_SEEDS, _ensure_compatible_index, _product_seed_document, collection_hero, collection_product_count, collection_view, ensure_catalog_seed, is_excluded_collection, is_runway_collection, product_card_view, product_view
+from app.blueprints.catalog.routes import _shop_matches, catalog_bp
+from app.blueprints.staff.routes import _replace_parent_catalog_media, _variant_gallery_payload
 from app.inventory import DEFAULT_CUSTOM_SIZE_FIELDS, STANDARD_SIZES, custom_size_fields, validate_custom_size
 from app.workdrive import WorkDriveDownload
 
 
 class CatalogTests(unittest.TestCase):
+    def test_shop_filters_real_catalogue_fields_and_combines_filters(self):
+        record = {
+            "id": "one", "name": "T1", "sku": "SK-T1-RED", "styleCode": "T1", "productCode": "T1",
+            "category": "Couture", "price": 1001, "fulfilmentMode": "made_to_order",
+            "attributes": {"colors": ["Red", "Blue"], "sizes": ["M", "XL"], "fabric": "Silk"},
+            "variants": [{"sku": "SK-T1-RED", "colour": "Red", "sizes": ["M", "XL"]}],
+            "collections": [{"id": "sandook-id", "name": "Sandook", "slug": "collections-of-sandook"}],
+        }
+
+        self.assertTrue(_shop_matches(record, query="sandook", colour="red", size="xl", collection="collections-of-sandook", fabric="silk", category="couture", fulfilment="made_to_order", minimum=1000, maximum=1100))
+        self.assertFalse(_shop_matches(record, colour="green"))
+        self.assertFalse(_shop_matches(record, minimum=1002))
+
+    def test_shop_endpoint_returns_only_visible_products_and_matching_count(self):
+        visible_id, hidden_id = ObjectId(), ObjectId()
+        collection = {"_id": ObjectId(), "name": "Sandook", "slug": "collections-of-sandook", "productRefs": [{"productId": visible_id, "displayOrder": 2}]}
+        database = MagicMock()
+        database.collections.find.return_value = [collection]
+        database.products.find.return_value = [
+            {"_id": visible_id, "name": "T1", "sku": "T1", "status": "active", "isActive": True, "price": 1001, "category": "Couture", "attributes": {"colors": ["Red"]}, "variants": []},
+            {"_id": hidden_id, "name": "Hidden", "sku": "HIDDEN", "status": "active", "isActive": False, "variants": []},
+        ]
+        app = Flask(__name__)
+        app.register_blueprint(catalog_bp, url_prefix="/api/catalog")
+        with patch("app.blueprints.catalog.routes.database", return_value=database):
+            response = app.test_client().get("/api/catalog/products?q=T1&collection=collections-of-sandook")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual([item["id"] for item in payload["products"]], [str(visible_id)])
+        self.assertEqual(payload["products"][0]["collections"][0]["slug"], "collections-of-sandook")
+
+    def test_collection_count_excludes_dangling_archived_inactive_and_removed_products(self):
+        visible_id, archived_id, inactive_id, removed_id, missing_id = (ObjectId() for _ in range(5))
+        collection = {"_id": ObjectId(), "productRefs": [
+            {"productId": visible_id}, {"productId": archived_id}, {"productId": inactive_id},
+            {"productId": removed_id}, {"productId": missing_id},
+        ]}
+        products = [
+            {"_id": visible_id, "status": "active", "isActive": True, "variants": []},
+            {"_id": archived_id, "status": "archived", "isActive": True, "variants": []},
+            {"_id": inactive_id, "status": "active", "isActive": False, "variants": []},
+            {"_id": removed_id, "status": "active", "isActive": True, "variants": [{"id": "colour:red", "status": "remove"}]},
+        ]
+        database = MagicMock()
+        database.products.find.return_value = products
+
+        self.assertEqual(collection_product_count(database, collection), 1)
+
     def test_catalog_startup_does_not_create_legacy_seed_products(self):
         database = MagicMock()
         database.collections.find.return_value = []
@@ -112,6 +163,19 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(payload["catalogMedia"][0]["provider"], "cloudinary")
         self.assertEqual(payload["catalogMedia"][0]["owner_system"], "rk-stock")
 
+    def test_product_detail_media_falls_back_when_selected_variant_has_no_images(self):
+        product = {
+            "_id": ObjectId(), "name": "Variant fallback", "sku": "VARIANT-FALLBACK", "status": "active", "isActive": True,
+            "variants": [{"id": "one", "sku": "VARIANT-FALLBACK-A", "colour": "Ivory", "status": "active", "images": []}],
+            "catalogMedia": [{
+                "media_id": "fallback-1", "provider": "cloudinary", "owner_system": "rk-stock",
+                "public_id": "rk/fallback-1", "secure_url": "https://res.cloudinary.com/rk/image/upload/fallback-1.jpg",
+                "position": 0, "is_primary": True,
+            }],
+        }
+
+        self.assertEqual(product_view(product)["media"], ["https://res.cloudinary.com/rk/image/upload/fallback-1.jpg"])
+
     def test_workdrive_catalog_media_uses_product_bound_proxy_not_permalink(self):
         product_id = ObjectId()
         permalink = "https://workdrive.zoho.in/file/private123"
@@ -127,6 +191,20 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(payload["media"], [expected])
         self.assertEqual(payload["catalogMedia"][0]["renderUrl"], expected)
         self.assertNotIn(permalink, payload["media"])
+
+    def test_external_workdrive_domain_also_uses_product_bound_proxy(self):
+        product_id = ObjectId()
+        payload = product_view({
+            "_id": product_id, "name": "External WorkDrive product", "sku": "WD-EXTERNAL", "status": "active", "isActive": True,
+            "catalogMedia": [{
+                "media_id": "wd-external", "provider": "zoho_workdrive", "owner_system": "rk-stock",
+                "permalink": "https://workdrive.zohoexternal.in/file/private123", "position": 0, "is_primary": True,
+            }],
+        })
+
+        expected = f"/api/catalog/products/{product_id}/media/wd-external"
+        self.assertEqual(payload["media"], [expected])
+        self.assertEqual(payload["catalogMedia"][0]["renderUrl"], expected)
 
     def test_product_media_proxy_downloads_only_media_attached_to_product(self):
         app = Flask(__name__)
@@ -186,6 +264,148 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(view["availability"], "in_stock")
         self.assertEqual(view["pricing"]["baseCurrency"], "INR")
         self.assertEqual(view["pricing"]["fxBufferPercent"], 5)
+
+    def test_product_view_separates_parent_style_from_selected_colour_sku(self):
+        view = product_view({
+            "_id": ObjectId(), "name": "T1", "styleCode": "T1", "productCode": "T1", "sku": "T1",
+            "price": 10, "availability": "in_stock", "variants": [
+                {"id": "colour:red", "sku": "SK-T1-RED", "colour": "red", "status": "active", "images": [], "sizeInventory": []},
+                {"id": "colour:blue", "sku": "SK-T1-BLUE", "colour": "blue", "status": "active", "images": [], "sizeInventory": []},
+            ],
+        })
+        self.assertEqual(view["parentSku"], "T1")
+        self.assertEqual(view["productCode"], "T1")
+        self.assertEqual(view["sku"], "SK-T1-RED")
+        self.assertEqual([variant["sku"] for variant in view["variants"]], ["SK-T1-RED", "SK-T1-BLUE"])
+        self.assertEqual(view["attributes"]["colors"], ["red", "blue"])
+
+    def test_product_view_does_not_treat_stale_inherited_variant_price_as_override(self):
+        product = {
+            "_id": ObjectId(), "name": "T1", "sku": "T1", "price": 1001,
+            "availability": "in_stock", "variants": [
+                {"id": "colour:red", "sku": "SK-T1-RED", "colour": "red", "status": "active", "price": 101, "images": [], "sizeInventory": []},
+                {"id": "colour:blue", "sku": "SK-T1-BLUE", "colour": "blue", "status": "active", "price": 101, "images": [], "sizeInventory": []},
+            ],
+        }
+
+        view = product_view(product)
+
+        self.assertEqual(view["price"], 1001)
+        self.assertEqual([variant["price"] for variant in view["variants"]], [1001, 1001])
+        self.assertTrue(all(variant["priceMode"] == "inherit" for variant in view["variants"]))
+
+    def test_product_view_preserves_explicit_variant_price_override(self):
+        product = {
+            "_id": ObjectId(), "name": "T1", "sku": "T1", "price": 1001,
+            "availability": "in_stock", "variants": [
+                {"id": "colour:red", "sku": "SK-T1-RED", "colour": "red", "status": "active", "price": 101, "priceMode": "override", "images": [], "sizeInventory": []},
+            ],
+        }
+
+        view = product_view(product)
+
+        self.assertEqual(view["price"], 101)
+        self.assertEqual(view["variants"][0]["price"], 101)
+        self.assertEqual(view["variants"][0]["priceMode"], "override")
+
+    def test_variant_media_does_not_leak_between_colours_and_workdrive_uses_proxy(self):
+        product_id = ObjectId()
+        product = {
+            "_id": product_id, "name": "Colour gallery", "sku": "GALLERY-1", "status": "active", "isActive": True,
+            "variants": [
+                {"id": "colour:red", "sku": "GALLERY-1-RED", "colour": "Red", "status": "active", "images": [], "sizeInventory": []},
+                {"id": "colour:blue", "sku": "GALLERY-1-BLUE", "colour": "Blue", "status": "active", "images": [], "sizeInventory": []},
+            ],
+            "media": [],
+            "catalogMedia": [
+                {"media_id": "red-1", "provider": "zoho_workdrive", "owner_system": "rk-web", "variant_id": "colour:red", "permalink": "https://workdrive.zoho.in/file/red", "position": 0, "is_primary": True},
+                {"media_id": "blue-1", "provider": "zoho_workdrive", "owner_system": "rk-web", "variant_id": "colour:blue", "permalink": "https://workdrive.zoho.in/file/blue", "position": 0, "is_primary": True},
+            ],
+        }
+        red = product_view({**product, "variants": [product["variants"][0]]})
+        blue = product_view({**product, "variants": [product["variants"][1]]})
+        self.assertEqual(red["media"], [f"/api/catalog/products/{product_id}/media/red-1"])
+        self.assertEqual(blue["media"], [f"/api/catalog/products/{product_id}/media/blue-1"])
+
+    def test_public_variants_receive_only_their_own_workdrive_proxy_media(self):
+        product_id = ObjectId()
+        view = product_view({
+            "_id": product_id, "name": "Variant proxy gallery", "sku": "PROXY-GALLERY", "status": "active", "isActive": True,
+            "variants": [
+                {"id": "colour:red", "sku": "PROXY-RED", "colour": "Red", "status": "active", "images": []},
+                {"id": "colour:blue", "sku": "PROXY-BLUE", "colour": "Blue", "status": "active", "images": []},
+            ],
+            "catalogMedia": [
+                {"media_id": "red-1", "provider": "zoho_workdrive", "variant_id": "colour:red", "permalink": "https://workdrive.zoho.in/file/red", "position": 0, "is_primary": True, "is_hover": True},
+                {"media_id": "blue-1", "provider": "zoho_workdrive", "variant_id": "colour:blue", "permalink": "https://workdrive.zoho.in/file/blue", "position": 0},
+            ],
+        })
+        galleries = {variant["id"]: variant["images"] for variant in view["variants"]}
+        self.assertEqual(galleries["colour:red"], [f"/api/catalog/products/{product_id}/media/red-1"])
+        self.assertEqual(galleries["colour:blue"], [f"/api/catalog/products/{product_id}/media/blue-1"])
+        red_meta = next(variant for variant in view["variants"] if variant["id"] == "colour:red")["imageMeta"][0]
+        self.assertTrue(red_meta["is_hover"])
+
+    def test_empty_selected_colour_does_not_inherit_parent_or_other_variant_media(self):
+        product_id = ObjectId()
+        view = product_view({
+            "_id": product_id, "name": "Legacy fallback", "sku": "LEGACY-GALLERY", "status": "active", "isActive": True,
+            "media": ["https://res.cloudinary.com/rk/image/upload/legacy.jpg"],
+            "variants": [
+                {"id": "colour:red", "sku": "LEGACY-RED", "colour": "Red", "status": "inactive", "images": [], "imageMeta": []},
+                {"id": "colour:blue", "sku": "LEGACY-BLUE", "colour": "Blue", "status": "active", "images": [], "imageMeta": []},
+            ],
+            "catalogMedia": [{"media_id": "red-1", "provider": "zoho_workdrive", "variant_id": "colour:red", "permalink": "https://workdrive.zoho.in/file/red", "position": 0}],
+        })
+        self.assertEqual(view["media"], [])
+
+    def test_parent_media_cleanup_preserves_variant_catalog_relationships(self):
+        product = {"catalogMedia": [
+            {"id": "parent-1", "provider": "zoho_workdrive", "permalink": "https://workdrive.zoho.in/file/parent"},
+            {"id": "red-1", "variant_id": "colour:red", "provider": "zoho_workdrive", "permalink": "https://workdrive.zoho.in/file/red"},
+        ]}
+
+        updated = _replace_parent_catalog_media(product, [])
+
+        self.assertEqual([item["id"] for item in updated], ["red-1"])
+        self.assertEqual(updated[0]["variant_id"], "colour:red")
+
+    def test_admin_variant_gallery_hydrates_saved_catalog_media_when_variant_meta_is_missing(self):
+        variant = {"id": "colour:blue", "sku": "GALLERY-1-BLUE", "images": []}
+        payload = _variant_gallery_payload({"catalogMedia": [
+            {"id": "blue-2", "variant_id": "colour:blue", "permalink": "https://workdrive.zoho.in/file/blue-2", "position": 1},
+            {"id": "blue-1", "variant_id": "colour:blue", "permalink": "https://workdrive.zoho.in/file/blue-1", "position": 0},
+            {"id": "red-1", "variant_id": "colour:red", "permalink": "https://workdrive.zoho.in/file/red-1", "position": 0},
+        ]}, variant, "colour:blue")
+        self.assertEqual(payload["images"], [
+            "https://workdrive.zoho.in/file/blue-1",
+            "https://workdrive.zoho.in/file/blue-2",
+        ])
+        self.assertEqual([item["id"] for item in payload["imageMeta"]], ["blue-1", "blue-2"])
+
+    def test_admin_variant_gallery_tolerates_legacy_missing_or_invalid_positions(self):
+        payload = _variant_gallery_payload({"catalogMedia": [
+            {"id": "red-null", "variant_id": "colour:red", "permalink": "https://workdrive.zoho.in/file/red-null", "position": None},
+            {"id": "red-text", "variant_id": "colour:red", "permalink": "https://workdrive.zoho.in/file/red-text", "position": "legacy"},
+        ]}, {"id": "colour:red", "images": [], "imageMeta": []}, "colour:red")
+
+        self.assertEqual(len(payload["images"]), 2)
+        self.assertEqual({item["id"] for item in payload["imageMeta"]}, {"red-null", "red-text"})
+
+    def test_public_catalog_media_tolerates_legacy_invalid_position(self):
+        view = product_view({
+            "_id": ObjectId(),
+            "name": "Legacy media",
+            "catalogMedia": [{
+                "id": "legacy-position",
+                "provider": "cloudinary",
+                "secure_url": "https://res.cloudinary.com/demo/image/upload/legacy.jpg",
+                "position": "legacy",
+            }],
+            "variants": [],
+        })
+
+        self.assertEqual(view["catalogMedia"][0]["media_id"], "legacy-position")
 
     def test_product_view_exposes_gst_inclusive_mrp_metadata(self):
         view = product_view({"_id": ObjectId(), "name": "Anamika piece", "price": 85000, "stock": 0, "availability": "sold_out", "mrpIncludesGst": True})

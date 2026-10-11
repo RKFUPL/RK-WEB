@@ -1,49 +1,40 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { Facebook, Instagram, Linkedin, Youtube } from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import { Instagram, Linkedin } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { brandLogoUrl, featuredLooks, storeInteriorVideoUrl } from '@/lib/home-content';
 import { CAREERS_URL } from '@/lib/external-links';
+import { legalIdentity } from '@/lib/legal-identity';
+import { storefrontSocialLinks } from '@/lib/storefront-social';
 
 const footerColumns = [
   {
-    title: 'Navigation',
-    links: ['Collections', 'Lookbook', 'Runway', 'About'],
+    title: 'Explore',
+    links: [
+      { label: 'Shop', href: '/shop' },
+      { label: 'Collections', href: '/collections' },
+      { label: 'Lookbook', href: '/rk-lookbooks' },
+      { label: 'Runway', href: '/runway' },
+      { label: 'About', href: '/about' },
+    ],
   },
   {
-    title: 'Company',
-    links: ['Careers', 'Contact', 'Sustainability'],
+    title: 'Client Services',
+    links: [
+      { label: 'Contact', href: `mailto:${legalIdentity.customerCareEmail}` },
+      { label: 'Made-to-Measure', href: `mailto:${legalIdentity.customerCareEmail}?subject=Made-to-Measure%20Enquiry` },
+    ],
   },
   {
-    title: 'Policies',
-    links: ['Privacy Policy', 'Shipping & Returns', 'Legal'],
+    title: 'The House',
+    links: [
+      { label: 'Careers', href: CAREERS_URL, external: true },
+      { label: 'Sustainability', href: '/sustainability' },
+    ],
   },
 ] as const;
-
-const navigationHrefs: Record<string, string> = {
-  Collections: '/collections',
-  Lookbook: '/rk-lookbooks',
-  Runway: '/runway',
-  About: '/about',
-};
-
-const policyHrefs: Record<string, string> = {
-  'Privacy Policy': '/privacy-policy',
-  'Shipping & Returns': '/shipping-returns',
-  Legal: '/legal',
-};
-
-// Update social destinations here when the final brand profiles are ready.
-const socialLinks = {
-  instagram: 'https://www.instagram.com/rashikapoorofficial/',
-  pinterest: 'https://www.pinterest.com/',
-  youtube: 'https://www.youtube.com/',
-  facebook: 'https://www.facebook.com/',
-  linkedin: 'https://www.linkedin.com/company/rashi-kapoor-fashion-unicus-private-limited/',
-  x: 'https://x.com/',
-} as const;
 
 const storeLocations = [
   {
@@ -62,7 +53,6 @@ const storeLocations = [
 
 export function Footer() {
   const pathname = usePathname();
-  const router = useRouter();
   const [mediaFailed, setMediaFailed] = useState(false);
   const [videoVisible, setVideoVisible] = useState(false);
   const videoSectionRef = useRef<HTMLDivElement | null>(null);
@@ -81,36 +71,6 @@ export function Footer() {
     observer.observe(section);
     return () => observer.disconnect();
   }, []);
-
-  const scrollToAbout = () => {
-    const about = document.getElementById('about');
-    if (about) {
-      about.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      return;
-    }
-
-    if (pathname !== '/') {
-      router.push('/');
-      window.setTimeout(() => {
-        document.getElementById('about')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 100);
-    }
-  };
-
-  const scrollToFooter = () => {
-    const footer = document.getElementById('footer');
-    if (footer) {
-      footer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      return;
-    }
-
-    if (pathname !== '/') {
-      router.push('/');
-      window.setTimeout(() => {
-        document.getElementById('footer')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 100);
-    }
-  };
 
   return (
     <footer id="footer" className="luxury-footer border-t border-gold/20 bg-ink text-ivory">
@@ -176,96 +136,77 @@ export function Footer() {
       </div>
       </div>
 
-      <div className="mx-auto max-w-7xl px-6 py-16 lg:px-10 lg:py-20">
-        <div className="grid gap-10 lg:grid-cols-[1.2fr_1fr]">
-          <div className="space-y-4">
-            <div className="inline-flex items-center justify-center px-4 py-3">
+      <div className="mx-auto max-w-7xl px-6 py-16 sm:py-20 lg:px-10 lg:py-24">
+        <div className="grid gap-14 border-b border-white/10 pb-12 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1.35fr)] lg:gap-16 lg:pb-14">
+          <div>
+            <div className="inline-flex items-center justify-center">
               <img
                 src={brandLogoUrl}
-                alt="RK Logo"
+                alt="Rashi Kapoor"
                 width="92"
                 height="48"
-                className="footer-brand-mark h-12 w-auto"
+                className="footer-brand-mark h-11 w-auto"
               />
             </div>
-            <p className="max-w-md font-display text-2xl leading-[1.08] text-ivory/90 md:text-3xl">
-              Fashion is not just what you wear,<br /><em className="text-gold">it&apos;s a legacy you carry.</em>
+            <p className="mt-7 max-w-xl font-display text-[1.55rem] leading-[1.2] text-ivory sm:text-[1.75rem] md:text-[1.9rem] xl:text-[2.15rem]">
+              <span className="block sm:whitespace-nowrap">Fashion is not just what you wear,</span><em className="mt-2 inline-block text-gold">it&apos;s a legacy you carry.</em>
             </p>
-            <p className="max-w-md pt-3 text-sm leading-7 text-ivory/55">Rashi Kapoor luxury womenswear — where Indian craft is given a modern, enduring voice.</p>
-            <a href="mailto:contact@rashikapoorofficial.com" className="inline-block pt-2 text-xs uppercase tracking-[0.22em] text-ivory/70 transition hover:text-gold">
-              contact@rashikapoorofficial.com
-            </a>
+            <p className="mt-6 max-w-md text-sm leading-7 text-ivory/55">Indian craftsmanship, considered design and a modern couture perspective.</p>
           </div>
-          <div className="grid gap-8 sm:grid-cols-3">
+          <nav aria-label="Footer navigation" className="grid grid-cols-1 gap-x-10 gap-y-10 sm:grid-cols-3 lg:gap-x-14">
             {footerColumns.map((column) => (
               <div key={column.title}>
-                <p className="text-xs uppercase tracking-[0.38em] text-ivory/45">{column.title}</p>
-                <ul className="mt-4 space-y-3 text-sm text-ivory/72">
+                <p className="text-[0.6rem] uppercase tracking-[0.26em] text-gold">{column.title}</p>
+                <ul className="mt-5 space-y-3 text-sm leading-6 text-ivory/72">
                   {column.links.map((link) => (
-                    <li key={link}>
-                      {column.title === 'Navigation' ? (
-                        link === 'Contact' ? (
-                          <button type="button" onClick={scrollToFooter} className="transition hover:text-gold">
-                            {link}
-                          </button>
-                        ) : link === 'About' ? (
-                          <Link href="/about" aria-current={pathname === '/about' ? 'page' : undefined} className={`transition hover:text-gold ${pathname === '/about' ? 'text-gold' : ''}`}>
-                            {link}
-                          </Link>
-                        ) : (
-                          <Link
-                            href={navigationHrefs[link]}
-                            aria-current={pathname === navigationHrefs[link] ? 'page' : undefined}
-                            className={`transition hover:text-gold ${pathname === navigationHrefs[link] ? 'text-gold' : ''}`}
-                          >
-                            {link}
-                          </Link>
-                        )
-                      ) : column.title === 'Company' && link === 'Careers' ? (
-                        <a href={CAREERS_URL} className="transition hover:text-gold">{link}</a>
-                      ) : column.title === 'Company' && link === 'Contact' ? (
-                        <a href="mailto:contact@rashikapoorofficial.com" className="transition hover:text-gold">{link}</a>
+                    <li key={link.label}>
+                      {link.href.startsWith('mailto:') || ('external' in link && link.external) ? (
+                        <a href={link.href} className="rounded-sm transition hover:text-ivory focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-4 focus-visible:outline-gold">{link.label}</a>
                       ) : (
                         <Link
-                          href={column.title === 'Policies' ? policyHrefs[link] : `/${link.toLowerCase().replace(/\s+/g, '-')}`}
-                          aria-current={pathname === (column.title === 'Policies' ? policyHrefs[link] : `/${link.toLowerCase().replace(/\s+/g, '-')}`) ? 'page' : undefined}
-                          className={`transition hover:text-gold ${pathname === (column.title === 'Policies' ? policyHrefs[link] : `/${link.toLowerCase().replace(/\s+/g, '-')}`) ? 'text-gold' : ''}`}
-                        >{link}</Link>
+                          href={link.href}
+                          aria-current={pathname === link.href ? 'page' : undefined}
+                          className={`rounded-sm transition hover:text-ivory focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-4 focus-visible:outline-gold ${pathname === link.href ? 'text-gold' : ''}`}
+                        >{link.label}</Link>
                       )}
                     </li>
                   ))}
                 </ul>
               </div>
             ))}
-          </div>
+          </nav>
         </div>
-        <div className="mt-12 border-t border-white/10 pt-8">
-          <div className="flex flex-wrap items-center justify-center gap-5">
-            <a href={socialLinks.instagram} target="_blank" rel="noreferrer" aria-label="Instagram" className="text-ivory/60 transition hover:text-gold">
-              <Instagram size={19} strokeWidth={1.5} />
+        <div className="flex flex-col gap-8 border-b border-white/10 py-8 sm:flex-row sm:items-end sm:justify-between lg:py-9">
+          <div>
+            <p className="text-[0.6rem] uppercase tracking-[0.26em] text-ivory/45">Contact the House</p>
+            <div className="mt-4 flex flex-col gap-2 text-sm text-ivory/72 sm:flex-row sm:gap-7">
+              <a href={`mailto:${legalIdentity.customerCareEmail}`} className="rounded-sm transition hover:text-gold focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-4 focus-visible:outline-gold">{legalIdentity.customerCareEmail}</a>
+              <a href={`tel:${legalIdentity.customerCarePhone.replace(/[\s()-]/g, '')}`} className="rounded-sm transition hover:text-gold focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-4 focus-visible:outline-gold">{legalIdentity.customerCarePhone}</a>
+            </div>
+          </div>
+          <div className="flex items-center gap-5">
+            <a href={storefrontSocialLinks.instagram} target="_blank" rel="noreferrer" aria-label="Rashi Kapoor on Instagram" className="rounded-sm text-ivory/65 transition hover:text-gold focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-4 focus-visible:outline-gold">
+              <Instagram size={20} strokeWidth={1.45} aria-hidden="true" />
             </a>
-            <a href={socialLinks.pinterest} target="_blank" rel="noreferrer" aria-label="Pinterest" className="flex h-5 w-5 items-center justify-center rounded-full border border-current text-[0.7rem] font-semibold text-ivory/60 transition hover:text-gold">
-              P
-            </a>
-            <a href={socialLinks.youtube} target="_blank" rel="noreferrer" aria-label="YouTube" className="text-ivory/60 transition hover:text-gold">
-              <Youtube size={21} strokeWidth={1.5} />
-            </a>
-            <a href={socialLinks.facebook} target="_blank" rel="noreferrer" aria-label="Facebook" className="text-ivory/60 transition hover:text-gold">
-              <Facebook size={19} strokeWidth={1.5} />
-            </a>
-            <a href={socialLinks.linkedin} target="_blank" rel="noreferrer" aria-label="LinkedIn" className="text-ivory/60 transition hover:text-gold">
-              <Linkedin size={19} strokeWidth={1.5} />
-            </a>
-            <a href={socialLinks.x} target="_blank" rel="noreferrer" aria-label="X" className="text-lg text-ivory/60 transition hover:text-gold">
-              X
+            <a href={storefrontSocialLinks.linkedin} target="_blank" rel="noreferrer" aria-label="Rashi Kapoor on LinkedIn" className="rounded-sm text-ivory/65 transition hover:text-gold focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-4 focus-visible:outline-gold">
+              <Linkedin size={20} strokeWidth={1.45} aria-hidden="true" />
             </a>
           </div>
         </div>
-      </div>
-
-      <div className="flex flex-col items-center justify-between gap-4 border-t border-white/10 bg-ink px-6 py-6 text-center text-ivory/45 sm:flex-row sm:px-10">
-        <p className="text-[0.62rem] uppercase tracking-[0.2em]">© 2026 Rashi Kapoor Fashion Unicus Pvt. Ltd.</p>
-        <img src={brandLogoUrl} alt="RK Logo" width="48" height="34" className="footer-brand-mark h-8 w-auto opacity-75" />
+        <div className="flex flex-col gap-4 pt-7 text-xs text-ivory/40 sm:flex-row sm:items-center sm:justify-between">
+          <p>© 2026 {legalIdentity.companyName}</p>
+          <div className="flex flex-wrap items-center gap-y-2">
+            <Link href="/shipping-returns" className="font-semibold text-gold transition hover:text-ivory">Shipping &amp; Returns</Link>
+            <span className="flex items-center">
+              <span aria-hidden="true" className="mx-4 text-gold/45 sm:mx-5">|</span>
+              <Link href="/privacy-policy" className="font-semibold text-gold transition hover:text-ivory">Privacy Policy</Link>
+            </span>
+            <span className="flex items-center">
+              <span aria-hidden="true" className="mx-4 text-gold/45 sm:mx-5">|</span>
+              <Link href="/legal" className="font-semibold text-gold transition hover:text-ivory">Terms &amp; Legal</Link>
+            </span>
+          </div>
+        </div>
       </div>
     </footer>
   );

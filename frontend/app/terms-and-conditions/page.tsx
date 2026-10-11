@@ -1,2 +1,2 @@
 import { redirect } from 'next/navigation';
-export default function Page() { redirect('/legal'); }
+export default function Page() { redirect('/terms'); }

@@ -6,7 +6,7 @@ from bson import ObjectId
 
 from app.blueprints.payments.routes import _checkout_items
 from app.catalog import product_view
-from app.inventory import DEFAULT_CUSTOM_SIZE_FIELDS, STANDARD_SIZES
+from app.inventory import DEFAULT_CUSTOM_SIZE_FIELDS, STANDARD_SIZES, normalise_size_inventory
 from app.product_variants import (
     build_product_variants,
     collection_sku_prefix,
@@ -52,6 +52,22 @@ class VariantDatabase:
 
 
 class ProductVariantTests(unittest.TestCase):
+    def test_reconciliation_preserves_independent_variant_gallery_metadata(self):
+        product = {
+            "_id": ObjectId(), "name": "T1", "productCode": "T1", "sku": "T1",
+            "attributes": {"colors": ["red", "blue"]},
+            "variants": [
+                {"id": "colour:red", "colour": "red", "images": ["red-1"], "imageMeta": [{"id": "red-1", "permalink": "red-1", "is_primary": True}]},
+                {"id": "colour:blue", "colour": "blue", "images": [], "imageMeta": []},
+            ],
+        }
+        reconciled = build_product_variants(product)["variants"]
+        red = next(item for item in reconciled if item["id"] == "colour:red")
+        blue = next(item for item in reconciled if item["id"] == "colour:blue")
+        self.assertEqual(red["images"], ["red-1"])
+        self.assertEqual(red["imageMeta"][0]["id"], "red-1")
+        self.assertEqual(blue["images"], [])
+        self.assertEqual(blue["imageMeta"], [])
     def test_collection_prefixes_are_central_and_skus_are_normalised(self):
         self.assertEqual(collection_sku_prefix({"name": "Hastakala"}), "HK")
         self.assertEqual(collection_sku_prefix(ANAMIKA), "AK")
@@ -66,6 +82,30 @@ class ProductVariantTests(unittest.TestCase):
         self.assertEqual(ivory["images"], [])
         self.assertIsNot(black["images"], ivory["images"])
 
+    def test_generated_and_legacy_unmarked_variants_inherit_parent_price(self):
+        product = product_with_variants()
+        product["price"] = 1001
+        for variant in product["variants"]:
+            variant["price"] = 101
+            variant.pop("priceMode", None)
+
+        rebuilt = build_product_variants(product, [ANAMIKA])
+
+        self.assertEqual([variant["price"] for variant in rebuilt["variants"]], [1001, 1001])
+        self.assertTrue(all(variant["priceMode"] == "inherit" for variant in rebuilt["variants"]))
+
+    def test_explicit_variant_price_override_survives_reconciliation(self):
+        product = product_with_variants()
+        product["price"] = 1001
+        product["variants"][0].update({"price": 101, "priceMode": "override"})
+
+        rebuilt = build_product_variants(product, [ANAMIKA])
+
+        self.assertEqual(rebuilt["variants"][0]["price"], 101)
+        self.assertEqual(rebuilt["variants"][0]["priceMode"], "override")
+        self.assertEqual(rebuilt["variants"][1]["price"], 1001)
+        self.assertEqual(rebuilt["variants"][1]["priceMode"], "inherit")
+
     def test_active_zero_inventory_is_purchasable_and_keeps_all_sizes(self):
         product = product_with_variants(statuses=("active", "inactive"), stocks=(0, 10))
         view = product_view(product)
@@ -74,6 +114,18 @@ class ProductVariantTests(unittest.TestCase):
         self.assertEqual(view["variants"][0]["stock"], 0)
         self.assertEqual(view["variants"][0]["sizes"], list(STANDARD_SIZES))
         self.assertTrue(all(item["enabled"] for item in view["variants"][0]["sizeInventory"]))
+
+    def test_explicit_sizes_are_canonical_deduplicated_and_persist_at_zero(self):
+        product = product_with_variants()
+        product["sizeInventory"] = normalise_size_inventory(["m", "M", "xl"])
+        product["attributes"]["sizes"] = ["m", "xl"]
+        product["variants"] = []
+        rebuilt = build_product_variants(product, [ANAMIKA])
+        self.assertEqual(rebuilt["variants"][0]["sizes"], ["M", "XL"])
+        self.assertEqual(rebuilt["variants"][0]["sizeInventory"], [
+            {"size": "M", "stock": 0, "enabled": True},
+            {"size": "XL", "stock": 0, "enabled": True},
+        ])
 
     def test_inactive_inventory_remains_visible_but_is_sold_out(self):
         product = product_with_variants(statuses=("inactive", "remove"), stocks=(10, 10))
@@ -105,6 +157,8 @@ class ProductVariantTests(unittest.TestCase):
         self.assertEqual(items[0]["colour"], "BLACK")
         self.assertEqual(items[0]["image"], "https://example.com/black-1.jpg")
         self.assertEqual(items[0]["unitPrice"], 85000)
+        self.assertTrue(items[0]["requiresAvailabilityConfirmation"])
+        self.assertEqual(items[0]["availability"], "confirmation_required")
 
     def test_checkout_rejects_inactive_variant_even_with_inventory(self):
         product = product_with_variants(statuses=("active", "inactive"), stocks=(0, 10))

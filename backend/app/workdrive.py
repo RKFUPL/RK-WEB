@@ -60,7 +60,8 @@ class _OpenGraphImageParser(HTMLParser):
 
 def file_id_from_permalink(value: str) -> str | None:
     parsed = urlparse(str(value or "").strip())
-    if parsed.scheme != "https" or parsed.hostname != "workdrive.zoho.in":
+    if (parsed.scheme != "https" or parsed.hostname != "workdrive.zoho.in"
+            or parsed.netloc.casefold() != "workdrive.zoho.in" or parsed.params or parsed.query or parsed.fragment):
         return None
     parts = [part for part in parsed.path.split("/") if part]
     if len(parts) != 2 or parts[0] != "file" or not _FILE_ID.fullmatch(parts[1]):
@@ -70,7 +71,8 @@ def file_id_from_permalink(value: str) -> str | None:
 
 def external_share_id_from_permalink(value: str) -> str | None:
     parsed = urlparse(str(value or "").strip())
-    if parsed.scheme != "https" or parsed.hostname != "workdrive.zohoexternal.in":
+    if (parsed.scheme != "https" or parsed.hostname != "workdrive.zohoexternal.in"
+            or parsed.netloc.casefold() != "workdrive.zohoexternal.in" or parsed.params or parsed.query or parsed.fragment):
         return None
     parts = [part for part in parsed.path.split("/") if part]
     if len(parts) != 2 or parts[0] not in {"external", "file"} or not _EXTERNAL_SHARE_ID.fullmatch(parts[1]):
