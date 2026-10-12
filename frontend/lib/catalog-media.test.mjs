@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { adminMediaGroups, availableGalleryMedia, guardedMediaCleanupPlan, variantMediaSources, variantPrimaryAndHoverSources } from "./catalog.ts";
+import { adminMediaGroups, availableGalleryMedia, guardedMediaCleanupPlan, productVariantHref, variantMediaSources, variantPrimaryAndHoverSources } from "./catalog.ts";
 
 const drawer = readFileSync(new URL("../components/collections/collection-management-detail.tsx", import.meta.url), "utf8");
 const editor = readFileSync(new URL("../components/collections/variant-media-editor.tsx", import.meta.url), "utf8");
+const card = readFileSync(new URL("../components/collections/collection-product-card.tsx", import.meta.url), "utf8");
+const productDetail = readFileSync(new URL("../components/products/product-detail-page.tsx", import.meta.url), "utf8");
+const productRoute = readFileSync(new URL("../app/products/[id]/page.tsx", import.meta.url), "utf8");
 
 const staleIds = [
   "54810cc923b41e35020f31db18aec929",
@@ -100,15 +103,50 @@ test("failed images are removed without leaking another colour or duplicating so
   assert.deepEqual(availableGalleryMedia([], red), []);
 });
 
-test("variant gallery places the configured primary image first", () => {
+test("variant gallery keeps saved order while resolving the configured primary image", () => {
   const product = t1Product();
   product.catalogMedia = product.catalogMedia
     .filter((item) => item.variant_id === "colour:red")
     .map((item, index) => ({ ...item, is_primary: index === 1 }));
   assert.equal(
     variantMediaSources(product, product.variants[0])[0],
-    `/api/catalog/products/${product.id}/media/${redIds[1]}`,
+    `/api/catalog/products/${product.id}/media/${redIds[0]}`,
   );
+  assert.equal(variantPrimaryAndHoverSources(product, product.variants[0]).primary, `/api/catalog/products/${product.id}/media/${redIds[1]}`);
+});
+
+test("variant primary and hover metadata remain authoritative when catalog flags use legacy is_main", () => {
+  const product = t1Product();
+  product.catalogMedia = product.catalogMedia
+    .filter((item) => item.variant_id === "colour:red")
+    .map((item, index) => ({ ...item, is_primary: false, is_main: index === 2, is_hover: index === 1 }));
+  product.variants[0].imageMeta = product.catalogMedia.map((item, index) => ({
+    id: item.media_id,
+    permalink: item.permalink,
+    is_primary: index === 2,
+    is_hover: index === 1,
+  }));
+  const resolved = variantPrimaryAndHoverSources(product, product.variants[0]);
+  assert.equal(resolved.primary, `/api/catalog/products/${product.id}/media/${redIds[2]}`);
+  assert.equal(resolved.hover, `/api/catalog/products/${product.id}/media/${redIds[1]}`);
+});
+
+test("collection cards expose a variant-aware accessible colour selector", () => {
+  assert.match(card, /selectableVariants\.length > 1/);
+  assert.match(card, /aria-haspopup="menu"/);
+  assert.match(card, /role="menuitem"/);
+  assert.match(card, /setSelectedVariantId\(variant\.id\)/);
+  assert.match(card, /variantPrimaryAndHoverSources\(product, selectedVariant\)/);
+  assert.match(card, /selectedVariant\?\.colour \|\| productColours/);
+  assert.match(card, /selectedSwatch \?/);
+});
+
+test("selected card colour is carried to product detail without changing the base route", () => {
+  assert.equal(productVariantHref("/products/p1", "colour:ivory"), "/products/p1?variant=colour%3Aivory");
+  assert.equal(productVariantHref("/products/p1?from=collection", "colour:red"), "/products/p1?from=collection&variant=colour%3Ared");
+  assert.match(productRoute, /initialVariantId/);
+  assert.match(productDetail, /variant\.id === initialVariantId/);
+  assert.match(productDetail, /searchParams\.set\("variant", variantId\)/);
 });
 
 test("guarded cleanup requires the exact unassigned set and retains variant media", () => {

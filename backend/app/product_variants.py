@@ -83,6 +83,15 @@ def colour_slug(colour: object) -> str:
     return re.sub(r"[^A-Z0-9]+", "-", str(colour or "").strip().upper()).strip("-") or "DEFAULT"
 
 
+def normalise_colour(colour: object) -> str:
+    """Return the canonical customer-facing colour label.
+
+    This is deliberately presentation/input normalisation only; variant IDs
+    and existing SKUs remain stable identifiers.
+    """
+    return " ".join(str(colour or "").split()).upper()
+
+
 def make_variant_sku(prefix: str, code: str, colour: object) -> str:
     return f"{prefix.upper()}-{re.sub(r'[^A-Z0-9]+', '', code.upper())}-{colour_slug(colour)}"
 
@@ -92,8 +101,8 @@ def _product_colours(product: dict) -> list[str]:
     source = attributes.get("colors") if isinstance(attributes.get("colors"), list) else [attributes.get("color")]
     result = []
     for value in source:
-        colour = str(value or "").strip()
-        if colour and colour.lower() not in {item.lower() for item in result}:
+        colour = normalise_colour(value)
+        if colour and colour.casefold() not in {item.casefold() for item in result}:
             result.append(colour)
     return result
 
@@ -166,7 +175,7 @@ def build_product_variants(product: dict, collections: list[dict] | tuple[dict, 
     variants = []
     used_ids: set[str] = set()
     for index, raw in enumerate(sources):
-        colour = str(raw.get("colour") or raw.get("color") or "").strip()
+        colour = normalise_colour(raw.get("colour") or raw.get("color"))
         slug = colour_slug(colour)
         identifier = str(raw.get("id") or f"colour:{slug.lower()}").strip()[:120]
         if not identifier or identifier in used_ids:
@@ -265,7 +274,7 @@ def public_variant_view(variant: dict, *, parent_price=None, media_limit: int | 
     return {
         "id": str(variant.get("id") or ""),
         "sku": str(variant.get("sku") or ""),
-        "colour": str(variant.get("colour") or ""),
+        "colour": normalise_colour(variant.get("colour")),
         "colourSlug": str(variant.get("colourSlug") or ""),
         "images": images,
         "imageMeta": image_meta,

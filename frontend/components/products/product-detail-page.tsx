@@ -28,6 +28,7 @@ import {
   availabilityLabels,
   availableGalleryMedia,
   inr,
+  normalizeColour,
   variantMediaSources,
   type CatalogProduct,
   type ManagedCollection,
@@ -99,7 +100,7 @@ function isRunwayCollection(collection: ManagedCollection) {
   return /runway|lfw/.test(identity) || /espiritu[\s_-]+libre/.test(identity);
 }
 
-export function ProductDetailPage({ productId }: { productId: string }) {
+export function ProductDetailPage({ productId, initialVariantId = "" }: { productId: string; initialVariantId?: string }) {
   const [product, setProduct] = useState<CatalogProduct | null>(null);
   const [collections, setCollections] = useState<ManagedCollection[]>([]);
   const [relatedProducts, setRelatedProducts] = useState<CatalogProduct[]>([]);
@@ -169,6 +170,7 @@ export function ProductDetailPage({ productId }: { productId: string }) {
       .then((payload) => {
         const nextProduct = payload.product as CatalogProduct;
         const initialVariant =
+          nextProduct.variants?.find((variant) => variant.id === initialVariantId && variant.status !== "remove") ??
           nextProduct.variants?.find(
             (variant) => variant.status === "active",
           ) ?? nextProduct.variants?.[0];
@@ -183,7 +185,7 @@ export function ProductDetailPage({ productId }: { productId: string }) {
         });
       })
       .catch(() => setNotFound(true));
-  }, [productId]);
+  }, [initialVariantId, productId]);
 
   useEffect(() => {
     const collectionSlug = collections[0]?.slug;
@@ -410,9 +412,10 @@ export function ProductDetailPage({ productId }: { productId: string }) {
     : product.availability;
   const selectedPrice = selectedVariant?.price ?? product.price;
   const selectedSku = selectedVariant?.sku || product.sku || "";
-  const selectedColour =
+  const selectedColour = normalizeColour(
     selectedVariant?.colour ||
-    textValue(product.attributes?.colors || product.attributes?.color);
+    textValue(product.attributes?.colors || product.attributes?.color),
+  );
   const customSizeEnabled =
     customSizeExplicitlyEnabled ??
     (configuredCustomSizeFields.length > 0 ||
@@ -460,6 +463,9 @@ export function ProductDetailPage({ productId }: { productId: string }) {
   };
   const chooseVariant = (variantId: string) => {
     setSelectedVariantId(variantId);
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set("variant", variantId);
+    window.history.replaceState(window.history.state, "", nextUrl);
     setActiveImage(0);
     setSelectedSize("");
     setCustomMeasurements({});
@@ -861,7 +867,7 @@ export function ProductDetailPage({ productId }: { productId: string }) {
                 >
                   {variantOptions.map((variant) => (
                     <option key={variant.id} value={variant.id}>
-                      {variant.colour || "Default"}
+                      {normalizeColour(variant.colour) || "DEFAULT"}
                       {variant.status === "inactive" ? " — Sold out" : ""}
                     </option>
                   ))}

@@ -9,6 +9,7 @@ from app.catalog import AAKAAR_COLLECTION_SEED, AAKAAR_PRODUCT_SEEDS, ANAMIKA_PR
 from app.blueprints.catalog.routes import _shop_matches, catalog_bp
 from app.blueprints.staff.routes import _replace_parent_catalog_media, _variant_gallery_payload
 from app.inventory import DEFAULT_CUSTOM_SIZE_FIELDS, STANDARD_SIZES, custom_size_fields, validate_custom_size
+from app.product_variants import _product_colours, normalise_colour
 from app.workdrive import WorkDriveDownload
 
 
@@ -322,7 +323,12 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(view["productCode"], "T1")
         self.assertEqual(view["sku"], "SK-T1-RED")
         self.assertEqual([variant["sku"] for variant in view["variants"]], ["SK-T1-RED", "SK-T1-BLUE"])
-        self.assertEqual(view["attributes"]["colors"], ["red", "blue"])
+        self.assertEqual(view["attributes"]["colors"], ["RED", "BLUE"])
+
+    def test_colour_normalization_deduplicates_legacy_casing_without_changing_ids(self):
+        self.assertEqual(normalise_colour("  Ivory  "), "IVORY")
+        product = {"attributes": {"colors": ["ivory", "Ivory", " IVORY ", "blue"]}}
+        self.assertEqual(_product_colours(product), ["IVORY", "BLUE"])
 
     def test_product_view_does_not_treat_stale_inherited_variant_price_as_override(self):
         product = {
@@ -390,6 +396,36 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(galleries["colour:blue"], [f"/api/catalog/products/{product_id}/media/blue-1"])
         red_meta = next(variant for variant in view["variants"] if variant["id"] == "colour:red")["imageMeta"][0]
         self.assertTrue(red_meta["is_hover"])
+
+    def test_public_catalog_preserves_legacy_is_main_as_primary(self):
+        product_id = ObjectId()
+        view = product_view({
+            "_id": product_id, "name": "Legacy primary", "sku": "LEGACY-PRIMARY", "status": "active", "isActive": True,
+            "variants": [{"id": "colour:ivory", "sku": "LEGACY-IVORY", "colour": "Ivory", "status": "active", "images": []}],
+            "catalogMedia": [
+                {"media_id": "ivory-1", "provider": "zoho_workdrive", "variant_id": "colour:ivory", "permalink": "https://workdrive.zoho.in/file/one", "position": 0, "is_main": False},
+                {"media_id": "ivory-5", "provider": "zoho_workdrive", "variant_id": "colour:ivory", "permalink": "https://workdrive.zoho.in/file/five", "position": 4, "is_main": True},
+            ],
+        })
+        ivory = view["variants"][0]
+        self.assertEqual(ivory["images"][0], f"/api/catalog/products/{product_id}/media/ivory-1")
+        self.assertTrue(next(item for item in ivory["imageMeta"] if item["media_id"] == "ivory-5")["is_primary"])
+
+    def test_public_catalog_keeps_gallery_order_and_exposes_non_first_primary(self):
+        product_id = ObjectId()
+        view = product_card_view({
+            "_id": product_id, "name": "T1", "sku": "T1", "status": "active", "isActive": True,
+            "variants": [{"id": "colour:red", "sku": "T1-RED", "colour": "RED", "status": "active", "images": []}],
+            "catalogMedia": [
+                {"media_id": "red-1", "provider": "zoho_workdrive", "variant_id": "colour:red", "permalink": "https://workdrive.zoho.in/file/red-one", "position": 0, "is_primary": False},
+                {"media_id": "red-2", "provider": "zoho_workdrive", "variant_id": "colour:red", "permalink": "https://workdrive.zoho.in/file/red-two", "position": 1, "is_primary": False, "is_hover": True},
+                {"media_id": "red-3", "provider": "zoho_workdrive", "variant_id": "colour:red", "permalink": "https://workdrive.zoho.in/file/red-three", "position": 2, "is_primary": True},
+            ],
+        })
+        red = view["variants"][0]
+        self.assertEqual([item["media_id"] for item in red["imageMeta"]], ["red-1", "red-2", "red-3"])
+        self.assertTrue(red["imageMeta"][2]["is_primary"])
+        self.assertFalse(red["imageMeta"][0]["is_primary"])
 
     def test_empty_selected_colour_does_not_inherit_parent_or_other_variant_media(self):
         product_id = ObjectId()

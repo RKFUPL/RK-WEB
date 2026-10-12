@@ -17,6 +17,7 @@ from .product_variants import (
     build_product_variants,
     product_has_visible_variants,
     public_variant_view,
+    normalise_colour,
     sync_product_variants,
     visible_variants,
 )
@@ -1200,6 +1201,10 @@ def public_catalog_media(product: dict) -> list[dict]:
             if item.get(key) is not None
         }
         record["media_id"] = media_id
+        if item.get("is_primary") is not None or item.get("is_main") is not None:
+            record["is_primary"] = bool(item.get("is_primary") or item.get("is_main"))
+        if item.get("is_hover") is not None:
+            record["is_hover"] = bool(item.get("is_hover"))
         if provider == "cloudinary":
             render_url = _safe_public_image_url(item.get("secure_url") or item.get("url"))
         else:
@@ -1225,7 +1230,9 @@ def public_catalog_media(product: dict) -> list[dict]:
         except (TypeError, ValueError):
             return 0
 
-    records.sort(key=lambda item: (not bool(item.get("is_primary")), media_position(item), item["media_id"]))
+    # Position is gallery order; primary is an independent selection and is
+    # resolved by the storefront, never by reordering the gallery.
+    records.sort(key=lambda item: (media_position(item), item["media_id"]))
     return records
 
 
@@ -1293,7 +1300,7 @@ def product_view(product: dict, *, display_order: int | None = None, media_limit
     if size_inventory and isinstance(public_attributes, dict) and not public_attributes.get("sizes"):
         public_attributes["sizes"] = [item["size"] for item in size_inventory if item.get("enabled", True)]
     if public_variants and isinstance(public_attributes, dict):
-        public_attributes["colors"] = [variant["colour"] for variant in public_variants if variant["colour"]]
+        public_attributes["colors"] = list(dict.fromkeys(normalise_colour(variant["colour"]) for variant in public_variants if variant["colour"]))
     public_stock = selected_variant["stock"] if selected_variant else total_size_stock(product) if configured else product.get("stock")
     stored_availability = str(product.get("availability") or "in_stock").lower()
     # Explicit variant status controls merchandising. Inventory never silently
@@ -1366,7 +1373,7 @@ def product_card_view(product: dict, *, display_order: int | None = None, media_
             card_variant["sizeInventory"] = variant.get("sizeInventory") or []
         card_variants.append(card_variant)
     attributes = product.get("attributes") if isinstance(product.get("attributes"), dict) else {}
-    colors = [variant["colour"] for variant in variants if variant.get("colour")]
+    colors = list(dict.fromkeys(normalise_colour(variant["colour"]) for variant in variants if variant.get("colour")))
     size_inventory = selected_variant.get("sizeInventory", []) if selected_variant else []
     configured = bool(selected_variant) or has_size_system(product)
     stored_availability = str(product.get("availability") or "in_stock").lower()

@@ -436,6 +436,26 @@ class EndpointAuthorizationTests(unittest.TestCase):
         self.assertTrue(saved[0]["is_primary"])
         self.assertTrue(saved[1]["is_hover"], saved)
 
+    def test_variant_save_preserves_non_first_primary_without_reordering_gallery(self):
+        product_id = ObjectId()
+        images = [f"https://workdrive.zoho.in/file/red-{index}" for index in range(1, 4)]
+        product = {"_id": product_id, "name": "T1", "sku": "T1", "variants": [{"id": "colour:red", "colour": "RED", "images": images, "imageMeta": [], "status": "active"}], "catalogMedia": [], "attributes": {}}
+        database = ProductDatabase(product)
+        admin = {"_id": ObjectId(), "role": "admin", "isActive": True, "permissions": ["*"]}
+        meta = [
+            {"id": "a" * 32, "permalink": images[0], "is_primary": False, "is_hover": False},
+            {"id": "b" * 32, "permalink": images[1], "is_primary": False, "is_hover": True},
+            {"id": "c" * 32, "permalink": images[2], "is_primary": True, "is_hover": False},
+        ]
+        with patch("app.rbac.current_user", return_value=admin), patch("app.blueprints.staff.routes.current_user", return_value=admin), patch("app.blueprints.staff.routes.database", return_value=database), patch("app.blueprints.staff.routes.sync_product_variants", side_effect=lambda _db, value, **_kwargs: value):
+            response = self.client.patch(f"/api/staff/products/{product_id}/variants/colour:red", json={"images": images, "imageMeta": meta}, headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        saved = database.products.document["variants"][0]["imageMeta"]
+        self.assertEqual([item["permalink"] for item in saved], images)
+        self.assertEqual([item["is_primary"] for item in saved], [False, False, True])
+        self.assertEqual([item["is_primary"] for item in database.products.document["catalogMedia"]], [False, False, True])
+        self.assertTrue(database.products.document["catalogMedia"][1]["is_hover"])
+
     def test_created_variant_media_hydrates_only_its_stable_colour_gallery(self):
         red_id = "a" * 32
         product = {

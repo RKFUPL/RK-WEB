@@ -26,7 +26,7 @@ from ...catalog import (
 )
 from ...order_fulfillment import RETURN_FULFILLMENT_STATUSES, actor_view, migrate_legacy_orders, timeline_event
 from ...inventory import default_size_inventory, has_size_system, normalise_size_inventory, total_size_stock
-from ...product_variants import VARIANT_STATUSES, find_variant, sync_product_variants
+from ...product_variants import VARIANT_STATUSES, find_variant, normalise_colour, sync_product_variants
 from ...rbac import current_user, database, effective_permissions, requireStaff
 from ...time_utils import json_value as serialize_json_value
 from ...catalog_sync_v1 import enqueue as enqueue_catalog_event, make_event
@@ -124,9 +124,12 @@ def _normalize_catalog_media(items):
             **item, "id": media_id, "url": url, "provider": provider, "type": media_type,
             "permalink": permalink, "public_id": public_id, "source": item.get("source") or "rk-web",
             "owner_system": item.get("owner_system") or "rk-web", "position": position,
-            "is_primary": bool(item.get("is_primary") or item.get("is_main") or position == 0),
+            # An explicit false must survive a gallery save. The per-gallery
+            # reconciliation below supplies the first image only when no
+            # relationship was explicitly selected as primary.
+            "is_primary": bool(item.get("is_primary") or item.get("is_main")),
             "is_hover": bool(item.get("is_hover", False)),
-            "is_main": bool(item.get("is_primary") or item.get("is_main") or position == 0),
+            "is_main": bool(item.get("is_primary") or item.get("is_main")),
         })
         legacy.append(url)
     if structured:
@@ -984,8 +987,15 @@ def create_resource(resource: str):
         else:
             total_stock = stock
             unallocated_stock = stock
-        if db.products.find_one({"sku": sku}):
-            return jsonify({"error": "That SKU already exists."}), 409
+        existing_sku_product = db.products.find_one({"sku": sku}, {"_id": 1, "name": 1, "sku": 1, "attributes.colors": 1, "variants.id": 1, "variants.colour": 1})
+        if existing_sku_product:
+            existing_colours = [normalise_colour(item.get("colour")) for item in existing_sku_product.get("variants", []) if isinstance(item, dict)]
+            if not existing_colours:
+                attributes = existing_sku_product.get("attributes") if isinstance(existing_sku_product.get("attributes"), dict) else {}
+                existing_colours = [normalise_colour(item) for item in attributes.get("colors", []) if normalise_colour(item)]
+            requested_colours = payload.get("attributes", {}).get("colors", []) if isinstance(payload.get("attributes"), dict) else []
+            new_colours = [normalise_colour(item) for item in requested_colours if normalise_colour(item) and normalise_colour(item) not in existing_colours]
+            return jsonify({"error": "That SKU already exists.", "code": "SKU_COLOUR_CONFLICT", "existingProduct": {"id": str(existing_sku_product["_id"]), "name": existing_sku_product.get("name"), "sku": existing_sku_product.get("sku")}, "existingColours": existing_colours, "newColours": new_colours}), 409
         raw_media = payload.get("media") if isinstance(payload.get("media"), list) else []
         try:
             catalog_media, media = _normalize_catalog_media(raw_media)
@@ -1395,6 +1405,36 @@ def _variant_gallery_payload(product, selected, requested_id):
             if product.get("_id"):
                 item["renderUrl"] = f"/api/staff/products/{product['_id']}/media/{relationship_id}"
     return {"id": selected_id, "sku": selected.get("sku"), "images": images, "imageMeta": image_meta}
+
+
+@staff_bp.post("/products/<product_id>/variants")
+@requireStaff
+def create_product_variant(product_id: str):
+    denied = _permission_error("products")
+    if denied:
+        return denied
+    object_id = _valid_id(product_id)
+    if not object_id:
+        return jsonify({"error": "Invalid product id."}), 400
+    payload = request.get_json(silent=True) or {}
+    colour = normalise_colour(payload.get("colour"))
+    if not colour:
+        return jsonify({"error": "Enter a colour name."}), 400
+    db = database()
+    product = sync_product_variants(db, db.products.find_one({"_id": object_id}))
+    if not product:
+        return jsonify({"error": "Product not found."}), 404
+    variants = [dict(item) for item in product.get("variants", []) if isinstance(item, dict)]
+    existing = next((item for item in variants if normalise_colour(item.get("colour") or item.get("color")) == colour), None)
+    if existing:
+        return jsonify({"error": "That colour already exists.", "variantId": str(existing.get("id") or "")}), 409
+    attributes = dict(product.get("attributes") or {})
+    colours = [normalise_colour(value) for value in (attributes.get("colors") if isinstance(attributes.get("colors"), list) else [attributes.get("color")]) if normalise_colour(value)]
+    attributes["colors"] = [*colours, colour]
+    db.products.update_one({"_id": object_id}, {"$set": {"attributes": attributes}})
+    updated = sync_product_variants(db, db.products.find_one({"_id": object_id}), force=True)
+    created = next((item for item in updated.get("variants", []) if normalise_colour(item.get("colour")) == colour), None)
+    return jsonify({"item": _document_view(updated, "products"), "variant": created}), 201
 
 
 @staff_bp.patch("/products/<product_id>/variants/<path:variant_id>")

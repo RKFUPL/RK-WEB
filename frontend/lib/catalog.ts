@@ -1,6 +1,20 @@
 export type ProductAvailability = "in_stock" | "custom_order" | "sold_out";
 export type ProductVariantStatus = "active" | "inactive" | "remove";
 
+export function normalizeColour(value: unknown): string {
+  return String(value ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
+}
+
+export function productColours(product: Pick<CatalogProduct, 'attributes'>): string[] {
+  const values = product.attributes?.colors ?? (product.attributes?.color ? [String(product.attributes.color)] : []);
+  return [...new Set(values.map(normalizeColour).filter(Boolean))];
+}
+
+export function productHasColour(product: Pick<CatalogProduct, 'attributes'>, colour: unknown): boolean {
+  const wanted = normalizeColour(colour);
+  return !wanted || productColours(product).includes(wanted);
+}
+
 export type CatalogProductVariant = {
   id: string;
   sku: string;
@@ -158,7 +172,7 @@ function mediaPosition(item: CatalogMedia) {
 }
 
 function orderedMedia(items: CatalogMedia[]) {
-  return [...items].sort((a, b) => Number(!a.is_primary) - Number(!b.is_primary) || mediaPosition(a) - mediaPosition(b));
+  return [...items].sort((a, b) => mediaPosition(a) - mediaPosition(b) || String(a.media_id || a.id || '').localeCompare(String(b.media_id || b.id || '')));
 }
 
 /** Resolve only browser-safe media for the selected colour gallery. */
@@ -189,12 +203,28 @@ export function variantPrimaryAndHoverSources(product: CatalogProduct, variant?:
   const sources = variantMediaSources(product, variant);
   if (!variant || !sources.length) return { primary: sources[0], hover: undefined };
   const structured = (product.catalogMedia || []).filter((item) => item.variant_id === variant.id);
-  const primaryRecord = structured.find((item) => item.is_primary) || structured[0];
-  const hoverRecord = structured.find((item) => item.is_hover);
+  const metadata = Array.isArray(variant.imageMeta) ? variant.imageMeta : [];
+  const byIdentity = (entry: { id?: string; media_id?: string; permalink?: string; renderUrl?: string }) => structured.find((item) => {
+    const itemIdentity = String(item.media_id || item.id || item.permalink || item.renderUrl || "");
+    const entryIdentity = String(entry.media_id || entry.id || entry.permalink || entry.renderUrl || "");
+    return Boolean(entryIdentity) && itemIdentity === entryIdentity;
+  });
+  const primaryRecord = structured.find((item) => item.is_primary || (item as CatalogMedia & { is_main?: boolean }).is_main)
+    || metadata.find((item) => item.is_primary && byIdentity(item)) && byIdentity(metadata.find((item) => item.is_primary)!)
+    || structured[0];
+  const hoverRecord = structured.find((item) => item.is_hover)
+    || metadata.find((item) => item.is_hover && byIdentity(item)) && byIdentity(metadata.find((item) => item.is_hover)!)
+    || undefined;
   const safeSource = (item?: CatalogMedia) => item ? catalogMediaSource(product, item) : undefined;
   const primary = safeSource(primaryRecord) || sources[0];
   const hover = safeSource(hoverRecord);
   return { primary, hover: hover && hover !== primary ? hover : undefined };
+}
+
+export function productVariantHref(href: string, variantId?: string) {
+  if (!variantId) return href;
+  const separator = href.includes("?") ? "&" : "?";
+  return `${href}${separator}variant=${encodeURIComponent(variantId)}`;
 }
 
 export type AdminMediaEntry = {

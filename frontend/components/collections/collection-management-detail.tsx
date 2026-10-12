@@ -64,7 +64,7 @@ function colourVariants(value: string): CatalogProduct["variants"] {
   });
 }
 
-type CreateProductResult = { id?: string; product?: CatalogProduct; error?: string };
+type CreateProductResult = { id?: string; product?: CatalogProduct; error?: string; code?: string; existingProduct?: { id: string; name?: string; sku?: string }; newColours?: string[] };
 
 function CreateProductDrawer({
   collection,
@@ -86,6 +86,7 @@ function CreateProductDrawer({
   const [message, setMessage] = useState("");
   const [createdId, setCreatedId] = useState("");
   const [saving, setSaving] = useState(false);
+  const [duplicate, setDuplicate] = useState<{ product: { id: string; name?: string; sku?: string }; colour: string } | null>(null);
   const variants = useMemo(() => colourVariants(draft.colors) || [], [draft.colors]);
   const addDraftColour = (value: string) => {
     const colour = value.trim();
@@ -162,6 +163,11 @@ function CreateProductDrawer({
       if (sizes.some((size) => !["XS", "S", "M", "L", "XL"].includes(size))) throw new Error("Sizes must use XS, S, M, L or XL.");
       if (sizes.length && stock !== 0) throw new Error("Opening stock for size-managed products must be allocated per size after creation. Use 0 for the initial product.");
       const result = await onCreate({ name, sku, styleCode: sku, price, stock, status: "draft", availability: draft.availability, category: draft.category.trim(), description: draft.description.trim(), collectionId: collection.id, attributes: { sizes, colors: variants.map((variant) => variant.colour), fabric: draft.fabric.trim(), occasion: draft.occasion.trim(), gender: draft.gender.trim(), material: draft.material.trim(), customizationInformation: draft.customizationInformation.trim() }, sizeInventoryConfigured: sizes.length > 0, sizeInventory: sizes.map((size) => ({ size, stock: 0, enabled: true })), media: media.map((item) => ({ ...item, id: undefined, media_id: undefined })) });
+      if (result.code === "SKU_COLOUR_CONFLICT" && result.existingProduct) {
+        if (!result.newColours?.length) { setError("This colour is already registered on the existing product. No duplicate variant was created."); return; }
+        setDuplicate({ product: result.existingProduct, colour: result.newColours[0] || "COLOUR" });
+        return;
+      }
       if (result.id) setCreatedId(result.id);
       if (result.error) throw new Error(result.error);
       if (!result.product) throw new Error("The product was created, but authoritative read-back is unavailable. Your draft remains open; do not submit it again.");
@@ -176,7 +182,7 @@ function CreateProductDrawer({
     {activeSection === "media" ? <><CreateProductMediaEditor variants={variants || []} value={media} onChange={setMedia} token={() => window.localStorage.getItem("rk_access_token") ?? ""} onAddColour={addDraftColour} onRenameColour={renameDraftColour} onRemoveColour={removeDraftColour}/><CreateProductLevelMediaEditor value={media} onChange={setMedia} token={() => window.localStorage.getItem("rk_access_token") ?? ""}/></> : null}
     {activeSection === "pricing" ? <section className="admin-panel p-5"><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[var(--admin-gold)]">Pricing & inventory</p><div className="mt-4 grid gap-4 sm:grid-cols-3"><label className="text-[10px] uppercase tracking-[.14em] text-[#8a9098]">Base INR price<input type="number" min="0" step="0.01" value={draft.price} onChange={(event) => setDraft((current) => ({...current,price:event.target.value}))} className={inputClass}/></label><label className="text-[10px] uppercase tracking-[.14em] text-[#8a9098]">Availability<select value={draft.availability} onChange={(event) => setDraft((current) => ({...current,availability:event.target.value as ProductAvailability}))} className={inputClass}>{availabilityOptions.map((option) => <option key={option} value={option}>{availabilityLabels[option]}</option>)}</select></label><label className="text-[10px] uppercase tracking-[.14em] text-[#8a9098]">Opening stock<input type="number" min="0" step="1" value={draft.stock} onChange={(event) => setDraft((current) => ({...current,stock:event.target.value}))} className={inputClass}/></label></div><p className="mt-4 text-xs text-[var(--admin-muted)]">Inventory adjustments remain audited after creation. Size-managed products start at zero until quantities are allocated per size.</p></section> : null}
     {message ? <p className="mt-4 text-sm text-emerald-700">{message}</p> : null}{error ? <p role="alert" className="mt-4 text-sm text-red-700">{error}</p> : null}
-  </form></aside></div>;
+  </form></aside>{duplicate ? <div className="fixed inset-0 z-[120] grid place-items-center bg-black/35 p-4"><div role="dialog" aria-modal="true" className="w-full max-w-lg rounded-2xl bg-[#fffdf9] p-6 text-[#20242b] shadow-2xl"><p className="text-[10px] uppercase tracking-[.2em] text-[#9a7a4d]">Catalogue match</p><h3 className="mt-2 font-display text-2xl">Product code already exists</h3><p className="mt-4 text-sm leading-6">An item with SKU <strong>{duplicate.product.sku}</strong> already exists in the product catalogue, but the colour <strong>{duplicate.colour}</strong> is not registered for it.</p><p className="mt-2 text-sm leading-6 text-[#6f675f]">Would you like to add this colour to the existing product, or create a separate product with a unique SKU?</p><div className="mt-6 flex flex-wrap justify-end gap-2"><button type="button" onClick={() => setDuplicate(null)} className="admin-button-secondary px-4 py-2 text-xs">Cancel</button><button type="button" onClick={() => { setDraft((current) => ({ ...current, sku: `${current.sku.trim().toUpperCase()}-${duplicate.colour.replace(/[^A-Z0-9]+/g, "-")}` })); setDuplicate(null); }} className="admin-button-secondary px-4 py-2 text-xs">Create separate product</button><button type="button" onClick={async () => { setSaving(true); try { const endpoint = `/api/staff/products/${encodeURIComponent(duplicate.product.id)}/variants`; const response = await fetch(endpoint, { method: "POST", headers: { Authorization: `Bearer ${window.localStorage.getItem("rk_access_token") || ""}`, "Content-Type": "application/json" }, body: JSON.stringify({ colour: duplicate.colour }) }); const payload = await response.json().catch(() => ({})); if (!response.ok) throw new Error(String(payload.error || `Unable to add colour (HTTP ${response.status}).`)); setDuplicate(null); onClose(); } catch (value) { setError(value instanceof Error ? value.message : "Unable to add colour."); } finally { setSaving(false); } }} className="admin-button-primary px-4 py-2 text-xs">Add colour to existing product</button></div></div></div> : null}</div>;
 }
 
 function configuredMediaEntries(product: CatalogProduct) {
@@ -1077,7 +1083,7 @@ export function CollectionManagementDetail({
         },
       );
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) return { error: payload.error ?? `Unable to create product (HTTP ${response.status}).` };
+      if (!response.ok) return { error: payload.error ?? `Unable to create product (HTTP ${response.status}).`, code: payload.code, existingProduct: payload.existingProduct, newColours: payload.newColours };
       const id = String(payload.item?.id || "");
       const refreshed = await load(true);
       const product = refreshed?.collection.products.find((item) => item.id === id);

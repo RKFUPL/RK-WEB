@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowDown, ArrowUp, CheckCircle2, ImagePlus, Loader2, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, CheckCircle2, ImagePlus, Loader2, Plus, Trash2 } from "lucide-react";
 import { hasUnsavedGalleryChanges, isPersistedMediaRelationshipId, parseWorkDriveBatch, prepareWorkDriveGallerySave, workDriveGalleryMatches, type WorkDriveGalleryDraft } from "@/lib/workdrive-media";
 import type { CatalogProductVariant } from "@/lib/catalog";
 
@@ -28,6 +28,8 @@ export function VariantMediaEditor({ productId, variants, token, onSaved }: { pr
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadedCount, setLoadedCount] = useState(0);
+  const [newColour, setNewColour] = useState("");
+  const [addingColour, setAddingColour] = useState(false);
   const base = "/api/staff/products/" + encodeURIComponent(productId) + "/variants/";
 
   const load = async (id: string) => {
@@ -100,6 +102,21 @@ export function VariantMediaEditor({ productId, variants, token, onSaved }: { pr
     }
     setError(""); setMessage(""); setVariantId(nextVariantId);
   };
+  const addColour = async () => {
+    const colour = newColour.trim().replace(/\s+/g, " ").toUpperCase();
+    if (!colour) { setError("Enter a colour name."); return; }
+    setAddingColour(true); setError("");
+    const endpoint = "/api/staff/products/" + encodeURIComponent(productId) + "/variants";
+    try {
+      const response = await fetch(endpoint, { method: "POST", headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" }, body: JSON.stringify({ colour }) });
+      const payload = await readApiResponse(response, endpoint);
+      const created = payload.variant as { id?: string } | undefined;
+      setNewColour("");
+      if (created?.id) { setVariantId(created.id); onSaved?.(); }
+      else onSaved?.();
+    } catch (value) { setError(value instanceof Error ? value.message : "Unable to add colour."); }
+    finally { setAddingColour(false); }
+  };
   const unsaved = hasUnsavedGalleryChanges(baseline, drafts, batch);
   if (!variants.length) return null;
 
@@ -109,6 +126,7 @@ export function VariantMediaEditor({ productId, variants, token, onSaved }: { pr
       <div className="mt-1 flex flex-wrap items-end justify-between gap-3"><div><h3 id="colour-gallery-title" className="text-2xl">Colour galleries</h3><p className="mt-1 text-xs text-[var(--admin-muted)]">Images are isolated by stable colour variant and verified after every save.</p></div>{message ? <p className="mb-1 inline-flex items-center gap-1.5 text-xs text-emerald-700"><CheckCircle2 size={15} />{message}</p> : null}</div>
       <div className="mt-5 flex gap-2 overflow-x-auto" role="tablist" aria-label="Product colour galleries">
         {variants.map((variant) => { const active = variant.id === selected.id; return <button key={variant.id} type="button" role="tab" aria-selected={active} onClick={() => switchVariant(variant.id)} className={`min-w-36 rounded-t-xl border border-b-0 px-4 py-3 text-left transition ${active ? "border-[#c69a62]/55 bg-[#fbf4e9] text-[#3b2b1f]" : "border-transparent text-[var(--admin-muted)] hover:bg-black/[.025]"}`}><span className="flex items-center gap-2 text-sm font-medium"><span className="h-2.5 w-2.5 rounded-full border border-black/10" style={{ backgroundColor: variant.colour || "#b69263" }} />{variant.colour || "Variant"}</span><span className="mt-1 block text-[10px] uppercase tracking-[.12em]">{counts[variant.id] ?? (variant.id === selected.id ? drafts.length : 0)} images · {variant.sku}</span></button>; })}
+        <div className="flex items-center gap-2 self-start rounded-t-xl border border-b-0 border-dashed border-[#c69a62]/60 px-3 py-2"><input aria-label="New colour name" value={newColour} onChange={(event) => setNewColour(event.target.value)} placeholder="ADD COLOUR" className="w-24 bg-transparent text-[10px] uppercase tracking-[.12em] outline-none" onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void addColour(); } }} /><button type="button" onClick={() => void addColour()} disabled={addingColour} aria-label="Add colour" className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[.12em] text-[#7d582c] disabled:opacity-50"><Plus size={13}/>Add</button></div>
       </div>
     </div>
 
