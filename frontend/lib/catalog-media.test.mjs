@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { adminMediaGroups, availableGalleryMedia, guardedMediaCleanupPlan, variantMediaSources, variantPrimaryAndHoverSources } from "./catalog.ts";
+
+const drawer = readFileSync(new URL("../components/collections/collection-management-detail.tsx", import.meta.url), "utf8");
+const editor = readFileSync(new URL("../components/collections/variant-media-editor.tsx", import.meta.url), "utf8");
 
 const staleIds = [
   "54810cc923b41e35020f31db18aec929",
@@ -112,4 +116,12 @@ test("guarded cleanup requires the exact unassigned set and retains variant medi
   assert.deepEqual(guardedMediaCleanupPlan(product, product.id, new Set(staleIds)), []);
   assert.equal(guardedMediaCleanupPlan(product, product.id, new Set([...staleIds, "unexpected"])), null);
   assert.equal(product.catalogMedia.filter((item) => item.variant_id === "colour:red").length, 3);
+});
+
+test("admin overview and gallery use authenticated persisted-media previews", () => {
+  assert.match(drawer, /api\/staff\/products\/\$\{encodeURIComponent\(product\.id\)\}\/media/);
+  assert.doesNotMatch(drawer, /src=\{product\.media\[0\]\}/);
+  assert.match(editor, /item\.renderUrl \|\| `\/api\/staff\/products/);
+  assert.match(editor, /Unsaved image relationship/);
+  assert.match(editor, /Preview unavailable/);
 });

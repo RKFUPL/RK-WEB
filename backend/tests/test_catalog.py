@@ -13,6 +13,32 @@ from app.workdrive import WorkDriveDownload
 
 
 class CatalogTests(unittest.TestCase):
+    def test_collection_hero_keeps_api_images_direct_and_proxies_workdrive(self):
+        database = MagicMock()
+        database.products.find.return_value = []
+        direct = {"_id": ObjectId(), "slug": "direct", "hero": {"image": "/api/media/collection.jpg"}, "productRefs": []}
+        managed = {"_id": ObjectId(), "slug": "managed", "hero": {"image": "https://workdrive.zoho.in/file/file123"}, "productRefs": []}
+
+        self.assertEqual(collection_view(database, direct, include_products=False)["hero"]["image"], "/api/media/collection.jpg")
+        rendered = collection_view(database, managed, include_products=False)
+        self.assertEqual(rendered["hero"]["image"], "/api/catalog/collections/managed/hero-image/desktop")
+        self.assertNotIn("workdrive.zoho.in", str(rendered))
+
+    def test_collection_workdrive_proxy_is_bound_to_saved_collection_source(self):
+        app = Flask(__name__)
+        app.register_blueprint(catalog_bp, url_prefix="/api/catalog")
+        collection = {"_id": ObjectId(), "slug": "hastakala", "status": "collection", "hero": {"image": "https://workdrive.zoho.in/file/file123"}}
+        upstream = MagicMock(content=b"image-bytes", headers={"Content-Type": "image/jpeg"})
+
+        with patch("app.blueprints.catalog.routes.database", return_value=MagicMock()), \
+             patch("app.blueprints.catalog.routes.collection_document", return_value=collection), \
+             patch("app.blueprints.catalog.routes.download_file", return_value=WorkDriveDownload(upstream, "file123")) as download:
+            response = app.test_client().get("/api/catalog/collections/hastakala/hero-image/desktop")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content_type, "image/jpeg")
+        download.assert_called_once_with(collection["hero"]["image"], ANY, prefer_preview=True)
+
     def test_shop_filters_real_catalogue_fields_and_combines_filters(self):
         record = {
             "id": "one", "name": "T1", "sku": "SK-T1-RED", "styleCode": "T1", "productCode": "T1",
@@ -112,6 +138,25 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), {"collections": [rendered], "count": 1})
         view.assert_called_once_with(ANY, collection, include_products=False)
+
+    def test_archived_collection_is_excluded_without_hiding_its_product(self):
+        app = Flask(__name__)
+        app.register_blueprint(catalog_bp, url_prefix="/api/catalog")
+        product_id = ObjectId()
+        archived = {"_id": ObjectId(), "name": "Archived", "slug": "archived", "status": "archived", "isActive": False, "productRefs": [{"productId": product_id}]}
+        active = {"_id": ObjectId(), "name": "Active", "slug": "active", "status": "active", "isActive": True, "productRefs": [{"productId": product_id}]}
+        product = {"_id": product_id, "name": "Shared", "sku": "SHARED", "status": "active", "isActive": True, "availability": "in_stock", "variants": []}
+        database = MagicMock()
+        database.collections.find.return_value = [archived, active]
+        database.products.find.return_value = [product]
+
+        with patch("app.blueprints.catalog.routes.database", return_value=database):
+            collections = app.test_client().get("/api/catalog/collections").get_json()
+            products = app.test_client().get("/api/catalog/products").get_json()
+
+        self.assertEqual([item["slug"] for item in collections["collections"]], ["active"])
+        self.assertEqual(products["count"], 1)
+        self.assertEqual(products["products"][0]["collectionSlugs"], ["active"])
 
     def test_equivalent_named_index_is_reused_without_recreation(self):
         class ExistingIndexCollection:

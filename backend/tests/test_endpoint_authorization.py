@@ -10,12 +10,15 @@ from bson import ObjectId
 from app.blueprints.staff.routes import (
     _customer_scope,
     _document_view,
+    _hydrate_created_variant_galleries,
     _management_collection_payload,
     _remove_media_relationship,
     _set_product_collections,
     _sync_variant_media_catalog,
+    _variant_gallery_payload,
     staff_bp,
 )
+from app.workdrive import WorkDriveDownload
 
 
 class TrackingUsers:
@@ -36,11 +39,28 @@ class MutableCollection:
         self.document = document
 
     def find_one(self, query, *_args, **_kwargs):
-        return self.document if query.get("_id") == self.document.get("_id") else None
+        if query.get("_id") == self.document.get("_id"):
+            return self.document
+        if query.get("slug") == self.document.get("slug"):
+            return self.document
+        return None
 
     def update_one(self, query, update):
         if query.get("_id") == self.document.get("_id"):
             self.document.update(update.get("$set", {}))
+            for key in update.get("$unset", {}):
+                self.document.pop(key, None)
+
+    def insert_one(self, document):
+        self.document = document
+        self.document.setdefault("_id", ObjectId())
+        return SimpleNamespace(inserted_id=self.document["_id"])
+
+    def delete_one(self, query):
+        if query.get("_id") == self.document.get("_id"):
+            self.document = {}
+            return SimpleNamespace(deleted_count=1)
+        return SimpleNamespace(deleted_count=0)
 
     def find(self, *_args, **_kwargs):
         return Cursor([self.document])
@@ -60,6 +80,7 @@ class ProductDatabase:
         self.collections = SimpleNamespace(find=MagicMock(return_value=[]))
         self.inventory_adjustments = SimpleNamespace(insert_one=MagicMock())
         self.settings = SimpleNamespace(find_one=MagicMock(return_value={}), update_one=MagicMock())
+        self.catalog_sync_outbox = SimpleNamespace(update_one=MagicMock())
 
     def __getitem__(self, name):
         return getattr(self, name)
@@ -78,11 +99,91 @@ class EndpointAuthorizationTests(unittest.TestCase):
             token = create_access_token(identity="000000000000000000000001")
         self.headers = {"Authorization": f"Bearer {token}"}
 
+    def test_collection_workdrive_preview_requires_staff_and_validates_source(self):
+        unauthenticated = self.client.post("/api/staff/collections/image-preview", json={"url": "https://workdrive.zoho.in/file/file123"})
+        self.assertEqual(unauthenticated.status_code, 401)
+        admin = {"_id": ObjectId(), "role": "admin", "isActive": True, "permissions": ["*"]}
+        upstream = MagicMock(content=b"preview", headers={"Content-Type": "image/jpeg"})
+        with patch("app.rbac.current_user", return_value=admin), \
+             patch("app.blueprints.staff.routes.current_user", return_value=admin), \
+             patch("app.blueprints.staff.routes.database", return_value=MagicMock()), \
+             patch("app.blueprints.staff.routes.download_file", return_value=WorkDriveDownload(upstream, "file123")) as download:
+            response = self.client.post("/api/staff/collections/image-preview", json={"url": "https://workdrive.zoho.in/file/file123"}, headers=self.headers)
+            rejected = self.client.post("/api/staff/collections/image-preview", json={"url": "https://example.com/image.jpg"}, headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content_type, "image/jpeg")
+        self.assertEqual(rejected.status_code, 400)
+        download.assert_called_once()
+
+    def test_collection_creation_persists_empty_collection_and_verified_hero(self):
+        admin = {"_id": ObjectId(), "role": "admin", "isActive": True, "permissions": ["*"]}
+        collections = MutableCollection({})
+        database = SimpleNamespace(collections=collections)
+        payload = {"name": "Winter Edit", "slug": "winter-edit", "description": "An editorial collection.", "status": "draft", "hero": {"type": "image", "image": "https://workdrive.zoho.in/file/45kaa867c2b2ac8014d029e0d6cef5b83bf22", "layout": "editorial_split"}}
+        with patch("app.rbac.current_user", return_value=admin), \
+             patch("app.blueprints.staff.routes.current_user", return_value=admin), \
+             patch("app.blueprints.staff.routes.database", return_value=database), \
+             patch("app.blueprints.staff.routes._queue_collection_event") as queue_event, \
+             patch("app.blueprints.staff.routes._management_collection_payload", side_effect=lambda _db, item: {"collection": {"id": str(item["_id"]), "slug": item["slug"], "hero": item["hero"], "productCount": len(item["productRefs"])}}):
+            response = self.client.post("/api/staff/collections", json=payload, headers=self.headers)
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(collections.document["productRefs"], [])
+        self.assertEqual(collections.document["hero"]["image"], payload["hero"]["image"])
+        self.assertEqual(response.get_json()["collection"]["productCount"], 0)
+        queue_event.assert_called_once()
+
+    def test_collection_creation_rejects_invalid_or_duplicate_input(self):
+        admin = {"_id": ObjectId(), "role": "admin", "isActive": True, "permissions": ["*"]}
+        existing = {"_id": ObjectId(), "name": "Winter Edit", "slug": "winter-edit"}
+        database = SimpleNamespace(collections=MutableCollection(existing))
+        with patch("app.rbac.current_user", return_value=admin), patch("app.blueprints.staff.routes.current_user", return_value=admin), patch("app.blueprints.staff.routes.database", return_value=database):
+            duplicate = self.client.post("/api/staff/collections", json={"name": "Winter Edit", "slug": "winter-edit", "hero": {"type": "image", "image": "https://workdrive.zoho.in/file/45kaa867c2b2ac8014d029e0d6cef5b83bf22", "layout": "editorial_split"}}, headers=self.headers)
+            invalid = self.client.post("/api/staff/collections", json={"name": "Unsafe", "hero": {"type": "image", "image": "http://example.com/image.jpg", "layout": "editorial_split"}}, headers=self.headers)
+        self.assertEqual(duplicate.status_code, 409)
+        self.assertEqual(invalid.status_code, 400)
+
     def test_customer_cannot_call_staff_endpoint(self):
         customer = {"_id": "customer", "role": "customer", "isActive": True}
         with patch("app.rbac.current_user", return_value=customer):
             response = self.client.get("/api/staff/resources/products", headers=self.headers)
         self.assertEqual(response.status_code, 403)
+
+    def test_variant_gallery_hydrates_canonical_relationship_id_and_staff_preview(self):
+        product_id = ObjectId()
+        permalink = "https://workdrive.zoho.in/file/red-1"
+        relationship_id = "a" * 32
+        product = {
+            "_id": product_id,
+            "catalogMedia": [{"id": relationship_id, "provider": "zoho_workdrive", "variant_id": "colour:red", "permalink": permalink, "position": 0}],
+        }
+        variant = {"id": "colour:red", "images": [permalink], "imageMeta": [{"id": "colour:red:new:123:0", "permalink": permalink, "position": 0}]}
+
+        payload = _variant_gallery_payload(product, variant, "colour:red")
+
+        self.assertEqual(payload["imageMeta"][0]["id"], relationship_id)
+        self.assertEqual(payload["imageMeta"][0]["media_id"], relationship_id)
+        self.assertEqual(payload["imageMeta"][0]["renderUrl"], f"/api/staff/products/{product_id}/media/{relationship_id}")
+
+    def test_staff_media_preview_is_authorized_and_bound_to_product_relationship(self):
+        product_id = ObjectId()
+        relationship_id = "b" * 32
+        permalink = "https://workdrive.zoho.in/file/red-1"
+        document = {"_id": product_id, "catalogMedia": [{"id": relationship_id, "provider": "zoho_workdrive", "permalink": permalink}]}
+        database = ProductDatabase(document)
+        admin = {"_id": ObjectId(), "role": "admin", "isActive": True, "permissions": ["*"]}
+        upstream = MagicMock(content=b"preview", headers={"Content-Type": "image/jpeg"})
+
+        with patch("app.rbac.current_user", return_value=admin), \
+             patch("app.blueprints.staff.routes.current_user", return_value=admin), \
+             patch("app.blueprints.staff.routes.database", return_value=database), \
+             patch("app.blueprints.staff.routes.download_file", return_value=WorkDriveDownload(upstream, "red-1")) as download:
+            response = self.client.get(f"/api/staff/products/{product_id}/media/{relationship_id}", headers=self.headers)
+            missing = self.client.get(f"/api/staff/products/{product_id}/media/{'c' * 32}", headers=self.headers)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content_type, "image/jpeg")
+        self.assertEqual(missing.status_code, 404)
+        download.assert_called_once_with(permalink, database, prefer_preview=True)
 
     def test_staff_without_capability_is_rejected(self):
         staff = {"_id": "staff", "role": "staff", "isActive": True, "permissions": []}
@@ -258,6 +359,111 @@ class EndpointAuthorizationTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
         products.insert_one.assert_not_called()
+
+    def test_product_creation_rejects_archived_collection_before_insert(self):
+        admin = {"_id": ObjectId(), "role": "admin", "isActive": True}
+        collection_id = ObjectId()
+        products = SimpleNamespace(insert_one=MagicMock())
+        archived = {"_id": collection_id, "name": "Archived", "status": "archived", "isActive": False}
+        database = SimpleNamespace(products=products, collections=SimpleNamespace(find=MagicMock(return_value=[archived])))
+        payload = {"name": "Perspire", "sku": "PER-01", "price": 12500, "stock": 0, "collectionId": str(collection_id)}
+
+        with patch("app.rbac.current_user", return_value=admin), patch("app.blueprints.staff.routes.current_user", return_value=admin), patch("app.blueprints.staff.routes.database", return_value=database):
+            response = self.client.post("/api/staff/resources/products", json=payload, headers=self.headers)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Archived collections", response.get_json()["error"])
+        products.insert_one.assert_not_called()
+
+    def test_collection_archive_and_restore_preserve_product_references(self):
+        admin = {"_id": ObjectId(), "role": "admin", "isActive": True, "permissions": ["*"]}
+        product_id = ObjectId()
+        collection = {"_id": ObjectId(), "name": "Sandook", "slug": "sandook", "status": "active", "isActive": True, "productRefs": [{"productId": product_id, "displayOrder": 3}]}
+        collections = MutableCollection(collection)
+        database = SimpleNamespace(collections=collections)
+
+        with patch("app.rbac.current_user", return_value=admin), \
+             patch("app.blueprints.staff.routes.current_user", return_value=admin), \
+             patch("app.blueprints.staff.routes.database", return_value=database), \
+             patch("app.blueprints.staff.routes._queue_collection_event"), \
+             patch("app.blueprints.staff.routes._management_collection_payload", side_effect=lambda _db, item: {"collection": {"status": item.get("status"), "isActive": item.get("isActive")}}):
+            archived = self.client.post("/api/staff/collections/sandook/archive", headers=self.headers)
+            restored = self.client.post("/api/staff/collections/sandook/restore", headers=self.headers)
+
+        self.assertEqual(archived.status_code, 200)
+        self.assertEqual(archived.get_json()["collection"]["status"], "archived")
+        self.assertEqual(restored.status_code, 200)
+        self.assertEqual(restored.get_json()["collection"]["status"], "active")
+        self.assertTrue(restored.get_json()["collection"]["isActive"])
+        self.assertEqual(collection["productRefs"], [{"productId": product_id, "displayOrder": 3}])
+
+    def test_archived_collection_delete_removes_only_collection_record(self):
+        admin = {"_id": ObjectId(), "role": "admin", "isActive": True, "permissions": ["*"]}
+        product_id = ObjectId()
+        collection = {"_id": ObjectId(), "name": "Archived", "slug": "archived", "status": "archived", "isActive": False, "productRefs": [{"productId": product_id}]}
+        collections = MutableCollection(collection)
+        database = SimpleNamespace(collections=collections, products=MutableCollection({"_id": product_id, "name": "Still here"}))
+        with patch("app.rbac.current_user", return_value=admin), patch("app.blueprints.staff.routes.current_user", return_value=admin), patch("app.blueprints.staff.routes.database", return_value=database), patch("app.blueprints.staff.routes._queue_collection_event") as queue_event:
+            response = self.client.delete("/api/staff/collections/archived", headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["deleted"])
+        self.assertEqual(collections.document, {})
+        self.assertEqual(database.products.document["name"], "Still here")
+        queue_event.assert_called_once()
+
+    def test_variant_save_uses_saved_identifier_and_missing_variant_is_not_500(self):
+        product_id = ObjectId()
+        product = {"_id": product_id, "name": "T1", "sku": "T1", "variants": [{"id": "colour:test", "images": [], "imageMeta": [], "status": "active"}], "catalogMedia": [], "attributes": {}}
+        database = ProductDatabase(product)
+        admin = {"_id": ObjectId(), "role": "admin", "isActive": True, "permissions": ["*"]}
+        with patch("app.rbac.current_user", return_value=admin), patch("app.blueprints.staff.routes.current_user", return_value=admin), patch("app.blueprints.staff.routes.database", return_value=database), patch("app.blueprints.staff.routes.sync_product_variants", side_effect=lambda _db, value, **_kwargs: value):
+            saved = self.client.patch(f"/api/staff/products/{product_id}/variants/colour:test", json={"images": [], "imageMeta": []}, headers=self.headers)
+            missing = self.client.patch(f"/api/staff/products/{product_id}/variants/colour:missing", json={"images": [], "imageMeta": []}, headers=self.headers)
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(missing.status_code, 404)
+
+    def test_variant_hover_save_preserves_primary_and_returns_json(self):
+        product_id = ObjectId()
+        product = {"_id": product_id, "name": "T1", "sku": "T1", "variants": [{"id": "colour:test", "images": ["https://workdrive.zoho.in/file/45kaa867c2b2ac8014d029e0d6cef5b83bf22", "https://workdrive.zoho.in/file/45kaa5bb2ec1299cc4455a639950850e76546"], "imageMeta": [{"id": "a" * 32, "permalink": "https://workdrive.zoho.in/file/45kaa867c2b2ac8014d029e0d6cef5b83bf22", "is_primary": True, "is_hover": False}, {"id": "b" * 32, "permalink": "https://workdrive.zoho.in/file/45kaa5bb2ec1299cc4455a639950850e76546", "is_primary": False, "is_hover": False}], "status": "active"}], "catalogMedia": [], "attributes": {}}
+        database = ProductDatabase(product)
+        admin = {"_id": ObjectId(), "role": "admin", "isActive": True, "permissions": ["*"]}
+        meta = [{"id": "a" * 32, "permalink": product["variants"][0]["images"][0], "is_primary": True, "is_hover": False}, {"id": "b" * 32, "permalink": product["variants"][0]["images"][1], "is_primary": False, "is_hover": True}]
+        with patch("app.rbac.current_user", return_value=admin), patch("app.blueprints.staff.routes.current_user", return_value=admin), patch("app.blueprints.staff.routes.database", return_value=database), patch("app.blueprints.staff.routes.sync_product_variants", side_effect=lambda _db, value, **_kwargs: value):
+            response = self.client.patch(f"/api/staff/products/{product_id}/variants/colour:test", json={"images": product["variants"][0]["images"], "imageMeta": meta}, headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertIsInstance(response.get_json(), dict)
+        saved = database.products.document["variants"][0]["imageMeta"]
+        self.assertTrue(saved[0]["is_primary"])
+        self.assertTrue(saved[1]["is_hover"], saved)
+
+    def test_created_variant_media_hydrates_only_its_stable_colour_gallery(self):
+        red_id = "a" * 32
+        product = {
+            "variants": [
+                {"id": "colour:red", "images": [], "imageMeta": []},
+                {"id": "colour:blue", "images": [], "imageMeta": []},
+            ],
+            "catalogMedia": [
+                {
+                    "id": red_id,
+                    "provider": "zoho_workdrive",
+                    "variant_id": "colour:red",
+                    "permalink": "https://workdrive.zoho.in/file/red-cover",
+                    "position": 0,
+                    "is_primary": True,
+                    "is_hover": False,
+                    "alt_text": "Red cover.jpg",
+                }
+            ],
+        }
+
+        hydrated = _hydrate_created_variant_galleries(product)
+
+        self.assertEqual(hydrated["variants"][0]["images"], ["https://workdrive.zoho.in/file/red-cover"])
+        self.assertEqual(hydrated["variants"][0]["imageMeta"][0]["id"], red_id)
+        self.assertTrue(hydrated["variants"][0]["imageMeta"][0]["is_primary"])
+        self.assertEqual(hydrated["variants"][1]["images"], [])
+        self.assertEqual(hydrated["variants"][1]["imageMeta"], [])
 
     def test_product_collection_update_adds_and_removes_canonical_references(self):
         product_id = ObjectId()

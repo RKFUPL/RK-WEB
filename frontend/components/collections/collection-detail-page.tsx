@@ -65,17 +65,21 @@ export function CollectionDetailPage({ collection }: { collection: CollectionPag
     textTheme: collection.hero?.textTheme || 'light',
     titleScale: collection.hero?.titleScale || 'standard',
   }), [collection.hero, collection.image]);
-  const configuredHeroImage = collection.hero?.image || managedCollection?.hero?.image || managedCollection?.heroImage || collection.image;
+  const configuredHeroImage = managedCollection
+    ? managedCollection.hero?.image || managedCollection.heroImage || ''
+    : loading
+      ? ''
+      : collection.hero?.image || collection.image;
   const hero: CollectionHeroConfig = {
     ...fallbackHero,
     ...(managedCollection?.hero || {}),
     ...(collection.hero || {}),
-    type: collection.hero?.type || managedCollection?.hero?.type || 'image',
+    type: managedCollection?.hero?.type || collection.hero?.type || 'image',
     image: configuredHeroImage,
-    video: collection.hero?.video || managedCollection?.hero?.video || '',
-    poster: collection.hero?.poster || configuredHeroImage,
-    mobileImage: collection.hero?.mobileImage || configuredHeroImage,
-    mobileVideo: collection.hero?.mobileVideo || managedCollection?.hero?.mobileVideo || '',
+    video: managedCollection?.hero?.video || collection.hero?.video || '',
+    poster: managedCollection ? managedCollection.hero?.poster || configuredHeroImage : collection.hero?.poster || configuredHeroImage,
+    mobileImage: managedCollection ? managedCollection.hero?.mobileImage || configuredHeroImage : collection.hero?.mobileImage || configuredHeroImage,
+    mobileVideo: managedCollection?.hero?.mobileVideo || collection.hero?.mobileVideo || '',
     layout: 'full_bleed',
   };
   const displayCollection: StorefrontCollection = managedCollection ? {

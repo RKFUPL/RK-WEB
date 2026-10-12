@@ -6,7 +6,7 @@ import secrets
 from urllib.parse import urlsplit
 
 from bson import ObjectId
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, Response, jsonify, request
 
 from ...catalog import (
     COLLECTION_HERO_LAYOUTS,
@@ -30,8 +30,47 @@ from ...product_variants import VARIANT_STATUSES, find_variant, sync_product_var
 from ...rbac import current_user, database, effective_permissions, requireStaff
 from ...time_utils import json_value as serialize_json_value
 from ...catalog_sync_v1 import enqueue as enqueue_catalog_event, make_event
+from ...workdrive import WorkDriveFileNotFound, WorkDriveUnavailable, download_file, is_supported_permalink
 
 staff_bp = Blueprint("staff", __name__)
+
+
+def _valid_collection_media_url(value: str) -> bool:
+    if not value:
+        return True
+    if value.startswith("/"):
+        return True
+    parsed = urlsplit(value)
+    if parsed.scheme != "https" or parsed.username or parsed.password or parsed.fragment:
+        return False
+    if parsed.hostname in {"workdrive.zoho.in", "workdrive.zohoexternal.in"}:
+        return is_supported_permalink(value)
+    return bool(parsed.hostname)
+
+
+def _collection_slug(value: str) -> str:
+    return re.sub(r"^-+|-+$", "", re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().casefold()))
+
+
+def _validated_collection_hero(payload: dict, current: dict | None = None):
+    hero = collection_hero(current or {})
+    for key in ("type", "image", "video", "poster", "mobileImage", "mobileVideo", "layout", "label", "ctaLabel"):
+        if key in payload:
+            hero[key] = str(payload.get(key) or "").strip()
+    hero["type"] = hero["type"].lower()
+    hero["layout"] = hero["layout"].lower()
+    if hero["type"] not in COLLECTION_HERO_TYPES:
+        return None, "Hero type must be image or video."
+    if hero["layout"] not in COLLECTION_HERO_LAYOUTS:
+        return None, "Choose a valid hero layout."
+    for key in ("image", "video", "poster", "mobileImage", "mobileVideo"):
+        if hero[key] and not _valid_collection_media_url(hero[key]):
+            return None, f"Hero {key} must be an HTTPS API/public URL, a local API path, or an approved WorkDrive file/share link."
+    if hero["type"] == "image" and not hero["image"]:
+        return None, "An image hero requires a desktop image."
+    if hero["type"] == "video" and not hero["video"]:
+        return None, "A video hero requires a desktop video."
+    return hero, None
 
 
 def _catalog_product_payload(product: dict) -> dict:
@@ -78,7 +117,9 @@ def _normalize_catalog_media(items):
         else:
             legacy.append(url)
             continue
-        media_id = str(item.get("id") or item.get("media_id") or hashlib.sha256(f"{provider}:{url}".encode()).hexdigest()[:32])
+        supplied_media_id = str(item.get("id") or item.get("media_id") or "").strip()
+        temporary_media_id = ":draft:" in supplied_media_id or ":new:" in supplied_media_id
+        media_id = supplied_media_id if supplied_media_id and not temporary_media_id else hashlib.sha256(f"{provider}:{url}".encode()).hexdigest()[:32]
         structured.append({
             **item, "id": media_id, "url": url, "provider": provider, "type": media_type,
             "permalink": permalink, "public_id": public_id, "source": item.get("source") or "rk-web",
@@ -89,11 +130,48 @@ def _normalize_catalog_media(items):
         })
         legacy.append(url)
     if structured:
-        primary = next((item["id"] for item in structured if item["is_primary"]), structured[0]["id"])
-        for position, item in enumerate(structured):
-            item["position"] = position
-            item["is_primary"] = item["is_main"] = item["id"] == primary
+        galleries: dict[str, list[dict]] = {}
+        for item in structured:
+            galleries.setdefault(str(item.get("variant_id") or ""), []).append(item)
+        for gallery in galleries.values():
+            gallery.sort(key=lambda item: _integer(item.get("position"), 0))
+            primary = next((item["id"] for item in gallery if item["is_primary"]), gallery[0]["id"])
+            hover = next((item["id"] for item in gallery if item.get("is_hover")), None)
+            for position, item in enumerate(gallery):
+                item["position"] = position
+                item["is_primary"] = item["is_main"] = item["id"] == primary
+                item["is_hover"] = item["id"] == hover
     return structured, legacy
+
+
+def _hydrate_created_variant_galleries(product: dict) -> dict:
+    """Copy newly-created, variant-scoped relationships into variant galleries."""
+    variants = [dict(item) for item in (product.get("variants") or []) if isinstance(item, dict)]
+    media = [dict(item) for item in (product.get("catalogMedia") or []) if isinstance(item, dict)]
+    if not variants or not any(item.get("variant_id") for item in media):
+        return product
+    for variant in variants:
+        variant_id = str(variant.get("id") or "")
+        gallery = sorted(
+            (item for item in media if str(item.get("variant_id") or "") == variant_id),
+            key=lambda item: _integer(item.get("position"), 0),
+        )
+        if not gallery:
+            continue
+        variant["images"] = [str(item.get("permalink") or item.get("url") or "") for item in gallery]
+        variant["imageMeta"] = [
+            {
+                "id": item["id"],
+                "permalink": item.get("permalink") or item.get("url"),
+                "url": item.get("url") or item.get("permalink"),
+                "alt_text": item.get("alt_text"),
+                "position": position,
+                "is_primary": bool(item.get("is_primary")),
+                "is_hover": bool(item.get("is_hover")),
+            }
+            for position, item in enumerate(gallery)
+        ]
+    return {**product, "variants": variants}
 
 
 def _queue_media_delta(db, before, after, actor_id=None):
@@ -162,7 +240,8 @@ def _variant_media_entries(variant):
            for url in variant.get("images") or [] if isinstance(url, str)]
     entries, _ = _normalize_catalog_media(raw)
     for entry in entries:
-        entry["id"] = hashlib.sha256(f"variant:{variant_id}:{entry['id']}".encode()).hexdigest()[:32]
+        supplied_id = str(entry.get("id") or "").strip()
+        entry["id"] = supplied_id if re.fullmatch(r"[a-f0-9]{24,64}|[0-9a-f-]{36}", supplied_id, re.I) else hashlib.sha256(f"variant:{variant_id}:{supplied_id}".encode()).hexdigest()[:32]
         entry["variant_id"] = variant_id
         entry["colour_slug"] = str(variant.get("colourSlug") or "").strip()
         entry["colour"] = str(variant.get("colour") or "").strip()
@@ -441,6 +520,8 @@ def _requested_product_collections(db, payload: dict):
     collections = list(db.collections.find({"_id": {"$in": collection_ids}})) if collection_ids else []
     if len(collections) != len(collection_ids):
         return None, (jsonify({"error": "Choose valid collections."}), 400)
+    if any(collection.get("status") == "archived" or collection.get("isActive") is False for collection in collections):
+        return None, (jsonify({"error": "Archived collections cannot receive new product assignments."}), 400)
     by_id = {collection["_id"]: collection for collection in collections}
     return [by_id[collection_id] for collection_id in collection_ids], None
 
@@ -469,6 +550,7 @@ def _customer_access(customer_id: ObjectId, user: dict) -> dict:
 
 def _management_collection_payload(db, collection: dict) -> dict:
     detail = collection_view(db, collection)
+    detail["heroSource"] = collection_hero(collection)
     assigned_ids = {product["id"] for product in detail["products"]}
     all_products = list(db.products.find({}).sort("createdAt", -1).limit(200))
     available_products = [product_view(product) for product in all_products if str(product["_id"]) not in assigned_ids]
@@ -500,6 +582,65 @@ def list_collections():
         "collections": [collection_view(db, collection, include_products=False) for collection in managed_collections(db)],
         "permissions": effective_permissions(current_user()),
     }), 200
+
+
+@staff_bp.post("/collections")
+@requireStaff
+def create_collection():
+    denied = _collection_permission_error("products:manage")
+    if denied:
+        return denied
+    payload = request.get_json(silent=True) or {}
+    name = str(payload.get("name") or "").strip()
+    slug = _collection_slug(payload.get("slug") or name)
+    description = str(payload.get("description") or "").strip()
+    status = str(payload.get("status") or "draft").strip().lower()
+    if not name:
+        return jsonify({"error": "Collection name is required."}), 400
+    if not slug:
+        return jsonify({"error": "Enter a valid collection slug."}), 400
+    if status not in {"collection", "draft", "active"}:
+        return jsonify({"error": "Choose a valid collection status."}), 400
+    hero_payload = payload.get("hero")
+    if not isinstance(hero_payload, dict):
+        return jsonify({"error": "Hero configuration must be an object."}), 400
+    hero, hero_error = _validated_collection_hero(hero_payload)
+    if hero_error:
+        return jsonify({"error": hero_error}), 400
+    db = database()
+    if db.collections.find_one({"slug": slug}):
+        return jsonify({"error": "A collection with this slug already exists."}), 409
+    now = datetime.now(timezone.utc)
+    document = {
+        "name": name, "slug": slug, "description": description, "status": status,
+        "isActive": status != "draft", "hero": hero, "heroImage": hero["image"] or hero["poster"],
+        "productRefs": [], "createdAt": now, "updatedAt": now, "createdBy": current_user()["_id"], "updatedBy": current_user()["_id"],
+    }
+    result = db.collections.insert_one(document)
+    document["_id"] = result.inserted_id
+    _queue_collection_event(db, document, "COLLECTION_CREATED", current_user()["_id"])
+    return jsonify(_management_collection_payload(db, db.collections.find_one({"_id": result.inserted_id}) or document)), 201
+
+
+@staff_bp.post("/collections/image-preview")
+@requireStaff
+def preview_collection_image():
+    denied = _collection_permission_error("products:manage")
+    if denied:
+        return denied
+    source = str((request.get_json(silent=True) or {}).get("url") or "").strip()
+    if not is_supported_permalink(source):
+        return jsonify({"error": "Choose an approved WorkDrive file/share link."}), 400
+    try:
+        downloaded = download_file(source, database(), prefer_preview=True)
+    except WorkDriveFileNotFound:
+        return jsonify({"error": "The WorkDrive image was not found."}), 404
+    except WorkDriveUnavailable as error:
+        return jsonify({"error": "The WorkDrive image is unavailable.", "category": error.category}), 503
+    response = Response(downloaded.response.content, status=200, content_type=downloaded.response.headers.get("Content-Type", "application/octet-stream"))
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 @staff_bp.get("/collections/<slug>")
@@ -549,30 +690,16 @@ def update_collection(slug: str):
     for key in ("description", "heroImage"):
         if key in payload:
             value = str(payload.get(key) or "").strip()
-            if key == "heroImage" and value and not value.startswith(("https://", "/")):
-                return jsonify({"error": "Hero image must be an HTTPS or local URL."}), 400
+            if key == "heroImage" and not _valid_collection_media_url(value):
+                return jsonify({"error": "Hero image must be an HTTPS API/public image URL, a local API path, or an approved WorkDrive file/share link."}), 400
             updates[key] = value
     if "hero" in payload:
         hero_payload = payload.get("hero")
         if not isinstance(hero_payload, dict):
             return jsonify({"error": "Hero configuration must be an object."}), 400
-        hero = collection_hero(collection)
-        for key in ("type", "image", "video", "poster", "mobileImage", "mobileVideo", "layout", "label", "ctaLabel"):
-            if key in hero_payload:
-                hero[key] = str(hero_payload.get(key) or "").strip()
-        hero["type"] = hero["type"].lower()
-        hero["layout"] = hero["layout"].lower()
-        if hero["type"] not in COLLECTION_HERO_TYPES:
-            return jsonify({"error": "Hero type must be image or video."}), 400
-        if hero["layout"] not in COLLECTION_HERO_LAYOUTS:
-            return jsonify({"error": "Choose a valid hero layout."}), 400
-        for key in ("image", "video", "poster", "mobileImage", "mobileVideo"):
-            if hero[key] and not hero[key].startswith(("https://", "/")):
-                return jsonify({"error": f"Hero {key} must be an HTTPS or local URL."}), 400
-        if hero["type"] == "image" and not hero["image"]:
-            return jsonify({"error": "An image hero requires a desktop image."}), 400
-        if hero["type"] == "video" and not hero["video"]:
-            return jsonify({"error": "A video hero requires a desktop video."}), 400
+        hero, hero_error = _validated_collection_hero(hero_payload, collection)
+        if hero_error:
+            return jsonify({"error": hero_error}), 400
         updates["hero"] = hero
         updates["heroImage"] = hero["image"] or hero["poster"]
     for key in ("season", "designerNote", "collectionNumber", "location", "campaignInformation"):
@@ -589,6 +716,75 @@ def update_collection(slug: str):
     return jsonify(_management_collection_payload(db, updated_collection)), 200
 
 
+@staff_bp.post("/collections/<slug>/archive")
+@requireStaff
+def archive_collection(slug: str):
+    denied = _collection_permission_error("products:manage")
+    if denied:
+        return denied
+    db = database()
+    collection = collection_document(db, slug)
+    if not collection:
+        return jsonify({"error": "Collection not found."}), 404
+    if collection.get("status") == "archived":
+        return jsonify(_management_collection_payload(db, collection)), 200
+    previous_status = str(collection.get("status") or "collection").strip().lower()
+    now = datetime.now(timezone.utc)
+    db.collections.update_one(
+        {"_id": collection["_id"]},
+        {"$set": {"status": "archived", "isActive": False, "statusBeforeArchive": previous_status, "updatedAt": now, "updatedBy": current_user()["_id"]}},
+    )
+    updated = db.collections.find_one({"_id": collection["_id"]})
+    _queue_collection_event(db, updated, "COLLECTION_DEACTIVATED", current_user()["_id"])
+    return jsonify(_management_collection_payload(db, updated)), 200
+
+
+@staff_bp.post("/collections/<slug>/restore")
+@requireStaff
+def restore_collection(slug: str):
+    denied = _collection_permission_error("products:manage")
+    if denied:
+        return denied
+    db = database()
+    collection = collection_document(db, slug)
+    if not collection:
+        return jsonify({"error": "Collection not found."}), 404
+    if collection.get("status") != "archived":
+        return jsonify(_management_collection_payload(db, collection)), 200
+    restored_status = str(collection.get("statusBeforeArchive") or "collection").strip().lower()
+    if restored_status not in {"collection", "draft", "active"}:
+        restored_status = "collection"
+    now = datetime.now(timezone.utc)
+    db.collections.update_one(
+        {"_id": collection["_id"]},
+        {"$set": {"status": restored_status, "isActive": True, "updatedAt": now, "updatedBy": current_user()["_id"]}, "$unset": {"statusBeforeArchive": ""}},
+    )
+    updated = db.collections.find_one({"_id": collection["_id"]})
+    _queue_collection_event(db, updated, "COLLECTION_UPDATED", current_user()["_id"])
+    return jsonify(_management_collection_payload(db, updated)), 200
+
+
+@staff_bp.delete("/collections/<slug>")
+@requireStaff
+def delete_archived_collection(slug: str):
+    denied = _collection_permission_error("products:manage")
+    if denied:
+        return denied
+    db = database()
+    collection = collection_document(db, slug)
+    if not collection:
+        return jsonify({"error": "Collection not found."}), 404
+    if collection.get("status") != "archived":
+        return jsonify({"error": "Only archived collections can be deleted. Archive the collection first."}), 409
+    # Product documents and provider media are independent records. Removing
+    # this collection document removes only its membership relationship.
+    removed = db.collections.delete_one({"_id": collection["_id"]})
+    if not removed.deleted_count:
+        return jsonify({"error": "The archived collection could not be deleted."}), 409
+    _queue_collection_event(db, collection, "COLLECTION_DELETED", current_user()["_id"])
+    return jsonify({"deleted": True, "slug": slug}), 200
+
+
 @staff_bp.post("/collections/<slug>/products")
 @requireStaff
 def assign_collection_product(slug: str):
@@ -601,6 +797,8 @@ def assign_collection_product(slug: str):
     product_id = _valid_id(str((request.get_json(silent=True) or {}).get("productId") or ""))
     if not collection:
         return jsonify({"error": "Collection not found."}), 404
+    if collection.get("status") == "archived" or collection.get("isActive") is False:
+        return jsonify({"error": "Archived collections cannot receive new product assignments."}), 409
     product = db.products.find_one({"_id": product_id}) if product_id else None
     if not product_id or not product:
         return jsonify({"error": "Product not found."}), 404
@@ -857,6 +1055,10 @@ def create_resource(resource: str):
     if resource == "products":
         _set_product_collections(db, document["_id"], requested_collections)
         document = sync_product_variants(db, document) or document
+        hydrated = _hydrate_created_variant_galleries(document)
+        if hydrated.get("variants") != document.get("variants"):
+            db.products.update_one({"_id": document["_id"]}, {"$set": {"variants": hydrated["variants"], "updatedAt": now}})
+            document = hydrated
         _queue_product_event(db, document, "PRODUCT_CREATED", actor["_id"])
         media_events = _queue_media_delta(db, {}, document, actor["_id"])
         for requested_collection in requested_collections:
@@ -1178,6 +1380,20 @@ def _variant_gallery_payload(product, selected, requested_id):
     if not images:
         images = [str(item.get("permalink") or item.get("url") or "").strip() for item in image_meta]
         images = [image for image in images if image]
+    catalog_by_url = {
+        str(item.get("permalink") or item.get("url") or "").strip(): item
+        for item in (product.get("catalogMedia") or [])
+        if isinstance(item, dict) and str(item.get("variant_id") or "") == selected_id
+    }
+    for index, item in enumerate(image_meta):
+        url = str(item.get("permalink") or item.get("url") or (images[index] if index < len(images) else "")).strip()
+        relationship = catalog_by_url.get(url)
+        if relationship:
+            relationship_id = _media_relationship_id(relationship)
+            item["id"] = relationship_id
+            item["media_id"] = relationship_id
+            if product.get("_id"):
+                item["renderUrl"] = f"/api/staff/products/{product['_id']}/media/{relationship_id}"
     return {"id": selected_id, "sku": selected.get("sku"), "images": images, "imageMeta": image_meta}
 
 
@@ -1201,8 +1417,12 @@ def update_product_variant(product_id: str, variant_id: str):
 
     payload = request.get_json(silent=True) or {}
     variants = [dict(item) for item in product.get("variants", []) if isinstance(item, dict)]
-    index = next(index for index, item in enumerate(variants) if str(item.get("id") or "") == str(selected.get("id") or ""))
-    updated_variant = dict(variants[index])
+    selected_id = str(selected.get("id") or variant_id)
+    index = next((position for position, item in enumerate(variants) if str(item.get("id") or "") == selected_id), None)
+    if index is None:
+        return jsonify({"error": "Variant is no longer available. Reload the product and try again."}), 404
+    original_variant = dict(variants[index])
+    updated_variant = dict(original_variant)
     if "status" in payload:
         status = str(payload.get("status") or "").strip().lower()
         if status not in VARIANT_STATUSES:
@@ -1234,11 +1454,15 @@ def update_product_variant(product_id: str, variant_id: str):
         metadata_urls = [str(item.get("permalink") or item.get("url") or "").strip() for item in image_meta]
         if "images" in payload and metadata_urls != updated_variant.get("images"):
             return jsonify({"error": "Variant image metadata must match the image order exactly."}), 400
-        updated_variant["imageMeta"] = [dict(item, is_primary=bool(item.get("is_primary", False)), is_hover=bool(item.get("is_hover", False)), position=index) for index, item in enumerate(image_meta)]
+        updated_variant["imageMeta"] = [dict(item, is_primary=bool(item.get("is_primary", False)), is_hover=bool(item.get("is_hover", False)), position=meta_index) for meta_index, item in enumerate(image_meta)]
         try:
-            _variant_media_entries(updated_variant)
+            canonical = _variant_media_entries(updated_variant)
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
+        for meta_index, relationship in enumerate(canonical):
+            relationship_id = _media_relationship_id(relationship)
+            updated_variant["imageMeta"][meta_index]["id"] = relationship_id
+            updated_variant["imageMeta"][meta_index]["media_id"] = relationship_id
     if "price" in payload:
         price = _number(payload.get("price"))
         if price < 0:
@@ -1251,7 +1475,7 @@ def update_product_variant(product_id: str, variant_id: str):
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
 
-    if updated_variant == variants[index]:
+    if updated_variant == original_variant:
         return jsonify({"item": _document_view(product, "products")}), 200
     before_product = dict(product)
     before_product["variants"] = [dict(item) for item in variants]
@@ -1276,6 +1500,35 @@ def update_product_variant(product_id: str, variant_id: str):
     current = sync_product_variants(db, db.products.find_one({"_id": object_id}), force=True)
     _queue_media_delta(db, before_product, after_product, actor["_id"])
     return jsonify({"item": _document_view(current, "products")}), 200
+
+
+@staff_bp.get("/products/<product_id>/media/<media_id>")
+@requireStaff
+def staff_product_media(product_id: str, media_id: str):
+    denied = _permission_error("products")
+    if denied:
+        return denied
+    object_id = _valid_id(product_id)
+    if not object_id:
+        return jsonify({"error": "Invalid product id."}), 400
+    db = database()
+    product = db.products.find_one({"_id": object_id})
+    media = next((item for item in (product or {}).get("catalogMedia") or [] if isinstance(item, dict) and _media_relationship_id(item) == media_id and str(item.get("provider") or "").lower() == "zoho_workdrive"), None)
+    if not media:
+        return jsonify({"error": "Product media not found."}), 404
+    try:
+        downloaded = download_file(str(media.get("permalink") or ""), db, prefer_preview=True)
+    except WorkDriveFileNotFound:
+        return jsonify({"error": "Product media not found."}), 404
+    except WorkDriveUnavailable:
+        return jsonify({"error": "Product media is temporarily unavailable."}), 503
+    content_type = downloaded.response.headers.get("Content-Type", "application/octet-stream").split(";", 1)[0].strip()
+    if not content_type.startswith("image/"):
+        return jsonify({"error": "Product media is not an image."}), 422
+    response = Response(downloaded.response.content, status=200, content_type=content_type)
+    response.headers["Cache-Control"] = "private, max-age=300"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 @staff_bp.delete("/products/<product_id>/media/<media_id>")

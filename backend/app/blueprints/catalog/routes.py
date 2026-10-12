@@ -9,6 +9,7 @@ from flask import Blueprint, Response, current_app, jsonify, request, stream_wit
 from ...catalog import (
     STOREFRONT_COLLECTION_PROJECTION,
     collection_document,
+    collection_hero,
     collection_view,
     collection_product_count,
     collection_display_sort_key,
@@ -24,7 +25,7 @@ from ...catalog import (
 from ...extensions import limiter
 from ...product_variants import find_variant, product_has_visible_variants, sync_product_variants
 from ...rbac import database
-from ...workdrive import WorkDriveFileNotFound, WorkDriveUnavailable, download_file
+from ...workdrive import WorkDriveFileNotFound, WorkDriveUnavailable, download_file, is_supported_permalink
 
 
 catalog_bp = Blueprint("catalog", __name__)
@@ -84,7 +85,7 @@ def _shop_matches(record, *, query="", category="", colour="", size="", collecti
 @catalog_bp.get("/products")
 def storefront_products():
     db = database()
-    collections = [item for item in db.collections.find({}) if not is_excluded_collection(item)]
+    collections = [item for item in db.collections.find({}) if not is_excluded_collection(item) and item.get("status") != "archived" and item.get("isActive") is not False]
     memberships = {}
     featured_order = {}
     for collection in collections:
@@ -139,7 +140,7 @@ def storefront_products():
 @catalog_bp.get("/collections")
 def storefront_collections():
     db = database()
-    existing = [collection for collection in db.collections.find({}) if not is_excluded_collection(collection)]
+    existing = [collection for collection in db.collections.find({}) if not is_excluded_collection(collection) and collection.get("status") != "archived" and collection.get("isActive") is not False]
     existing.sort(key=collection_display_sort_key)
     collections = [
         collection_view(db, collection, include_products=False)
@@ -149,6 +150,30 @@ def storefront_collections():
     response = jsonify({"collections": collections, "count": len(collections)})
     response.headers["Cache-Control"] = "public, max-age=0, s-maxage=60, stale-while-revalidate=300"
     return response, 200
+
+
+@catalog_bp.get("/collections/<slug>/hero-image/<slot>")
+def storefront_collection_hero_image(slug: str, slot: str):
+    if slot not in {"desktop", "mobile", "poster"}:
+        return jsonify({"error": "Collection image not found."}), 404
+    db = database()
+    collection = collection_document(db, slug)
+    if not collection or collection.get("status") == "archived" or collection.get("isActive") is False:
+        return jsonify({"error": "Collection image not found."}), 404
+    hero = collection_hero(collection)
+    source = {"desktop": hero["image"], "mobile": hero["mobileImage"], "poster": hero["poster"]}[slot]
+    if not source or not is_supported_permalink(source):
+        return jsonify({"error": "Collection image not found."}), 404
+    try:
+        downloaded = download_file(source, db, prefer_preview=True)
+    except WorkDriveFileNotFound:
+        return jsonify({"error": "Collection image not found."}), 404
+    except WorkDriveUnavailable:
+        return jsonify({"error": "Collection image is temporarily unavailable."}), 503
+    response = Response(downloaded.response.content, status=200, content_type=downloaded.response.headers.get("Content-Type", "application/octet-stream"))
+    response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=600"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 def _request_text(value: object, maximum: int) -> str:
@@ -176,7 +201,7 @@ def _runway_collection(db):
         "updatedAt": 1,
         "productRefs": 1,
     }
-    collections = [collection for collection in db.collections.find({}, projection) if not is_excluded_collection(collection)]
+    collections = [collection for collection in db.collections.find({}, projection) if not is_excluded_collection(collection) and collection.get("status") != "archived" and collection.get("isActive") is not False]
     # Prefer the named Lakme/Espiritu chapter if more than one runway record
     # exists, while retaining collectionType=runway as the canonical signal.
     named_runway = next(
@@ -373,6 +398,8 @@ def storefront_collection(slug: str):
     collection = collection_document(db, slug, STOREFRONT_COLLECTION_PROJECTION)
     collection_query_ms = (perf_counter() - started_at) * 1000
     if not collection:
+        return jsonify({"error": "Collection not found."}), 404
+    if collection.get("status") == "archived" or collection.get("isActive") is False:
         return jsonify({"error": "Collection not found."}), 404
     view_started_at = perf_counter()
     raw_page = request.args.get("page")

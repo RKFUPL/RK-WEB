@@ -29,6 +29,7 @@ import {
   type ProductDraft,
 } from "@/lib/product-editor";
 import { VariantMediaEditor } from "@/components/collections/variant-media-editor";
+import { CreateProductLevelMediaEditor, CreateProductMediaEditor } from "@/components/collections/create-product-media-editor";
 
 type DetailPayload = {
   collection: ManagedCollection & { products: CatalogProduct[] };
@@ -39,6 +40,7 @@ type DetailPayload = {
 
 const inputClass =
   "admin-field mt-2 text-sm";
+const isWorkDriveImage = (value: string) => /^https:\/\/workdrive\.zoho(?:external)?\.in\//i.test(value.trim());
 const availabilityOptions: ProductAvailability[] = [
   "in_stock",
   "custom_order",
@@ -50,6 +52,132 @@ const T1_STALE_MEDIA_IDS = new Set([
   "2bd1d35e3b960296cf9e11bed471c781",
   "c8b26e803882073a7b9306b87b4c04f5",
 ]);
+
+function colourVariants(value: string): CatalogProduct["variants"] {
+  const seen = new Set<string>();
+  return value.split(",").map((colour) => colour.trim()).filter((colour) => {
+    const key = colour.toLocaleLowerCase();
+    return Boolean(key) && !seen.has(key) && Boolean(seen.add(key));
+  }).map((colour) => {
+    const colourSlug = colour.toLocaleLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    return { id: `colour:${colourSlug}`, sku: "Assigned after creation", colour, colourSlug, images: [], imageMeta: [], status: "active" as const, currency: "INR" as const, sizes: [], sizeInventory: [] };
+  });
+}
+
+type CreateProductResult = { id?: string; product?: CatalogProduct; error?: string };
+
+function CreateProductDrawer({
+  collection,
+  busy,
+  onClose,
+  onCreate,
+  onVerify,
+}: {
+  collection: ManagedCollection;
+  busy: boolean;
+  onClose: () => void;
+  onCreate: (payload: Record<string, unknown>) => Promise<CreateProductResult>;
+  onVerify: (id: string) => Promise<CatalogProduct | undefined>;
+}) {
+  const [activeSection, setActiveSection] = useState<"overview" | "media" | "details" | "pricing">("overview");
+  const [draft, setDraft] = useState({ name: "", sku: "", price: "", stock: "0", availability: "in_stock" as ProductAvailability, category: "", description: "", sizes: "", colors: "", fabric: "", occasion: "", gender: "", material: "", customizationInformation: "" });
+  const [media, setMedia] = useState<NonNullable<CatalogProduct["catalogMedia"]>>([]);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [createdId, setCreatedId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const variants = useMemo(() => colourVariants(draft.colors) || [], [draft.colors]);
+  const addDraftColour = (value: string) => {
+    const colour = value.trim();
+    if (!colour) return undefined;
+    const current = draft.colors.split(",").map((item) => item.trim()).filter(Boolean);
+    if (current.some((item) => item.toLocaleLowerCase() === colour.toLocaleLowerCase())) return undefined;
+    const colourSlug = colour.toLocaleLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    if (!colourSlug) return undefined;
+    setDraft((state) => ({ ...state, colors: [...current, colour].join(", ") }));
+    return `colour:${colourSlug}`;
+  };
+  const renameDraftColour = (variantId: string, value: string) => {
+    const colour = value.trim();
+    const colourSlug = colour.toLocaleLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const current = colourVariants(draft.colors) || [];
+    if (!colourSlug || current.some((item) => item.id !== variantId && item.colour.toLocaleLowerCase() === colour.toLocaleLowerCase())) return undefined;
+    const nextId = `colour:${colourSlug}`;
+    setDraft((state) => ({ ...state, colors: current.map((item) => item.id === variantId ? colour : item.colour).join(", ") }));
+    setMedia((items) => items.map((item) => item.variant_id === variantId ? { ...item, variant_id: nextId, colour, colour_slug: colourSlug } : item));
+    return nextId;
+  };
+  const removeDraftColour = (variantId: string) => {
+    const current = colourVariants(draft.colors) || [];
+    if (!current.some((item) => item.id === variantId)) return false;
+    setDraft((state) => ({ ...state, colors: current.filter((item) => item.id !== variantId).map((item) => item.colour).join(", ") }));
+    setMedia((items) => items.filter((item) => item.variant_id !== variantId));
+    return true;
+  };
+  const updateDraftColours = (value: string) => {
+    const before = colourVariants(draft.colors) || [];
+    const after = colourVariants(value) || [];
+    setDraft((state) => ({ ...state, colors: value }));
+    setMedia((items) => items.map((item) => {
+      const index = before.findIndex((variant) => variant.id === item.variant_id);
+      const replacement = index >= 0 ? after[index] : undefined;
+      return replacement ? { ...item, variant_id: replacement.id, colour: replacement.colour, colour_slug: replacement.colourSlug } : item;
+    }));
+  };
+  const dirty = Object.values(draft).some((value) => value !== "" && value !== "0" && value !== "in_stock") || media.length > 0;
+  const requestClose = () => { if (saving) return; if (dirty && !window.confirm("Discard this unsaved product draft?")) return; onClose(); };
+
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") requestClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => { document.body.style.overflow = previous; window.removeEventListener("keydown", onKey); };
+  }, [dirty, saving]);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (saving) return;
+    setError(""); setMessage(""); setSaving(true);
+    try {
+      if (createdId) {
+        const verified = await onVerify(createdId);
+        if (!verified) throw new Error("The product was created, but read-back is still unavailable. Do not create it again; use Verify saved product.");
+        onClose();
+        return;
+      }
+      const name = draft.name.trim();
+      const sku = draft.sku.trim().toUpperCase();
+      const price = Number(draft.price);
+      const stock = Number(draft.stock);
+      if (!name) throw new Error("Product name is required.");
+      if (!sku) throw new Error("A unique style code / SKU is required.");
+      if (draft.price.trim() === "" || !Number.isFinite(price) || price < 0) throw new Error("Base price must be a non-negative number.");
+      if (!Number.isInteger(stock) || stock < 0) throw new Error("Opening stock must be a non-negative whole number.");
+      const sizes = draft.sizes.split(",").map((item) => item.trim().toUpperCase()).filter(Boolean);
+      const enteredColours = draft.colors.split(",").map((item) => item.trim()).filter(Boolean);
+      if (enteredColours.length !== variants.length) throw new Error("Colour names must be unique after ignoring case and whitespace.");
+      const variantIds = new Set(variants.map((variant) => variant.id));
+      if (media.some((item) => item.variant_id && !variantIds.has(item.variant_id))) throw new Error("A draft image belongs to a removed colour. Restore that colour or remove the image before creating the product.");
+      if (sizes.some((size) => !["XS", "S", "M", "L", "XL"].includes(size))) throw new Error("Sizes must use XS, S, M, L or XL.");
+      if (sizes.length && stock !== 0) throw new Error("Opening stock for size-managed products must be allocated per size after creation. Use 0 for the initial product.");
+      const result = await onCreate({ name, sku, styleCode: sku, price, stock, status: "draft", availability: draft.availability, category: draft.category.trim(), description: draft.description.trim(), collectionId: collection.id, attributes: { sizes, colors: variants.map((variant) => variant.colour), fabric: draft.fabric.trim(), occasion: draft.occasion.trim(), gender: draft.gender.trim(), material: draft.material.trim(), customizationInformation: draft.customizationInformation.trim() }, sizeInventoryConfigured: sizes.length > 0, sizeInventory: sizes.map((size) => ({ size, stock: 0, enabled: true })), media: media.map((item) => ({ ...item, id: undefined, media_id: undefined })) });
+      if (result.id) setCreatedId(result.id);
+      if (result.error) throw new Error(result.error);
+      if (!result.product) throw new Error("The product was created, but authoritative read-back is unavailable. Your draft remains open; do not submit it again.");
+      onClose();
+    } catch (value) { setError(value instanceof Error ? value.message : "Unable to create product."); }
+    finally { setSaving(false); }
+  };
+
+  return <div className="fixed inset-0 z-[100] bg-black/45 backdrop-blur-[1px]" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose(); }}><aside role="dialog" aria-modal="true" aria-labelledby="create-product-title" className="ml-auto flex h-full w-full max-w-[min(1120px,94vw)] flex-col overflow-hidden bg-[#f5f1eb] text-[#20242b] shadow-[-24px_0_80px_rgba(32,25,18,.18)]"><header className="flex shrink-0 items-start justify-between border-b border-black/[.07] bg-[#fffdf9]/95 px-5 py-5 sm:px-8"><div><p className="text-[10px] uppercase tracking-[.2em] text-[#9a7a4d]">Product management · Create</p><h2 id="create-product-title" className="admin-display mt-2 text-3xl leading-none">{draft.name || "New product"}</h2><p className="mt-1 text-xs text-[#8a9098]">New centralized product · {collection.name}</p></div><div className="flex items-center gap-2"><button type="button" onClick={() => (document.getElementById("product-create-form") as HTMLFormElement | null)?.requestSubmit()} disabled={busy || saving} className="admin-button-primary px-4 py-2 text-xs disabled:opacity-40">{saving ? "Creating…" : createdId ? "Verify saved product" : "Create product"}</button><button type="button" onClick={requestClose} aria-label="Close product creation" className="rounded-lg p-2 hover:bg-black/5"><X size={18}/></button></div></header><nav aria-label="Product editor sections" role="tablist" className="flex shrink-0 gap-1 overflow-x-auto border-b border-black/[.07] bg-[#fffdf9] px-4 py-3 text-xs sm:px-8">{([['overview','Overview'],['media','Media & galleries'],['details','Details'],['pricing','Pricing & inventory']] as const).map(([id,label]) => <button key={id} type="button" role="tab" aria-selected={activeSection === id} onClick={() => setActiveSection(id)} className={`whitespace-nowrap rounded-lg px-3 py-2 ${activeSection === id ? "bg-[#efe4d5] font-medium text-[#7d582c]" : "text-[#6f675f] hover:bg-black/[.035]"}`}>{label}</button>)}</nav><form id="product-create-form" onSubmit={submit} className="flex-1 overflow-y-auto p-4 sm:p-8">
+    {activeSection === "overview" ? <section className="admin-panel p-5"><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[var(--admin-gold)]">Product identity</p><div className="mt-4 grid gap-4 sm:grid-cols-2"><label className="text-[10px] uppercase tracking-[.14em] text-[#8a9098]">Product name<input autoFocus value={draft.name} onChange={(event) => setDraft((current) => ({...current,name:event.target.value}))} className={inputClass}/></label><label className="text-[10px] uppercase tracking-[.14em] text-[#8a9098]">Style code / SKU<input value={draft.sku} onChange={(event) => setDraft((current) => ({...current,sku:event.target.value}))} className={inputClass}/></label></div></section> : null}
+    {activeSection === "details" ? <section className="admin-panel p-5"><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[var(--admin-gold)]">Product details</p><div className="mt-4 grid gap-4 sm:grid-cols-2">{[["category","Category"],["sizes","Sizes · comma separated"],["colors","Colours · comma separated"],["fabric","Fabric"],["occasion","Occasion"],["gender","Gender"],["material","Material"],["customizationInformation","Customization information"]].map(([key,label]) => <label key={key} className="text-[10px] uppercase tracking-[.14em] text-[#8a9098]">{label}<input value={draft[key as keyof typeof draft]} onChange={(event) => key === "colors" ? updateDraftColours(event.target.value) : setDraft((current) => ({...current,[key]:event.target.value}))} className={inputClass}/></label>)}<label className="text-[10px] uppercase tracking-[.14em] text-[#8a9098] sm:col-span-2">Description<textarea rows={4} value={draft.description} onChange={(event) => setDraft((current) => ({...current,description:event.target.value}))} className={inputClass}/></label></div></section> : null}
+    {activeSection === "media" ? <><CreateProductMediaEditor variants={variants || []} value={media} onChange={setMedia} token={() => window.localStorage.getItem("rk_access_token") ?? ""} onAddColour={addDraftColour} onRenameColour={renameDraftColour} onRemoveColour={removeDraftColour}/><CreateProductLevelMediaEditor value={media} onChange={setMedia} token={() => window.localStorage.getItem("rk_access_token") ?? ""}/></> : null}
+    {activeSection === "pricing" ? <section className="admin-panel p-5"><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[var(--admin-gold)]">Pricing & inventory</p><div className="mt-4 grid gap-4 sm:grid-cols-3"><label className="text-[10px] uppercase tracking-[.14em] text-[#8a9098]">Base INR price<input type="number" min="0" step="0.01" value={draft.price} onChange={(event) => setDraft((current) => ({...current,price:event.target.value}))} className={inputClass}/></label><label className="text-[10px] uppercase tracking-[.14em] text-[#8a9098]">Availability<select value={draft.availability} onChange={(event) => setDraft((current) => ({...current,availability:event.target.value as ProductAvailability}))} className={inputClass}>{availabilityOptions.map((option) => <option key={option} value={option}>{availabilityLabels[option]}</option>)}</select></label><label className="text-[10px] uppercase tracking-[.14em] text-[#8a9098]">Opening stock<input type="number" min="0" step="1" value={draft.stock} onChange={(event) => setDraft((current) => ({...current,stock:event.target.value}))} className={inputClass}/></label></div><p className="mt-4 text-xs text-[var(--admin-muted)]">Inventory adjustments remain audited after creation. Size-managed products start at zero until quantities are allocated per size.</p></section> : null}
+    {message ? <p className="mt-4 text-sm text-emerald-700">{message}</p> : null}{error ? <p role="alert" className="mt-4 text-sm text-red-700">{error}</p> : null}
+  </form></aside></div>;
+}
 
 function configuredMediaEntries(product: CatalogProduct) {
   const groups = adminMediaGroups(product);
@@ -75,6 +203,17 @@ function statusLabel(status: string) {
 
 function parentCode(product: CatalogProduct) {
   return product.styleCode || product.productCode || product.parentSku || product.sku || "";
+}
+
+function adminProductPreview(product: CatalogProduct) {
+  const ordered = [...(product.catalogMedia || [])].sort((left, right) => Number(Boolean(right.is_primary)) - Number(Boolean(left.is_primary)) || Number(left.position || 0) - Number(right.position || 0));
+  for (const item of ordered) {
+    const relationshipId = String(item.media_id || item.id || "").trim();
+    if (item.provider === "zoho_workdrive" && relationshipId) return `/api/staff/products/${encodeURIComponent(product.id)}/media/${encodeURIComponent(relationshipId)}`;
+    const direct = String(item.renderUrl || item.secure_url || item.url || "").trim();
+    if (direct && !isWorkDriveImage(direct)) return direct;
+  }
+  return (product.media || []).find((source) => source.startsWith("/") || (source.startsWith("https://") && !isWorkDriveImage(source))) || "";
 }
 
 function ProductDrawer({
@@ -109,11 +248,13 @@ function ProductDrawer({
   const [cleanupBusy, setCleanupBusy] = useState(false);
   const [deletingMediaId, setDeletingMediaId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [overviewImageFailed, setOverviewImageFailed] = useState(false);
   const saveInFlight = useRef(false);
   const [baseline, setBaseline] = useState(product);
   const [form, setForm] = useState<ProductDraft>(() => productDraftFrom(product));
   const token = () => window.localStorage.getItem("rk_access_token") ?? "";
   const mediaGroups = adminMediaGroups(product);
+  const overviewImage = adminProductPreview(product);
   const cleanupPlan = guardedMediaCleanupPlan(product, T1_ID, T1_STALE_MEDIA_IDS);
   const canCleanT1Media = cleanupPlan !== null;
   const editDirty = editing && JSON.stringify(form) !== JSON.stringify(productDraftFrom(baseline));
@@ -122,6 +263,7 @@ function ProductDrawer({
     if (editDirty && !window.confirm("Discard unsaved product changes?")) return;
     onClose();
   };
+  useEffect(() => setOverviewImageFailed(false), [overviewImage]);
   const submitProductForm = () => {
     (document.getElementById("product-edit-form") as HTMLFormElement | null)?.requestSubmit();
   };
@@ -414,18 +556,19 @@ function ProductDrawer({
           {activeSection === "overview" ? <>
           <div className="admin-panel grid gap-6 p-4 sm:grid-cols-[13rem_1fr] sm:p-5">
             <div className="aspect-[4/5] overflow-hidden rounded-xl border border-black/[.08] bg-[#efece6] dark:border-white/[.08] dark:bg-white/[.04]">
-              {product.media?.[0] ? (
+              {overviewImage && !overviewImageFailed ? (
                 <img
-                  src={product.media[0]}
+                  src={overviewImage}
                   alt={product.name || "Product"}
                   className="h-full w-full object-cover"
+                  onError={() => setOverviewImageFailed(true)}
                 />
               ) : (
                 <div className="grid h-full place-items-center text-center text-[#9a7a4d]">
                   <div>
                     <ImageIcon size={26} className="mx-auto" />
                     <p className="mt-2 text-[10px] uppercase tracking-[.15em]">
-                      Image placeholder
+                      {overviewImageFailed ? "Preview unavailable" : "Image placeholder"}
                     </p>
           </div>
           </div>
@@ -701,7 +844,11 @@ export function CollectionManagementDetail({
   const [message, setMessage] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editingCollection, setEditingCollection] = useState(false);
+  const [heroPreviewFailed, setHeroPreviewFailed] = useState(false);
+  const [draftWorkDrivePreview, setDraftWorkDrivePreview] = useState("");
+  const [draftWorkDriveError, setDraftWorkDriveError] = useState("");
   const [adding, setAdding] = useState(false);
+  const [assigning, setAssigning] = useState(false);
   const [existingProductId, setExistingProductId] = useState("");
   const [collectionForm, setCollectionForm] = useState({
     name: "",
@@ -723,14 +870,11 @@ export function CollectionManagementDetail({
     location: "",
     campaignInformation: "",
   });
-  const [newProduct, setNewProduct] = useState({
-    name: "",
-    sku: "",
-    price: "",
-    stock: "0",
-    availability: "in_stock" as ProductAvailability,
-  });
+  const [collectionBaseline, setCollectionBaseline] = useState<typeof collectionForm | null>(null);
   const token = () => window.localStorage.getItem("rk_access_token") ?? "";
+  const normalizeCollectionValue = (value: string) => value.trim().replace(/\s+/g, " ");
+  const collectionEditableKeys = Object.keys(collectionForm) as Array<keyof typeof collectionForm>;
+  const collectionDirty = Boolean(collectionBaseline && collectionEditableKeys.some((key) => normalizeCollectionValue(collectionForm[key]) !== normalizeCollectionValue(collectionBaseline[key])));
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -745,26 +889,29 @@ export function CollectionManagementDetail({
         throw new Error(payload.error ?? "Unable to load collection.");
       setData(payload as DetailPayload);
       const collection = payload.collection as ManagedCollection;
-      setCollectionForm({
+      const nextForm = {
         name: collection.name,
         status: collection.status,
         description: collection.description ?? "",
         heroType: collection.hero?.type ?? "image",
         heroLayout: collection.hero?.layout ?? "media_dominant",
-        heroImage: collection.hero?.image ?? collection.heroImage ?? "",
-        heroVideo: collection.hero?.video ?? "",
-        heroPoster: collection.hero?.poster ?? collection.heroImage ?? "",
-        heroMobileImage: collection.hero?.mobileImage ?? "",
-        heroMobileVideo: collection.hero?.mobileVideo ?? "",
-        heroLabel: collection.hero?.label ?? "The Collection",
-        heroCtaLabel: collection.hero?.ctaLabel ?? "Explore Collection",
+        heroImage: collection.heroSource?.image ?? collection.hero?.image ?? collection.heroImage ?? "",
+        heroVideo: collection.heroSource?.video ?? collection.hero?.video ?? "",
+        heroPoster: collection.heroSource?.poster ?? collection.hero?.poster ?? collection.heroImage ?? "",
+        heroMobileImage: collection.heroSource?.mobileImage ?? collection.hero?.mobileImage ?? "",
+        heroMobileVideo: collection.heroSource?.mobileVideo ?? collection.hero?.mobileVideo ?? "",
+        heroLabel: collection.heroSource?.label ?? collection.hero?.label ?? "The Collection",
+        heroCtaLabel: collection.heroSource?.ctaLabel ?? collection.hero?.ctaLabel ?? "Explore Collection",
         season: collection.season ?? "",
         year: collection.year ? String(collection.year) : "",
         designerNote: collection.designerNote ?? "",
         collectionNumber: collection.collectionNumber ?? "",
         location: collection.location ?? "",
         campaignInformation: collection.campaignInformation ?? "",
-      });
+      };
+      setCollectionForm(nextForm);
+      setCollectionBaseline(nextForm);
+      setHeroPreviewFailed(false);
       return payload as DetailPayload;
     } catch (requestError) {
       setError(
@@ -781,6 +928,41 @@ export function CollectionManagementDetail({
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    if (!editingCollection || !isWorkDriveImage(collectionForm.heroImage)) {
+      setDraftWorkDrivePreview("");
+      setDraftWorkDriveError("");
+      return;
+    }
+    if (collectionForm.heroImage === data?.collection.heroSource?.image) {
+      setDraftWorkDrivePreview(data.collection.hero?.image || data.collection.heroImage || "");
+      setDraftWorkDriveError("");
+      return;
+    }
+    let objectUrl = "";
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/staff/collections/image-preview`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ url: collectionForm.heroImage }),
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          const payload = await response.json();
+          throw new Error(payload.error || "Unable to preview this WorkDrive image.");
+        }
+        objectUrl = URL.createObjectURL(await response.blob());
+        setDraftWorkDrivePreview(objectUrl);
+        setDraftWorkDriveError("");
+        setHeroPreviewFailed(false);
+      } catch (previewError) {
+        if (!controller.signal.aborted) setDraftWorkDriveError(previewError instanceof Error ? previewError.message : "Unable to preview this WorkDrive image.");
+      }
+    }, 450);
+    return () => { window.clearTimeout(timer); controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [collectionForm.heroImage, data, editingCollection]);
   const canManageProducts = Boolean(
     data?.permissions.includes("products:manage"),
   );
@@ -826,35 +1008,37 @@ export function CollectionManagementDetail({
 
   const saveCollection = async (event: FormEvent) => {
     event.preventDefault();
+    const baseline = collectionBaseline;
+    const body: Record<string, unknown> = {};
+    for (const key of ["name", "status", "description", "season", "year", "designerNote", "collectionNumber", "location", "campaignInformation"] as const) {
+      if (!baseline || normalizeCollectionValue(collectionForm[key]) !== normalizeCollectionValue(baseline[key])) body[key] = key === "year" ? collectionForm.year || null : collectionForm[key];
+    }
+    const heroKeys = {
+      type: "heroType", layout: "heroLayout", image: "heroImage", video: "heroVideo", poster: "heroPoster",
+      mobileImage: "heroMobileImage", mobileVideo: "heroMobileVideo", label: "heroLabel", ctaLabel: "heroCtaLabel",
+    } as const;
+    const hero = Object.fromEntries(Object.entries(heroKeys).flatMap(([target, source]) =>
+      !baseline || normalizeCollectionValue(collectionForm[source]) !== normalizeCollectionValue(baseline[source]) ? [[target, collectionForm[source]]] : [],
+    ));
+    if (Object.keys(hero).length) body.hero = hero;
+    if (!Object.keys(body).length) {
+      setEditingCollection(false);
+      setMessage("No collection changes to save.");
+      return;
+    }
     const payload = await relationRequest(
       `/api/staff/collections/${encodeURIComponent(slug)}`,
       {
         method: "PATCH",
-        body: JSON.stringify({
-          name: collectionForm.name,
-          status: collectionForm.status,
-          description: collectionForm.description,
-          season: collectionForm.season,
-          year: collectionForm.year || null,
-          designerNote: collectionForm.designerNote,
-          collectionNumber: collectionForm.collectionNumber,
-          location: collectionForm.location,
-          campaignInformation: collectionForm.campaignInformation,
-      hero: {
-            type: collectionForm.heroType,
-            layout: collectionForm.heroLayout,
-            image: collectionForm.heroImage,
-            video: collectionForm.heroVideo,
-            poster: collectionForm.heroPoster,
-            mobileImage: collectionForm.heroMobileImage,
-            mobileVideo: collectionForm.heroMobileVideo,
-            label: collectionForm.heroLabel,
-            ctaLabel: collectionForm.heroCtaLabel,
-      },
-        }),
+        body: JSON.stringify(body),
       },
     );
     if (payload) {
+      const refreshed = await load(true);
+      if (!refreshed) {
+        setError("Collection was updated, but authoritative read-back is unavailable. Your draft remains available.");
+        return;
+      }
       setEditingCollection(false);
       setMessage("Collection updated.");
     }
@@ -876,8 +1060,7 @@ export function CollectionManagementDetail({
     }
   };
 
-  const createAndAssign = async (event: FormEvent) => {
-    event.preventDefault();
+  const createProduct = async (body: Record<string, unknown>): Promise<CreateProductResult> => {
     setBusy(true);
     setError("");
     setMessage("");
@@ -890,44 +1073,65 @@ export function CollectionManagementDetail({
             Authorization: `Bearer ${token()}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            ...newProduct,
-            price: Number(newProduct.price),
-            stock: Number(newProduct.stock),
-            status: "draft",
-          }),
+          body: JSON.stringify(body),
         },
       );
-      const payload = await response.json();
-      if (!response.ok)
-        throw new Error(payload.error ?? "Unable to create product.");
-      const assigned = await relationRequest(
-        `/api/staff/collections/${encodeURIComponent(slug)}/products`,
-        {
-          method: "POST",
-          body: JSON.stringify({ productId: payload.item.id }),
-        },
-      );
-      if (assigned) {
-        setNewProduct({
-          name: "",
-          sku: "",
-          price: "",
-          stock: "0",
-          availability: "in_stock",
-        });
-        setAdding(false);
-        setMessage("Product created once and assigned to this collection.");
-      }
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) return { error: payload.error ?? `Unable to create product (HTTP ${response.status}).` };
+      const id = String(payload.item?.id || "");
+      const refreshed = await load(true);
+      const product = refreshed?.collection.products.find((item) => item.id === id);
+      if (!product) return { id, error: "The product was created, but the collection read-back is unavailable. Do not submit the draft again; use Verify saved product." };
+      const submittedMedia = Array.isArray(body.media) ? body.media as Array<Record<string, unknown>> : [];
+      const persisted = product.catalogMedia || [];
+      const mediaVerified = submittedMedia.every((expected, index) => {
+        const actual = persisted.find((item) => item.variant_id === expected.variant_id && item.permalink === expected.permalink);
+        return actual && Number(actual.position || 0) === Number(expected.position ?? index) && Boolean(actual.is_primary) === Boolean(expected.is_primary) && Boolean(actual.is_hover) === Boolean(expected.is_hover);
+      });
+      if (!mediaVerified) return { id, error: "The product was created, but one or more media relationships failed authoritative read-back. The draft remains available." };
+      setSelectedId(id);
+      setMessage("Product created, assigned, and verified.");
+      return { id, product };
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Unable to create product.",
-      );
+      return { error: requestError instanceof Error ? requestError.message : "Unable to create product." };
     } finally {
       setBusy(false);
     }
+  };
+
+  const changeCollectionArchiveState = async (archive: boolean) => {
+    const current = data?.collection;
+    if (!current) return;
+    const action = archive ? "Archive" : "Restore";
+    const consequence = archive
+      ? "Products, media, stock, variants and collection relationships will be preserved. The collection will be removed from public discovery."
+      : "The collection will return to public discovery using its previous status.";
+    if (!window.confirm(`${action} “${current.name}”? ${consequence}`)) return;
+    const payload = await relationRequest(
+      `/api/staff/collections/${encodeURIComponent(slug)}/${archive ? "archive" : "restore"}`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
+    if (payload) {
+      setMessage(archive ? "Collection archived. Its products and relationships were preserved." : "Collection restored.");
+      setEditingCollection(false);
+      setAdding(false);
+      setAssigning(false);
+    }
+  };
+
+  const deleteArchivedCollection = async () => {
+    const current = data?.collection;
+    if (!current || current.status !== "archived") return;
+    if (!window.confirm(`Delete archived collection “${current.name}”? Products, variants, stock, media and WorkDrive assets will remain.`)) return;
+    const payload = await relationRequest(`/api/staff/collections/${encodeURIComponent(slug)}`, { method: "DELETE", body: JSON.stringify({}) });
+    if (payload) window.location.assign(basePath);
+  };
+
+  const verifyCreatedProduct = async (id: string) => {
+    const refreshed = await load(true);
+    const product = refreshed?.collection.products.find((item) => item.id === id);
+    if (product) setSelectedId(id);
+    return product;
   };
 
   if (loading)
@@ -944,6 +1148,11 @@ export function CollectionManagementDetail({
       </section>
     );
   const collection = data.collection;
+  const savedHeroSource = collection.heroSource?.image ?? "";
+  const savedHeroPreview = collection.hero?.image || collection.heroImage || "";
+  const draftHeroPreview = isWorkDriveImage(collectionForm.heroImage)
+    ? (draftWorkDrivePreview || (collectionForm.heroImage === savedHeroSource ? savedHeroPreview : ""))
+    : collectionForm.heroImage;
 
   return (
     <>
@@ -968,15 +1177,7 @@ export function CollectionManagementDetail({
                     {collection.slug}
                   </p>
                 </div>
-                {canManageProducts ? (
-                  <button
-                    type="button"
-                    onClick={() => setEditingCollection((current) => !current)}
-                    className="rounded-lg border border-black/10 px-4 py-2.5 text-xs transition hover:border-[#9a7a4d]"
-                  >
-                    Edit collection
-                  </button>
-                ) : null}
+                {canManageProducts ? <div className="flex flex-wrap gap-2"><button type="button" onClick={() => setEditingCollection((current) => !current)} className="rounded-lg border border-black/10 px-4 py-2.5 text-xs transition hover:border-[#9a7a4d]">Edit collection</button><button type="button" onClick={() => void changeCollectionArchiveState(collection.status !== "archived")} disabled={busy} className={`rounded-lg border px-4 py-2.5 text-xs transition disabled:opacity-40 ${collection.status === "archived" ? "border-emerald-300 text-emerald-700 hover:bg-emerald-50" : "border-red-200 text-red-700 hover:bg-red-50"}`}>{collection.status === "archived" ? "Restore collection" : "Archive collection"}</button>{collection.status === "archived" ? <button type="button" onClick={() => void deleteArchivedCollection()} disabled={busy} className="rounded-lg border border-red-300 px-4 py-2.5 text-xs text-red-700 transition hover:bg-red-50 disabled:opacity-40">Delete collection</button> : null}</div> : null}
               </div>
               <div className="mt-7 grid grid-cols-2 gap-5 sm:grid-cols-3">
                 <div>
@@ -1019,11 +1220,12 @@ export function CollectionManagementDetail({
                 >
                   <source src={collection.hero.video} />
                 </video>
-              ) : collection.hero?.image || collection.heroImage ? (
+              ) : (collection.hero?.image || collection.heroImage) && !heroPreviewFailed ? (
                 <img
                   src={collection.hero?.image || collection.heroImage}
                   alt={`${collection.name} collection`}
                   className="h-full max-h-80 w-full object-cover lg:max-h-none"
+                  onError={() => setHeroPreviewFailed(true)}
                 />
               ) : (
                 <div className="grid h-full min-h-56 place-items-center text-center text-[#9a7a4d]">
@@ -1042,6 +1244,25 @@ export function CollectionManagementDetail({
               onSubmit={saveCollection}
               className="border-t border-black/[.06] bg-[#faf8f4] p-6 dark:border-white/[.08] dark:bg-white/[.025]"
             >
+              <div className="mb-6 overflow-hidden rounded-xl border border-black/[.08] bg-[#efece6]">
+                <div className="aspect-video w-full">
+                  {draftHeroPreview && !heroPreviewFailed ? (
+                    <img
+                      src={draftHeroPreview}
+                      alt={`${collectionForm.name || collection.name} hero preview`}
+                      className="h-full w-full object-cover"
+                      onError={() => setHeroPreviewFailed(true)}
+                    />
+                  ) : (
+                    <div className="grid h-full place-items-center px-6 text-center text-[#7d694d]">
+                      <div><ImageIcon size={28} className="mx-auto"/><p className="mt-2 text-sm font-medium">{draftWorkDriveError || (isWorkDriveImage(collectionForm.heroImage) ? "Loading secure WorkDrive preview…" : "Image preview unavailable")}</p><p className="mt-1 text-xs text-[#8a7b68]">Use a supported API image URL or an approved WorkDrive file link.</p></div>
+                    </div>
+                  )}
+                </div>
+                <div className="border-t border-black/[.06] bg-white/70 px-4 py-3 text-xs text-[#746b61]">
+                  {collectionForm.heroImage === savedHeroSource ? "Saved collection image" : "Unsaved image preview"}
+                </div>
+              </div>
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="text-[9px] uppercase tracking-[.14em] text-[#8a9098]">
                   Name
@@ -1088,6 +1309,22 @@ export function CollectionManagementDetail({
                     className={inputClass}
                   />
                 </label>
+                <label className="text-[9px] uppercase tracking-[.14em] text-[#8a9098] md:col-span-2">
+                  Collection image
+                  <input
+                    value={collectionForm.heroImage}
+                    onChange={(event) => {
+                      setHeroPreviewFailed(false);
+                      setCollectionForm((current) => ({ ...current, heroImage: event.target.value }));
+                    }}
+                    className={inputClass}
+                  />
+                  <span className="mt-2 block normal-case tracking-normal text-[11px] leading-4 text-[#8a9098]">Accepts an existing API/public image URL or an approved Zoho WorkDrive file/share link. WorkDrive images are served through the secure collection proxy.</span>
+                </label>
+                <details className="md:col-span-2 rounded-xl border border-black/[.08] bg-white/70 p-4">
+                  <summary className="cursor-pointer text-xs font-medium uppercase tracking-[.14em] text-[#776a5b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#9a7a4d]">Advanced settings</summary>
+                  <p className="mt-2 text-xs leading-5 text-[#8a9098]">Optional campaign media and editorial metadata. Existing values remain unchanged unless edited here.</p>
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <label className="text-[9px] uppercase tracking-[.14em] text-[#8a9098]">
                   Hero type
                   <select
@@ -1142,19 +1379,6 @@ export function CollectionManagementDetail({
                       setCollectionForm((current) => ({
                         ...current,
                         heroCtaLabel: event.target.value,
-                      }))
-                    }
-                    className={inputClass}
-                  />
-                </label>
-                <label className="text-[9px] uppercase tracking-[.14em] text-[#8a9098] md:col-span-2">
-                  Desktop image URL
-                  <input
-                    value={collectionForm.heroImage}
-                    onChange={(event) =>
-                      setCollectionForm((current) => ({
-                        ...current,
-                        heroImage: event.target.value,
                       }))
                     }
                     className={inputClass}
@@ -1295,6 +1519,8 @@ export function CollectionManagementDetail({
                     className={inputClass}
                   />
                 </label>
+                  </div>
+                </details>
               </div>
               <div className="mt-4 flex justify-end gap-2">
                 <button
@@ -1305,10 +1531,10 @@ export function CollectionManagementDetail({
                   Cancel
                 </button>
                 <button
-                  disabled={busy}
-                  className="rounded-lg bg-[#24211e] px-4 py-2 text-xs text-white disabled:opacity-40"
+                  disabled={busy || !collectionDirty}
+                  className="rounded-lg bg-[#24211e] px-4 py-2 text-xs text-white disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  Save collection
+                  Update collection
                 </button>
               </div>
             </form>
@@ -1328,10 +1554,10 @@ export function CollectionManagementDetail({
               Ordered references to centralized product records.
             </p>
           </div>
-          {canManageProducts ? (
+          {canManageProducts && collection.status !== "archived" ? (
             <button
               type="button"
-              onClick={() => setAdding((current) => !current)}
+              onClick={() => setAdding(true)}
               className="inline-flex items-center gap-2 rounded-lg bg-[#24211e] px-4 py-2.5 text-xs text-white"
             >
               <Plus size={14} />
@@ -1347,8 +1573,9 @@ export function CollectionManagementDetail({
             {error}
           </p>
         ) : null}
-        {adding && canManageProducts ? (
-          <div className="mt-6 grid gap-5 rounded-xl border border-[#9a7a4d]/20 bg-[#faf8f4] p-5 dark:bg-white/[.025] lg:grid-cols-2">
+        {canManageProducts && collection.status !== "archived" ? <div className="mt-4"><button type="button" onClick={() => setAssigning((current) => !current)} className="text-xs text-[#9a7a4d] underline decoration-[#9a7a4d]/40 underline-offset-4">{assigning ? "Hide existing products" : "Assign an existing product"}</button></div> : null}
+        {assigning && canManageProducts ? (
+          <div className="mt-4 rounded-xl border border-[#9a7a4d]/20 bg-[#faf8f4] p-5 dark:bg-white/[.025]">
             <section>
               <p className="text-[10px] uppercase tracking-[.16em] text-[#9a7a4d]">
                 Assign existing product
@@ -1374,87 +1601,6 @@ export function CollectionManagementDetail({
                 Assign existing
               </button>
             </section>
-            <form onSubmit={createAndAssign}>
-              <p className="text-[10px] uppercase tracking-[.16em] text-[#9a7a4d]">
-                Create one centralized product
-              </p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <input
-                  required
-                  placeholder="Product name"
-                  value={newProduct.name}
-                  onChange={(event) =>
-                    setNewProduct((current) => ({
-                      ...current,
-                      name: event.target.value,
-                    }))
-                  }
-                  className={inputClass}
-                />
-                <input
-                  required
-                  placeholder="Code / SKU"
-                  value={newProduct.sku}
-                  onChange={(event) =>
-                    setNewProduct((current) => ({
-                      ...current,
-                      sku: event.target.value,
-                    }))
-                  }
-                  className={inputClass}
-                />
-                <input
-                  required
-                  type="number"
-                  min={0}
-                  placeholder="INR price"
-                  value={newProduct.price}
-                  onChange={(event) =>
-                    setNewProduct((current) => ({
-                      ...current,
-                      price: event.target.value,
-                    }))
-                  }
-                  className={inputClass}
-                />
-                <input
-                  required
-                  type="number"
-                  min={0}
-                  placeholder="Quantity"
-                  value={newProduct.stock}
-                  onChange={(event) =>
-                    setNewProduct((current) => ({
-                      ...current,
-                      stock: event.target.value,
-                    }))
-                  }
-                  className={inputClass}
-                />
-                <select
-                  value={newProduct.availability}
-                  onChange={(event) =>
-                    setNewProduct((current) => ({
-                      ...current,
-                      availability: event.target.value as ProductAvailability,
-                    }))
-                  }
-                  className={inputClass}
-                >
-                  {availabilityOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {availabilityLabels[option]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <button
-                disabled={busy}
-                className="mt-3 rounded-lg bg-[#24211e] px-4 py-2.5 text-xs text-white disabled:opacity-40"
-              >
-                Create and assign
-              </button>
-            </form>
           </div>
         ) : null}
         {collection.products.length ? (
@@ -1571,7 +1717,7 @@ export function CollectionManagementDetail({
             <p className="mt-3 text-sm font-medium">
               No products in this collection yet.
             </p>
-            {canManageProducts ? (
+            {canManageProducts && collection.status !== "archived" ? (
               <button
                 type="button"
                 onClick={() => setAdding(true)}
@@ -1608,6 +1754,7 @@ export function CollectionManagementDetail({
           }}
         />
       ) : null}
+      {adding && canManageProducts ? <CreateProductDrawer collection={collection} busy={busy} onClose={() => setAdding(false)} onCreate={createProduct} onVerify={verifyCreatedProduct} /> : null}
     </>
   );
 }

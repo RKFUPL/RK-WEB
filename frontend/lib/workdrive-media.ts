@@ -7,6 +7,7 @@ export type ParsedWorkDriveMedia = {
 
 export type WorkDriveGalleryDraft = ParsedWorkDriveMedia & {
   id: string;
+  renderUrl?: string;
   variantId: string;
   primary: boolean;
   hover: boolean;
@@ -90,7 +91,9 @@ export function workDriveGalleryMatches(expected: WorkDriveGalleryDraft[], actua
   if (expected.length !== actual.length) return false;
   return expected.every((item, index) => {
     const saved = actual[index];
-    return saved?.id === item.id
+    const identityMatches = saved?.id === item.id
+      || Boolean(saved && !isPersistedMediaRelationshipId(item.id) && isPersistedMediaRelationshipId(saved.id));
+    return identityMatches
       && saved.permalink === item.permalink
       && saved.variantId === item.variantId
       && saved.primary === item.primary

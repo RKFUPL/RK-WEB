@@ -792,6 +792,24 @@ def collection_hero(collection: dict) -> dict:
     }
 
 
+def collection_image_url(collection: dict, source: str, slot: str = "desktop") -> str:
+    """Return a browser-safe collection image URL without exposing WorkDrive links."""
+    value = str(source or "").strip()
+    parsed = urlparse(value)
+    if parsed.hostname in {"workdrive.zoho.in", "workdrive.zohoexternal.in"}:
+        slug = str(collection.get("slug") or "").strip()
+        return f"/api/catalog/collections/{slug}/hero-image/{slot}" if slug else ""
+    return value
+
+
+def public_collection_hero(collection: dict) -> dict:
+    hero = collection_hero(collection)
+    hero["image"] = collection_image_url(collection, hero["image"], "desktop")
+    hero["poster"] = collection_image_url(collection, hero["poster"], "poster")
+    hero["mobileImage"] = collection_image_url(collection, hero["mobileImage"], "mobile")
+    return hero
+
+
 def ensure_catalog_seed(db) -> None:
     """Run catalog compatibility migrations and ensure catalog collections exist.
 
@@ -1416,8 +1434,8 @@ def collection_view(
         "collectionType": collection.get("collectionType", "standard"),
         "taxInclusive": bool(collection.get("taxInclusive")),
         "description": collection.get("description"),
-        "heroImage": collection.get("heroImage"),
-        "hero": collection_hero(collection),
+        "heroImage": collection_image_url(collection, collection_hero(collection)["image"], "desktop"),
+        "hero": public_collection_hero(collection),
         "season": collection.get("season"),
         "year": collection.get("year"),
         "designerNote": collection.get("designerNote"),

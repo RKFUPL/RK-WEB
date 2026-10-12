@@ -208,7 +208,7 @@ class TestimonialApiTests(unittest.TestCase):
         with patch("app.blueprints.content.routes.database", return_value=self.database), patch(
             "app.blueprints.content.routes.download_file", return_value=WorkDriveDownload(upstream, "file-id")
         ):
-            served = self.client.get(f"/api/content/testimonials/{published_id}/image")
+            served = self.client.get(f"/api/content/testimonials/{published_id}/image", buffered=True)
             hidden = self.client.get(f"/api/content/testimonials/{draft_id}/image")
         self.assertEqual(served.status_code, 200)
         self.assertEqual(served.content_type, "image/jpeg")

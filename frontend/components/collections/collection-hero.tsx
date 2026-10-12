@@ -2,7 +2,7 @@
 
 import { ArrowDown, ArrowUpRight } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
-import type { CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import type { CollectionHeroConfig, ManagedCollection } from '@/lib/catalog';
 import { cloudinaryImageUrl } from '@/lib/utils';
 
@@ -20,13 +20,19 @@ function HeroMedia({ hero }: { hero: CollectionHeroConfig }) {
   const fallbackImage = hero.poster || hero.image;
   const desktopImage = cloudinaryImageUrl(fallbackImage, 1920);
   const mobileImage = cloudinaryImageUrl(hero.mobileImage || fallbackImage, 900);
+  const [mediaFailed, setMediaFailed] = useState(false);
+  useEffect(() => { setMediaFailed(false); }, [hero.type, hero.video, desktopImage, mobileImage]);
   const mediaStyle = {
     '--collection-hero-desktop-position': hero.desktopObjectPosition || 'center center',
     '--collection-hero-mobile-position': hero.mobileObjectPosition || hero.desktopObjectPosition || 'center center',
   } as CSSProperties;
 
+  if (mediaFailed || (!fallbackImage && !(hero.type === 'video' && hero.video))) {
+    return <div className="grid h-full w-full place-items-center bg-sand text-center text-[0.65rem] uppercase tracking-[0.22em] text-charcoal/45" role="img" aria-label="Collection image not configured">Collection image not configured</div>;
+  }
+
   if (hero.type === 'video' && hero.video && !reduceMotion) {
-    return <video autoPlay muted loop playsInline preload="metadata" poster={desktopImage || undefined} aria-label="Collection campaign film" className="collection-campaign-media" style={mediaStyle}>
+    return <video autoPlay muted loop playsInline preload="metadata" poster={desktopImage || undefined} aria-label="Collection campaign film" className="collection-campaign-media" style={mediaStyle} onError={() => setMediaFailed(true)}>
       {hero.mobileVideo ? <source media="(max-width: 767px)" src={hero.mobileVideo} /> : null}
       <source src={hero.video} />
     </video>;
@@ -34,7 +40,7 @@ function HeroMedia({ hero }: { hero: CollectionHeroConfig }) {
 
   return fallbackImage ? <picture className="block h-full w-full">
     {hero.mobileImage ? <source media="(max-width: 767px)" srcSet={mobileImage} /> : null}
-    <img src={desktopImage} alt="" role="presentation" loading="eager" fetchPriority="high" className="collection-campaign-media" style={mediaStyle} />
+    <img src={desktopImage} alt="" role="presentation" loading="eager" fetchPriority="high" className="collection-campaign-media" style={mediaStyle} onError={() => setMediaFailed(true)} />
   </picture> : <div className="h-full w-full bg-sand" aria-hidden="true" />;
 }
 

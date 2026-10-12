@@ -45,6 +45,13 @@ test("post-save read-back must preserve identity, order, primary and hover state
   assert.equal(workDriveGalleryMatches(expected, expected.map((item, index) => index ? { ...item, hover: false } : item)), false);
 });
 
+test("a newly saved draft accepts the canonical relationship id returned by the server", () => {
+  const submitted = [{ id: "colour:red:new:123:0", permalink: "https://workdrive.zoho.in/file/red-1", variantId: "colour:red", primary: true, hover: false }];
+  const persisted = [{ ...submitted[0], id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", renderUrl: "/api/staff/products/product/media/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }];
+  assert.equal(workDriveGalleryMatches(submitted, persisted), true);
+  assert.equal(workDriveGalleryMatches(submitted, [{ ...persisted[0], permalink: "https://workdrive.zoho.in/file/other" }]), false);
+});
+
 test("pending or edited gallery state cannot be carried to another colour", () => {
   const baseline = [{ id: "red-1", permalink: "https://workdrive.zoho.in/file/red1", variantId: "colour:red", primary: true, hover: false }];
   assert.equal(hasUnsavedGalleryChanges(baseline, baseline, ""), false);

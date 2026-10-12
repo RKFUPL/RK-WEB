@@ -5,6 +5,17 @@ import { ArrowDown, ArrowUp, CheckCircle2, ImagePlus, Loader2, Trash2 } from "lu
 import { hasUnsavedGalleryChanges, isPersistedMediaRelationshipId, parseWorkDriveBatch, prepareWorkDriveGallerySave, workDriveGalleryMatches, type WorkDriveGalleryDraft } from "@/lib/workdrive-media";
 import type { CatalogProductVariant } from "@/lib/catalog";
 
+async function readApiResponse(response: Response, endpoint: string): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  let payload: Record<string, unknown> = {};
+  try { payload = text ? JSON.parse(text) as Record<string, unknown> : {}; } catch {
+    const excerpt = text.replace(/\s+/g, " ").slice(0, 120);
+    throw new Error(`API ${response.status} from ${endpoint} returned a non-JSON response${excerpt ? `: ${excerpt}` : "."}`);
+  }
+  if (!response.ok) throw new Error(String(payload.error || `API ${response.status} from ${endpoint} failed.`));
+  return payload;
+}
+
 export function VariantMediaEditor({ productId, variants, token, onSaved }: { productId: string; variants: CatalogProductVariant[]; token: () => string; onSaved?: () => void }) {
   const [variantId, setVariantId] = useState(variants[0]?.id || "");
   const selected = variants.find((item) => item.id === variantId) || variants[0];
@@ -23,14 +34,14 @@ export function VariantMediaEditor({ productId, variants, token, onSaved }: { pr
     if (!id) return [];
     setLoading(true);
     try {
-      const response = await fetch(base + encodeURIComponent(id), { headers: { Authorization: `Bearer ${token()}` }, cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Unable to load colour gallery.");
+      const endpoint = base + encodeURIComponent(id);
+      const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${token()}` }, cache: "no-store" });
+      const payload = await readApiResponse(response, endpoint);
       const meta = Array.isArray(payload.imageMeta) ? payload.imageMeta : [];
       const imageList = Array.isArray(payload.images) ? payload.images : [];
       const loaded = imageList.map((url: string, index: number) => {
         const item = meta.find((entry: { position?: number }) => entry.position === index) || meta[index] || {};
-        return { id: String(item.id || `${id}:${index}:${url}`), permalink: String(item.permalink || url), alt_text: item.alt_text, variantId: id, primary: item.is_primary === true || (!meta.length && index === 0), hover: item.is_hover === true };
+        return { id: String(item.media_id || item.id || `${id}:${index}:${url}`), permalink: String(item.permalink || url), renderUrl: item.renderUrl, alt_text: item.alt_text, variantId: id, primary: item.is_primary === true || (!meta.length && index === 0), hover: item.is_hover === true };
       });
       setDrafts(loaded);
       setBaseline(loaded);
@@ -69,9 +80,9 @@ export function VariantMediaEditor({ productId, variants, token, onSaved }: { pr
     if (submitted.filter((item) => item.primary).length > 1 || submitted.filter((item) => item.hover).length > 1) { setError("Choose at most one primary and one hover image."); return; }
     setBusy(true); setError(""); setMessage("");
     try {
-      const response = await fetch(base + encodeURIComponent(selected.id), { method: "PATCH", headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" }, body: JSON.stringify({ images: submitted.map((item) => item.permalink), imageMeta: submitted.map((item, index) => ({ id: item.id, permalink: item.permalink, url: item.permalink, alt_text: item.alt_text, position: index, is_primary: item.primary, is_hover: item.hover })) }) });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Unable to save colour gallery.");
+      const endpoint = base + encodeURIComponent(selected.id);
+      const response = await fetch(endpoint, { method: "PATCH", headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" }, body: JSON.stringify({ images: submitted.map((item) => item.permalink), imageMeta: submitted.map((item, index) => ({ id: item.id, permalink: item.permalink, url: item.permalink, alt_text: item.alt_text, position: index, is_primary: item.primary, is_hover: item.hover })) }) });
+      await readApiResponse(response, endpoint);
       setBatch("");
       const persisted = await load(selected.id);
       if (!workDriveGalleryMatches(submitted, persisted)) throw new Error("The saved gallery did not match the server read-back. Reload and try again.");
@@ -105,7 +116,7 @@ export function VariantMediaEditor({ productId, variants, token, onSaved }: { pr
       <div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="admin-display text-xl capitalize">{selected.colour || "Selected"} gallery</h4><p className="mt-1 text-xs text-[var(--admin-muted)]">{drafts.length} {drafts.length === 1 ? "image" : "images"} · {selected.sku}</p></div><div className="flex items-center gap-3">{unsaved && !loading ? <button type="button" onClick={() => { setBatch(""); void load(selected.id).catch((value) => setError(value instanceof Error ? value.message : "Unable to reload gallery.")); }} className="text-xs text-[var(--admin-muted)] underline decoration-[#a8793d]/50 underline-offset-4 hover:text-[#7d582c]">Discard changes</button> : null}{loading ? <span className="inline-flex items-center gap-2 text-xs text-[var(--admin-muted)]"><Loader2 size={14} className="animate-spin" />Loading gallery</span> : null}</div></div>
 
       {drafts.length ? <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{drafts.map((item, index) => <article key={item.id} className="overflow-hidden rounded-xl border border-[var(--admin-border)] bg-[var(--admin-surface-muted)]">
-        <div className="relative aspect-[4/3] bg-[#eee8de]">{isPersistedMediaRelationshipId(item.id) ? <img src={`/api/catalog/products/${encodeURIComponent(productId)}/media/${encodeURIComponent(item.id)}`} alt={item.alt_text || `Product image ${index + 1}`} className="h-full w-full object-cover" onError={(event) => { event.currentTarget.style.opacity = "0"; }} /> : <div className="grid h-full place-items-center px-5 text-center text-xs text-[#8a9098]">Image preview available after saving this relationship.</div>}<span className="absolute left-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-white/90 text-[11px] font-semibold shadow">{index + 1}</span></div>
+        <div className="relative aspect-[4/3] bg-[#eee8de]">{isPersistedMediaRelationshipId(item.id) ? <img src={item.renderUrl || `/api/staff/products/${encodeURIComponent(productId)}/media/${encodeURIComponent(item.id)}`} alt={item.alt_text || `Product image ${index + 1}`} className="h-full w-full object-cover" onError={(event) => { event.currentTarget.hidden = true; event.currentTarget.nextElementSibling?.removeAttribute("hidden"); }} /> : <div className="grid h-full place-items-center px-5 text-center text-xs text-[#8a9098]">Unsaved image relationship. Save the gallery to enable its secure preview.</div>}<div hidden className="absolute inset-0 grid place-items-center px-5 text-center text-xs text-[#8a9098]">Preview unavailable. Verify that the saved WorkDrive image is accessible.</div><span className="absolute left-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-white/90 text-[11px] font-semibold shadow">{index + 1}</span></div>
         <div className="p-3"><input aria-label={`WorkDrive link for image ${index + 1}`} className="admin-field h-9 min-h-0 text-xs" value={item.permalink} onChange={(event) => setDrafts((all) => all.map((entry) => entry.id === item.id ? { ...entry, permalink: event.target.value } : entry))}/><p className="mt-2 truncate text-xs font-medium">{item.alt_text || `Image ${index + 1}`}</p><p className="mt-1 text-[10px] uppercase tracking-[.12em] text-[var(--admin-muted)]">{item.variantId}</p>
           <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-[var(--admin-border)] pt-3 text-xs"><label className="inline-flex items-center gap-1.5"><input type="radio" name={`primary-${selected.id}`} checked={item.primary} onChange={() => setDrafts((all) => all.map((entry) => ({ ...entry, primary: entry.id === item.id })))} />Primary</label><label className="inline-flex items-center gap-1.5"><input type="radio" name={`hover-${selected.id}`} checked={item.hover} onChange={() => setDrafts((all) => all.map((entry) => ({ ...entry, hover: entry.id === item.id })))} />Hover</label><span className="ml-auto flex gap-1"><button type="button" className="admin-icon-button rounded-md p-1.5 hover:bg-black/5 disabled:opacity-30" disabled={index === 0} onClick={() => move(index, -1)} aria-label={`Move ${item.alt_text || `image ${index + 1}`} up`}><ArrowUp size={14}/></button><button type="button" className="admin-icon-button rounded-md p-1.5 hover:bg-black/5 disabled:opacity-30" disabled={index === drafts.length - 1} onClick={() => move(index, 1)} aria-label={`Move ${item.alt_text || `image ${index + 1}`} down`}><ArrowDown size={14}/></button><button type="button" className="admin-icon-button rounded-md p-1.5 text-red-600 hover:bg-red-50" onClick={() => setDrafts((all) => all.filter((entry) => entry.id !== item.id))} aria-label={`Remove ${item.alt_text || `image ${index + 1}`}`}><Trash2 size={14}/></button></span></div>
         </div>

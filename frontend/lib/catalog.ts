@@ -265,6 +265,7 @@ export type ManagedCollection = {
   description?: string;
   heroImage?: string;
   hero?: CollectionHeroConfig;
+  heroSource?: CollectionHeroConfig;
   season?: string;
   year?: number;
   designerNote?: string;
