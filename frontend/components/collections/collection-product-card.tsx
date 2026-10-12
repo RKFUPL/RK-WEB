@@ -3,7 +3,7 @@
 import { ChevronDown, Heart, Image as ImageIcon, ShoppingBag } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { trackAnalyticsEvent } from '@/lib/analytics';
 import { availabilityLabels, inr, normalizeColour, productVariantHref, type CatalogProduct, variantPrimaryAndHoverSources } from '@/lib/catalog';
 import { readWishlist, toggleWishlist, wishlistChangedEvent } from '@/lib/storefront-wishlist';
@@ -26,11 +26,20 @@ function colourSwatchValue(value?: string) {
 
 export function CollectionProductCard({ product, href, selectedColour = '' }: { product: CatalogProduct; href?: string; selectedColour?: string }) {
   const [saved, setSaved] = useState(false);
-  const selectableVariants = (product.variants || []).filter((variant) => variant.status !== 'remove' && Boolean(variant.colour));
+  const selectableVariants = useMemo(() => {
+    const seen = new Set<string>();
+    return (product.variants || []).filter((variant) => {
+      const colour = normalizeColour(variant.colour);
+      if (variant.status !== 'active' || !colour || seen.has(colour)) return false;
+      seen.add(colour);
+      return true;
+    });
+  }, [product.variants]);
   const defaultVariant = selectableVariants.find((variant) => variant.status === 'active') || selectableVariants[0] || product.variants?.[0];
   const [selectedVariantId, setSelectedVariantId] = useState(defaultVariant?.id || '');
   const [colourMenuOpen, setColourMenuOpen] = useState(false);
   const [failedImages, setFailedImages] = useState<Set<string>>(() => new Set());
+  const colourSelectorRef = useRef<HTMLDivElement>(null);
   const filteredVariant = selectedColour
     ? selectableVariants.find((variant) => normalizeColour(variant.colour) === normalizeColour(selectedColour))
     : undefined;
@@ -39,7 +48,6 @@ export function CollectionProductCard({ product, href, selectedColour = '' }: { 
   const resolvedImages = variantPrimaryAndHoverSources(product, selectedVariant);
   const primaryImage = selectedColour && !filteredVariant ? undefined : resolvedImages.primary;
   const secondaryImage = selectedColour && !filteredVariant ? undefined : resolvedImages.hover;
-  const selectedSwatch = colourSwatchValue(selectedVariant?.colour);
   const primaryGridImage = cloudinaryImageUrl(primaryImage, 640);
   const secondaryGridImage = cloudinaryImageUrl(secondaryImage, 640);
   const primarySource = primaryGridImage || primaryImage;
@@ -61,6 +69,22 @@ export function CollectionProductCard({ product, href, selectedColour = '' }: { 
     window.addEventListener('storage', sync);
     return () => { window.removeEventListener(wishlistChangedEvent, sync); window.removeEventListener('storage', sync); };
   }, [product.id, wishlistSku]);
+
+  useEffect(() => {
+    if (!colourMenuOpen) return;
+    const close = (event: PointerEvent) => {
+      if (!colourSelectorRef.current?.contains(event.target as Node)) setColourMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setColourMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', close);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [colourMenuOpen]);
 
   const toggleSaved = () => {
     if (!window.localStorage.getItem('rk_access_token')) {
@@ -86,9 +110,8 @@ export function CollectionProductCard({ product, href, selectedColour = '' }: { 
     if (added) trackAnalyticsEvent('wishlist_add', { productId: product.id, productName: product.name, currency: 'INR', value: product.price });
   };
 
-  const addToCart = () => {
-    window.location.assign(route);
-  };
+  const visibleSwatches = selectableVariants.slice(0, 3);
+  const hiddenColourCount = Math.max(0, selectableVariants.length - visibleSwatches.length);
 
   return <article className="collection-product-card group min-w-0">
     <div className="collection-product-image-wrapper relative aspect-[3/4] overflow-hidden rounded-[14px] bg-sand">
@@ -102,12 +125,14 @@ export function CollectionProductCard({ product, href, selectedColour = '' }: { 
         <Heart size={17} strokeWidth={1.4} className={saved ? 'fill-gold text-gold' : ''} />
       </button>
       {product.availability === 'sold_out' ? <span className="absolute bottom-3 left-3 bg-ink/82 px-3 py-2 text-[0.52rem] uppercase tracking-[0.24em] text-white">Sold out</span> : null}
-      {selectableVariants.length ? <div className="absolute bottom-3 right-3 z-20 sm:bottom-4 sm:right-4">
-        <button type="button" aria-haspopup="menu" aria-expanded={colourMenuOpen} onClick={(event) => { event.preventDefault(); event.stopPropagation(); setColourMenuOpen((open) => !open); }} className="inline-flex items-center gap-2 rounded-full border border-white/35 bg-ivory/92 px-3 py-2 text-[0.52rem] uppercase tracking-[0.14em] text-charcoal shadow-sm backdrop-blur-md transition hover:border-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/70">
-          {selectedSwatch ? <span aria-hidden="true" className="h-2.5 w-2.5 rounded-full border border-black/15" style={{ backgroundColor: selectedSwatch }} /> : null}<span>{normalizeColour(selectedVariant?.colour) || 'COLOUR'}</span><ChevronDown size={12} aria-hidden="true" />
+      {selectableVariants.length > 1 ? <div ref={colourSelectorRef} className="absolute bottom-3 right-3 z-20 sm:bottom-4 sm:right-4">
+        <button type="button" aria-label={`Choose colour. ${normalizeColour(selectedVariant?.colour)} selected. ${selectableVariants.length} colours available.`} aria-haspopup="menu" aria-expanded={colourMenuOpen} onClick={(event) => { event.preventDefault(); event.stopPropagation(); setColourMenuOpen((open) => !open); }} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/45 bg-ivory/95 px-3 py-2 text-[0.52rem] uppercase tracking-[0.14em] text-charcoal shadow-[0_8px_24px_rgba(18,18,18,.14)] backdrop-blur-md transition hover:border-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/70">
+          <span className="flex items-center -space-x-0.5" aria-hidden="true">{visibleSwatches.map((variant) => <span key={variant.id} className={`h-4 w-4 rounded-full border ${variant.id === selectedVariant?.id ? 'relative z-10 border-gold ring-1 ring-gold/70' : 'border-black/15'}`} style={{ backgroundColor: colourSwatchValue(variant.colour) || '#b7aa99' }} />)}</span>
+          {hiddenColourCount ? <span aria-hidden="true" className="font-medium">+{hiddenColourCount}</span> : null}
+          <ChevronDown size={12} aria-hidden="true" className={`transition-transform ${colourMenuOpen ? 'rotate-180' : ''}`} />
         </button>
-        {colourMenuOpen && selectableVariants.length > 1 ? <div role="menu" className="absolute bottom-full right-0 mb-2 min-w-36 rounded-xl border border-black/10 bg-ivory p-1.5 shadow-xl">
-          {selectableVariants.map((variant) => <button key={variant.id} type="button" role="menuitem" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setSelectedVariantId(variant.id); setColourMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[0.55rem] uppercase tracking-[0.12em] hover:bg-sand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/70"><span className="h-2.5 w-2.5 rounded-full border border-black/15" style={{ backgroundColor: colourSwatchValue(variant.colour) || '#b69263' }} />{normalizeColour(variant.colour)}</button>)}
+        {colourMenuOpen ? <div role="menu" aria-label="Available colours" className="absolute bottom-full right-0 mb-2 min-w-44 rounded-2xl border border-black/10 bg-ivory p-2 shadow-[0_18px_45px_rgba(18,18,18,.18)]">
+          {selectableVariants.map((variant) => <button key={variant.id} type="button" role="menuitemradio" aria-checked={variant.id === selectedVariant?.id} onClick={(event) => { event.preventDefault(); event.stopPropagation(); setSelectedVariantId(variant.id); setColourMenuOpen(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[0.58rem] uppercase tracking-[0.14em] hover:bg-sand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/70"><span className={`h-3.5 w-3.5 rounded-full border ${variant.id === selectedVariant?.id ? 'border-gold ring-2 ring-gold/25' : 'border-black/15'}`} style={{ backgroundColor: colourSwatchValue(variant.colour) || '#b7aa99' }} /><span className="flex-1">{normalizeColour(variant.colour)}</span>{variant.id === selectedVariant?.id ? <span className="text-gold" aria-hidden="true">✓</span> : null}</button>)}
         </div> : null}
       </div> : null}
     </div>
@@ -122,9 +147,7 @@ export function CollectionProductCard({ product, href, selectedColour = '' }: { 
       </div>
       <p className="mt-2 text-xs text-charcoal/70 sm:text-sm">{product.price === undefined ? 'Price on request' : inr.format(product.price)}</p>
       {product.price !== undefined && (product.taxInclusive || product.mrpIncludesGst) ? <p className="mt-1.5 text-[0.5rem] uppercase tracking-[0.18em] text-charcoal/42">MRP · Inclusive of GST</p> : null}
-      <button type="button" onClick={addToCart} disabled={product.availability === 'sold_out'} className="mt-4 inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.56rem] uppercase tracking-[0.24em] text-charcoal transition hover:border-gold hover:text-gold disabled:cursor-not-allowed disabled:opacity-40">
-        <ShoppingBag size={14} strokeWidth={1.35} />{product.availability === 'sold_out' ? 'Sold out' : sizeConfigured || product.variants?.length ? 'Choose options' : 'View product'}
-      </button>
+      {product.availability === 'sold_out' ? <button type="button" disabled className="mt-4 inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.56rem] uppercase tracking-[0.24em] text-charcoal opacity-40"><ShoppingBag size={14} strokeWidth={1.35} />Sold out</button> : <Link href={route} className="mt-4 inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.56rem] uppercase tracking-[0.24em] text-charcoal transition hover:border-gold hover:text-gold"><ShoppingBag size={14} strokeWidth={1.35} />{sizeConfigured || product.variants?.length ? 'Choose options' : 'View product'}</Link>}
     </div>
   </article>;
 }

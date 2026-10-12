@@ -134,12 +134,25 @@ test("variant primary and hover metadata remain authoritative when catalog flags
 
 test("collection cards expose a variant-aware accessible colour selector", () => {
   assert.match(card, /selectableVariants\.length > 1/);
+  assert.match(card, /variant\.status !== 'active'/);
   assert.match(card, /aria-haspopup="menu"/);
-  assert.match(card, /role="menuitem"/);
+  assert.match(card, /role="menuitemradio"/);
+  assert.match(card, /hiddenColourCount/);
+  assert.match(card, /pointerdown/);
+  assert.match(card, /event\.key === 'Escape'/);
   assert.match(card, /setSelectedVariantId\(variant\.id\)/);
   assert.match(card, /variantPrimaryAndHoverSources\(product, selectedVariant\)/);
   assert.match(card, /selectedVariant\?\.colour \|\| productColours/);
-  assert.match(card, /selectedSwatch \?/);
+  assert.doesNotMatch(card, /window\.location\.assign/);
+});
+
+test("versioned WorkDrive proxy URLs remain product-bound and reject invalid versions", () => {
+  const product = t1Product();
+  const relationship = product.catalogMedia.find((item) => item.media_id === redIds[0]);
+  relationship.renderUrl = `/api/catalog/products/${product.id}/media/${redIds[0]}?v=0123456789abcdef`;
+  assert.equal(variantMediaSources(product, product.variants[0])[0], relationship.renderUrl);
+  relationship.renderUrl = `/api/catalog/products/${product.id}/media/${redIds[0]}?v=not-safe`;
+  assert.notEqual(variantMediaSources(product, product.variants[0])[0], relationship.renderUrl);
 });
 
 test("selected card colour is carried to product detail without changing the base route", () => {

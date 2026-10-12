@@ -7,7 +7,7 @@ export function normalizeColour(value: unknown): string {
 
 export function productColours(product: Pick<CatalogProduct, 'attributes' | 'variants'>): string[] {
   const variantValues = (product.variants || [])
-    .filter((variant) => variant.status !== 'remove')
+    .filter((variant) => variant.status === 'active')
     .map((variant) => variant.colour)
     .filter(Boolean);
   const values = variantValues.length
@@ -167,7 +167,10 @@ function catalogMediaSource(product: CatalogProduct, item: CatalogMedia) {
   if (item.provider === "zoho_workdrive") {
     if (!isPersistedRelationshipId(relationshipId)) return undefined;
     const expected = `/api/catalog/products/${encodeURIComponent(product.id)}/media/${encodeURIComponent(relationshipId)}`;
-    return item.renderUrl === expected ? expected : undefined;
+    const renderUrl = String(item.renderUrl || "");
+    return renderUrl === expected || new RegExp(`^${expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\?v=[a-f0-9]{16}$`, "i").test(renderUrl)
+      ? renderUrl
+      : undefined;
   }
   return safeLegacyImageSource(item.renderUrl || item.secure_url || item.url || item.permalink);
 }

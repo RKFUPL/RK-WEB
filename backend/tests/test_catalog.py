@@ -233,9 +233,9 @@ class CatalogTests(unittest.TestCase):
             }],
         })
 
-        expected = f"/api/catalog/products/{product_id}/media/wd-1"
-        self.assertEqual(payload["media"], [expected])
-        self.assertEqual(payload["catalogMedia"][0]["renderUrl"], expected)
+        expected = f"/api/catalog/products/{product_id}/media/wd-1?v="
+        self.assertTrue(payload["media"][0].startswith(expected))
+        self.assertEqual(payload["catalogMedia"][0]["renderUrl"], payload["media"][0])
         self.assertNotIn(permalink, payload["media"])
 
     def test_external_workdrive_domain_also_uses_product_bound_proxy(self):
@@ -248,9 +248,23 @@ class CatalogTests(unittest.TestCase):
             }],
         })
 
-        expected = f"/api/catalog/products/{product_id}/media/wd-external"
-        self.assertEqual(payload["media"], [expected])
-        self.assertEqual(payload["catalogMedia"][0]["renderUrl"], expected)
+        expected = f"/api/catalog/products/{product_id}/media/wd-external?v="
+        self.assertTrue(payload["media"][0].startswith(expected))
+        self.assertEqual(payload["catalogMedia"][0]["renderUrl"], payload["media"][0])
+
+    def test_workdrive_proxy_version_changes_when_relationship_source_changes(self):
+        product_id = ObjectId()
+        base = {
+            "_id": product_id, "name": "Versioned media", "sku": "WD-VERSION", "status": "active", "isActive": True,
+            "catalogMedia": [{
+                "media_id": "wd-versioned", "provider": "zoho_workdrive", "owner_system": "rk-web",
+                "permalink": "https://workdrive.zoho.in/file/first", "position": 0, "is_primary": True,
+            }],
+        }
+        first = product_view(base)["catalogMedia"][0]["renderUrl"]
+        changed = product_view({**base, "catalogMedia": [{**base["catalogMedia"][0], "permalink": "https://workdrive.zoho.in/file/second"}]})["catalogMedia"][0]["renderUrl"]
+        self.assertNotEqual(first, changed)
+        self.assertTrue(first.startswith(f"/api/catalog/products/{product_id}/media/wd-versioned?v="))
 
     def test_product_media_proxy_downloads_only_media_attached_to_product(self):
         app = Flask(__name__)
@@ -276,8 +290,20 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content_type, "image/jpeg")
         self.assertEqual(response.data, b"image-bytes")
-        self.assertEqual(response.headers["Cache-Control"], "private, max-age=300")
+        self.assertEqual(response.headers["Cache-Control"], "private, max-age=3600, stale-if-error=86400")
+        self.assertTrue(response.headers.get("ETag"))
         download.assert_called_once_with("https://workdrive.zoho.in/file/private123", database, prefer_preview=True)
+
+        with patch("app.blueprints.catalog.routes.database", return_value=database), \
+             patch("app.blueprints.catalog.routes.product_document", return_value=product), \
+             patch("app.blueprints.catalog.routes.download_file") as revalidation_download:
+            revalidated = app.test_client().get(
+                f"/api/catalog/products/{product_id}/media/wd-1",
+                headers={"If-None-Match": response.headers["ETag"]},
+            )
+        self.assertEqual(revalidated.status_code, 304)
+        self.assertEqual(revalidated.headers["ETag"], response.headers["ETag"])
+        revalidation_download.assert_not_called()
 
         with patch("app.blueprints.catalog.routes.database", return_value=database), \
              patch("app.blueprints.catalog.routes.product_document", return_value=product), \
@@ -375,8 +401,8 @@ class CatalogTests(unittest.TestCase):
         }
         red = product_view({**product, "variants": [product["variants"][0]]})
         blue = product_view({**product, "variants": [product["variants"][1]]})
-        self.assertEqual(red["media"], [f"/api/catalog/products/{product_id}/media/red-1"])
-        self.assertEqual(blue["media"], [f"/api/catalog/products/{product_id}/media/blue-1"])
+        self.assertTrue(red["media"][0].startswith(f"/api/catalog/products/{product_id}/media/red-1?v="))
+        self.assertTrue(blue["media"][0].startswith(f"/api/catalog/products/{product_id}/media/blue-1?v="))
 
     def test_public_variants_receive_only_their_own_workdrive_proxy_media(self):
         product_id = ObjectId()
@@ -392,8 +418,8 @@ class CatalogTests(unittest.TestCase):
             ],
         })
         galleries = {variant["id"]: variant["images"] for variant in view["variants"]}
-        self.assertEqual(galleries["colour:red"], [f"/api/catalog/products/{product_id}/media/red-1"])
-        self.assertEqual(galleries["colour:blue"], [f"/api/catalog/products/{product_id}/media/blue-1"])
+        self.assertTrue(galleries["colour:red"][0].startswith(f"/api/catalog/products/{product_id}/media/red-1?v="))
+        self.assertTrue(galleries["colour:blue"][0].startswith(f"/api/catalog/products/{product_id}/media/blue-1?v="))
         red_meta = next(variant for variant in view["variants"] if variant["id"] == "colour:red")["imageMeta"][0]
         self.assertTrue(red_meta["is_hover"])
 
@@ -408,7 +434,7 @@ class CatalogTests(unittest.TestCase):
             ],
         })
         ivory = view["variants"][0]
-        self.assertEqual(ivory["images"][0], f"/api/catalog/products/{product_id}/media/ivory-1")
+        self.assertTrue(ivory["images"][0].startswith(f"/api/catalog/products/{product_id}/media/ivory-1?v="))
         self.assertTrue(next(item for item in ivory["imageMeta"] if item["media_id"] == "ivory-5")["is_primary"])
 
     def test_public_catalog_keeps_gallery_order_and_exposes_non_first_primary(self):

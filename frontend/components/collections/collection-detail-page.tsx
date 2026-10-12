@@ -7,6 +7,7 @@ import { Footer } from '@/components/home/footer';
 import { FeaturedCollection } from '@/components/home/featured-collection';
 import { StickyHeader } from '@/components/home/sticky-header';
 import type { CatalogProduct, CollectionHeroConfig, ManagedCollection } from '@/lib/catalog';
+import { fetchCatalogCollection } from '@/lib/catalog-client';
 import type { CollectionPage } from '@/lib/home-content';
 import { apiBaseUrl } from '@/lib/rbac';
 
@@ -25,12 +26,7 @@ export function CollectionDetailPage({ collection }: { collection: CollectionPag
     setLoading(true);
     setCollectionError('');
     setManagedCollection(null);
-    fetch(`${apiBaseUrl}/api/catalog/collections/${encodeURIComponent(slug)}`)
-      .then(async (response) => {
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.error || 'Unable to load collection.');
-        return payload.collection as StorefrontCollection;
-      })
+    fetchCatalogCollection(slug)
       .then((payload) => { if (active) setManagedCollection(payload); })
       .catch((requestError) => { if (active) setCollectionError(requestError instanceof Error ? requestError.message : 'Unable to load collection.'); })
       .finally(() => { if (active) setLoading(false); });

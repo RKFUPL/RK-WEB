@@ -20,6 +20,7 @@ from ...catalog import (
     product_document,
     product_card_view,
     product_is_runway,
+    public_media_version,
     product_view,
 )
 from ...extensions import limiter
@@ -491,6 +492,12 @@ def storefront_product_media(product_id: str, media_id: str):
     if not media:
         return jsonify({"error": "Product media not found."}), 404
     permalink = str(media.get("permalink") or "")
+    version = public_media_version(product_id, media_id, media)
+    if request.if_none_match.contains(version):
+        response = Response(status=304)
+        response.set_etag(version)
+        response.headers["Cache-Control"] = "private, max-age=3600, stale-if-error=86400"
+        return response
     try:
         download = download_file(permalink, db, prefer_preview=True)
     except WorkDriveFileNotFound:
@@ -511,7 +518,8 @@ def storefront_product_media(product_id: str, media_id: str):
             upstream.close()
 
     response = Response(content(), content_type=content_type)
-    response.headers["Cache-Control"] = "private, max-age=300"
+    response.headers["Cache-Control"] = "private, max-age=3600, stale-if-error=86400"
+    response.set_etag(version)
     response.headers["Content-Disposition"] = "inline"
     response.headers["X-Content-Type-Options"] = "nosniff"
     return response

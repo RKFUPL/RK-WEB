@@ -5,6 +5,7 @@ always lives in the products collection so Admin, Staff, inventory, orders,
 quotes, and the storefront resolve the same record.
 """
 from datetime import datetime, timezone
+from hashlib import sha256
 from threading import Lock
 from urllib.parse import urlparse
 
@@ -1180,6 +1181,13 @@ def _safe_public_image_url(value: object) -> str | None:
     return url
 
 
+def public_media_version(product_id: object, media_id: object, media: dict) -> str:
+    """Version a safe proxy URL from relationship identity and provider source."""
+    source = str(media.get("permalink") or media.get("secure_url") or media.get("url") or media.get("public_id") or "")
+    value = f"{product_id}:{media_id}:{source}".encode("utf-8")
+    return sha256(value).hexdigest()[:16]
+
+
 def public_catalog_media(product: dict) -> list[dict]:
     """Expose structured media identity while resolving only safe display URLs."""
     product_id = str(product.get("_id") or "")
@@ -1211,7 +1219,7 @@ def public_catalog_media(product: dict) -> list[dict]:
             permalink = str(item.get("permalink") or "")
             parsed = urlparse(permalink)
             render_url = (
-                f"/api/catalog/products/{product_id}/media/{media_id}"
+                f"/api/catalog/products/{product_id}/media/{media_id}?v={public_media_version(product_id, media_id, item)}"
                 if product_id
                 and parsed.scheme == "https"
                 and parsed.hostname in {"workdrive.zoho.in", "workdrive.zohoexternal.in"}

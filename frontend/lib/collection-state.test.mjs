@@ -9,6 +9,7 @@ const featured = readFileSync(new URL('../components/home/featured-collection.ts
 const dynamicRoute = readFileSync(new URL('../app/collections/[slug]/page.tsx', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
 const management = readFileSync(new URL('../components/collections/collection-management-detail.tsx', import.meta.url), 'utf8');
+const catalogClient = readFileSync(new URL('./catalog-client.ts', import.meta.url), 'utf8');
 
 test('collection request failures remain distinct from genuine empty collections', () => {
   assert.match(detail, /setCollectionError/);
@@ -53,4 +54,11 @@ test('empty or unavailable managed collection heroes render a neutral state', ()
   assert.match(detail, /loading\s*\?\s*''/);
   assert.match(hero, /onError=\{\(\) => setMediaFailed\(true\)\}/);
   assert.match(hero, /Collection image not configured/);
+});
+
+test('collection navigation deduplicates short-lived public detail requests', () => {
+  assert.match(detail, /fetchCatalogCollection\(slug\)/);
+  assert.match(catalogClient, /collectionDetailRequests = new Map/);
+  assert.match(catalogClient, /COLLECTION_DETAIL_TTL_MS = 30_000/);
+  assert.match(catalogClient, /collectionDetailRequests\.delete\(key\)/);
 });
