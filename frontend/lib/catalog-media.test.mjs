@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { adminMediaGroups, availableGalleryMedia, guardedMediaCleanupPlan, productVariantHref, variantMediaSources, variantPrimaryAndHoverSources } from "./catalog.ts";
+import { adminMediaGroups, availableGalleryMedia, guardedMediaCleanupPlan, productColours, productHasColour, productVariantHref, variantMediaSources, variantPrimaryAndHoverSources } from "./catalog.ts";
 
 const drawer = readFileSync(new URL("../components/collections/collection-management-detail.tsx", import.meta.url), "utf8");
 const editor = readFileSync(new URL("../components/collections/variant-media-editor.tsx", import.meta.url), "utf8");
 const card = readFileSync(new URL("../components/collections/collection-product-card.tsx", import.meta.url), "utf8");
+const collectionProducts = readFileSync(new URL("../components/collections/storefront-collection-products.tsx", import.meta.url), "utf8");
 const productDetail = readFileSync(new URL("../components/products/product-detail-page.tsx", import.meta.url), "utf8");
 const productRoute = readFileSync(new URL("../app/products/[id]/page.tsx", import.meta.url), "utf8");
 
@@ -147,6 +148,25 @@ test("selected card colour is carried to product detail without changing the bas
   assert.match(productRoute, /initialVariantId/);
   assert.match(productDetail, /variant\.id === initialVariantId/);
   assert.match(productDetail, /searchParams\.set\("variant", variantId\)/);
+});
+
+test("collection colour matching uses canonical variants and ignores stale attribute casing", () => {
+  const product = t1Product();
+  product.attributes = { colors: ["red", "green"] };
+  assert.deepEqual(productColours(product), ["RED", "BLUE"]);
+  assert.equal(productHasColour(product, " red "), true);
+  assert.equal(productHasColour(product, "BLUE"), true);
+  assert.equal(productHasColour(product, "green"), false);
+  assert.equal(productHasColour(product, ""), true);
+});
+
+test("filter changes select the matching card variant without leaving cards hidden", () => {
+  assert.match(collectionProducts, /selectedColour=\{color\}/);
+  assert.match(card, /normalizeColour\(variant\.colour\) === normalizeColour\(selectedColour\)/);
+  assert.match(card, /selectedColour && !filteredVariant \? undefined : resolvedImages\.primary/);
+  assert.match(card, /primarySource && !primaryFailed/);
+  assert.match(collectionProducts, /initial="hidden" animate="visible"/);
+  assert.doesNotMatch(collectionProducts, /whileInView="visible"/);
 });
 
 test("guarded cleanup requires the exact unassigned set and retains variant media", () => {

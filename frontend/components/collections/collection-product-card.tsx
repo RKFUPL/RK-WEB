@@ -24,18 +24,28 @@ function colourSwatchValue(value?: string) {
   return colours[String(value || '').trim().toLowerCase()];
 }
 
-export function CollectionProductCard({ product, href }: { product: CatalogProduct; href?: string }) {
+export function CollectionProductCard({ product, href, selectedColour = '' }: { product: CatalogProduct; href?: string; selectedColour?: string }) {
   const [saved, setSaved] = useState(false);
   const selectableVariants = (product.variants || []).filter((variant) => variant.status !== 'remove' && Boolean(variant.colour));
   const defaultVariant = selectableVariants.find((variant) => variant.status === 'active') || selectableVariants[0] || product.variants?.[0];
   const [selectedVariantId, setSelectedVariantId] = useState(defaultVariant?.id || '');
   const [colourMenuOpen, setColourMenuOpen] = useState(false);
-  const selectedVariant = selectableVariants.find((variant) => variant.id === selectedVariantId) || defaultVariant;
+  const [failedImages, setFailedImages] = useState<Set<string>>(() => new Set());
+  const filteredVariant = selectedColour
+    ? selectableVariants.find((variant) => normalizeColour(variant.colour) === normalizeColour(selectedColour))
+    : undefined;
+  const selectedVariant = selectedColour ? filteredVariant : selectableVariants.find((variant) => variant.id === selectedVariantId) || defaultVariant;
   const route = productVariantHref(href || `/products/${product.id}`, selectedVariant?.id);
-  const { primary: primaryImage, hover: secondaryImage } = variantPrimaryAndHoverSources(product, selectedVariant);
+  const resolvedImages = variantPrimaryAndHoverSources(product, selectedVariant);
+  const primaryImage = selectedColour && !filteredVariant ? undefined : resolvedImages.primary;
+  const secondaryImage = selectedColour && !filteredVariant ? undefined : resolvedImages.hover;
   const selectedSwatch = colourSwatchValue(selectedVariant?.colour);
   const primaryGridImage = cloudinaryImageUrl(primaryImage, 640);
   const secondaryGridImage = cloudinaryImageUrl(secondaryImage, 640);
+  const primarySource = primaryGridImage || primaryImage;
+  const secondarySource = secondaryGridImage || secondaryImage;
+  const primaryFailed = Boolean(primarySource && failedImages.has(primarySource));
+  const secondaryFailed = Boolean(secondarySource && failedImages.has(secondarySource));
   const sizeConfigured = product.sizeInventoryConfigured === true;
   const productColours = productColourText(product);
   const wishlistSku = selectedVariant?.sku || product.sku;
@@ -83,9 +93,9 @@ export function CollectionProductCard({ product, href }: { product: CatalogProdu
   return <article className="collection-product-card group min-w-0">
     <div className="collection-product-image-wrapper relative aspect-[3/4] overflow-hidden rounded-[14px] bg-sand">
       <Link href={route} aria-label={`View ${product.name || 'product'}`} className="relative block h-full w-full">
-        {primaryImage ? <>
-          <Image src={primaryGridImage || primaryImage} alt={product.name || 'Collection product'} fill sizes="(max-width: 767px) 50vw, (max-width: 1023px) 33vw, 25vw" className={`collection-product-image object-cover ${secondaryImage ? 'group-hover:opacity-0' : ''}`} />
-          {secondaryImage ? <Image src={secondaryGridImage || secondaryImage} alt="" fill sizes="(max-width: 767px) 50vw, (max-width: 1023px) 33vw, 25vw" className="collection-product-image object-cover opacity-0 group-hover:opacity-100" /> : null}
+        {primarySource && !primaryFailed ? <>
+          <Image key={primarySource} src={primarySource} onError={() => setFailedImages((current) => new Set(current).add(primarySource))} alt={product.name || 'Collection product'} fill sizes="(max-width: 767px) 50vw, (max-width: 1023px) 33vw, 25vw" className={`collection-product-image object-cover ${secondarySource && !secondaryFailed ? 'group-hover:opacity-0' : ''}`} />
+          {secondarySource && !secondaryFailed ? <Image key={secondarySource} src={secondarySource} onError={() => setFailedImages((current) => new Set(current).add(secondarySource))} alt="" fill sizes="(max-width: 767px) 50vw, (max-width: 1023px) 33vw, 25vw" className="collection-product-image object-cover opacity-0 group-hover:opacity-100" /> : null}
         </> : <span className="grid h-full place-items-center text-center text-charcoal/38"><span><ImageIcon size={24} strokeWidth={1.25} className="mx-auto" /><span className="mt-3 block text-[0.54rem] uppercase tracking-[0.28em]">Image coming soon</span></span></span>}
       </Link>
       <button type="button" onClick={toggleSaved} aria-label={saved ? `Remove ${product.name} from wishlist` : `Save ${product.name} to wishlist`} aria-pressed={saved} className="absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-full bg-ivory/85 text-charcoal shadow-sm backdrop-blur-sm transition hover:text-gold sm:right-4 sm:top-4">

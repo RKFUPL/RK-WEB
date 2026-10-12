@@ -68,8 +68,8 @@
   --color-charcoal: #2a2622;
   --color-gold: #b58a4c;
   --color-ink: #121212;
-  --font-display: "Cormorant Garamond";
-  --font-body: "Inter";
+  --font-display: "Cormorant Garamond", "Iowan Old Style", Baskerville, "Times New Roman", serif;
+  --font-body: Inter, "Segoe UI", Arial, sans-serif;
   --font-aakaar: "HV Muse";
 }
 

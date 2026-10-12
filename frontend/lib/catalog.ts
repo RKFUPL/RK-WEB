@@ -5,12 +5,18 @@ export function normalizeColour(value: unknown): string {
   return String(value ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
 }
 
-export function productColours(product: Pick<CatalogProduct, 'attributes'>): string[] {
-  const values = product.attributes?.colors ?? (product.attributes?.color ? [String(product.attributes.color)] : []);
+export function productColours(product: Pick<CatalogProduct, 'attributes' | 'variants'>): string[] {
+  const variantValues = (product.variants || [])
+    .filter((variant) => variant.status !== 'remove')
+    .map((variant) => variant.colour)
+    .filter(Boolean);
+  const values = variantValues.length
+    ? variantValues
+    : product.attributes?.colors ?? (product.attributes?.color ? [String(product.attributes.color)] : []);
   return [...new Set(values.map(normalizeColour).filter(Boolean))];
 }
 
-export function productHasColour(product: Pick<CatalogProduct, 'attributes'>, colour: unknown): boolean {
+export function productHasColour(product: Pick<CatalogProduct, 'attributes' | 'variants'>, colour: unknown): boolean {
   const wanted = normalizeColour(colour);
   return !wanted || productColours(product).includes(wanted);
 }
