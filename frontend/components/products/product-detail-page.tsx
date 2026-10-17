@@ -14,6 +14,8 @@ import {
   Ruler,
   ShoppingBag,
   X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -130,7 +132,8 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
   const [thumbnailViewportHeight, setThumbnailViewportHeight] =
     useState<number>();
   const [quantity, setQuantity] = useState(1);
-  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [inlineZoomed, setInlineZoomed] = useState(false);
+  const [zoomOrigin, setZoomOrigin] = useState("50% 50%");
   const [mainImageAspectRatio, setMainImageAspectRatio] = useState(4 / 5);
   const [openSection, setOpenSection] = useState("");
   const [message, setMessage] = useState("");
@@ -254,23 +257,35 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
   }, [productId]);
 
   useEffect(() => {
-    if (!lightboxOpen || !galleryMedia.length) return undefined;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setLightboxOpen(false);
-      if (event.key === "ArrowLeft")
-        setActiveImage(
-          (index) => (index - 1 + galleryMedia.length) % galleryMedia.length,
-        );
-      if (event.key === "ArrowRight")
-        setActiveImage((index) => (index + 1) % galleryMedia.length);
+    setInlineZoomed(false);
+    setZoomOrigin("50% 50%");
+  }, [activeImage, selectedVariantId]);
+
+  useEffect(() => {
+    if (!inlineZoomed) return undefined;
+    const dismissOutside = (event: PointerEvent) => {
+      if (!mainImageFrameRef.current?.contains(event.target as Node)) setInlineZoomed(false);
     };
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", onKeyDown);
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setInlineZoomed(false);
+    };
+    document.addEventListener("pointerdown", dismissOutside);
+    document.addEventListener("keydown", dismissOnEscape);
     return () => {
-      document.body.style.overflow = "";
-      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", dismissOutside);
+      document.removeEventListener("keydown", dismissOnEscape);
     };
-  }, [galleryMedia, lightboxOpen]);
+  }, [inlineZoomed]);
+
+  useEffect(() => {
+    const viewport = mainImageFrameRef.current;
+    if (!viewport || typeof IntersectionObserver === "undefined") return undefined;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) setInlineZoomed(false);
+    });
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const rail = thumbnailRailRef.current;
@@ -472,7 +487,7 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
     setCustomMeasurements({});
     setQuantity(1);
     setMessage("");
-    setLightboxOpen(false);
+    setInlineZoomed(false);
     thumbnailRefs.current = [];
   };
   const markImageUnavailable = (source: string) => {
@@ -738,15 +753,40 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
             <div
               ref={mainImageFrameRef}
               data-testid="product-image-viewport"
-              className="relative h-auto w-full max-w-[35rem] overflow-hidden rounded-lg bg-transparent"
+              className="isolate relative h-auto w-full max-w-[35rem] overflow-hidden rounded-lg bg-transparent"
               style={{ aspectRatio: mainImageAspectRatio, borderRadius: 8, clipPath: "inset(0 round 8px)" }}
             >
               {currentMainImage ? (
-                <button
-                  type="button"
-                  onClick={() => setLightboxOpen(true)}
-                  className="absolute inset-0 cursor-zoom-in"
-                  aria-label="Open product image gallery"
+                <div
+                  role="button"
+                  data-testid="product-image-interaction-layer"
+                  tabIndex={0}
+                  aria-label={inlineZoomed ? "Return to normal product image" : "Zoom product image inline"}
+                  aria-pressed={inlineZoomed}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (!inlineZoomed) {
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      setZoomOrigin(`${Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100))}% ${Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100))}%`);
+                    }
+                    setInlineZoomed((value) => !value);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setInlineZoomed((value) => !value);
+                    }
+                    if (event.key === "Escape") setInlineZoomed(false);
+                  }}
+                  onPointerDown={(event) => { if (inlineZoomed) event.currentTarget.setPointerCapture(event.pointerId); }}
+                  onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
+                  onPointerMove={(event) => {
+                    if (!inlineZoomed) return;
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setZoomOrigin(`${Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100))}% ${Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100))}%`);
+                  }}
+                  className={`absolute inset-0 ${inlineZoomed ? "touch-none cursor-zoom-out" : "touch-pan-y cursor-zoom-in"}`}
+                  style={{ borderRadius: 8 }}
                 >
                   <Image
                     src={currentMainImage}
@@ -754,8 +794,8 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
                     fill
                     priority
                     data-testid="product-image-layer"
-                    className="h-full w-full rounded-lg object-cover transition-opacity duration-500"
-                    style={{ borderRadius: 8, clipPath: "inset(0 round 8px)" }}
+                    className={`h-full w-full rounded-lg object-cover transition-transform duration-300 ease-out ${inlineZoomed ? "scale-[1.7]" : "scale-100"}`}
+                    style={{ borderRadius: 8, clipPath: "inset(0 round 8px)", transformOrigin: zoomOrigin }}
                     sizes="(max-width: 1024px) 100vw, 58vw"
                     onLoad={(event) => {
                       const { naturalWidth, naturalHeight } = event.currentTarget;
@@ -765,7 +805,7 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
                     }}
                     onError={() => markImageUnavailable(currentImage)}
                   />
-                </button>
+                </div>
               ) : (
                 <div className="grid h-full place-items-center text-center text-charcoal/40">
                   <div>
@@ -780,7 +820,18 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
                   </div>
                 </div>
               )}
-              {media.length > 1 ? (
+              {currentMainImage ? (
+                <button
+                  data-testid="product-image-zoom-control"
+                  type="button"
+                  onClick={(event) => { event.preventDefault(); event.stopPropagation(); setInlineZoomed((value) => !value); }}
+                  aria-label={inlineZoomed ? "Back to normal product image" : "Zoom in on product image"}
+                  className="absolute bottom-3 right-3 z-[1] inline-flex min-h-9 items-center gap-2 rounded-full bg-ink/70 px-3 text-[0.5rem] uppercase tracking-[0.14em] text-ivory backdrop-blur-sm transition hover:bg-ink/85 hover:text-gold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold sm:bottom-4 sm:right-4"
+                >
+                  {inlineZoomed ? <><ZoomOut size={15} /> Back to image</> : <><ZoomIn size={15} /> Zoom</>}
+                </button>
+              ) : null}
+              {media.length > 1 && !inlineZoomed ? (
                 <>
                   <button
                     type="button"
@@ -1379,58 +1430,6 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
         </motion.div>
         ) : null}
     </AnimatePresence>
-      <AnimatePresence>
-        {lightboxOpen && currentMainImage ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Product image gallery"
-            className="fixed inset-0 z-[100] grid place-items-center bg-ink/95 p-4 sm:p-8"
-          >
-            <button
-              type="button"
-              onClick={() => setLightboxOpen(false)}
-              aria-label="Close image gallery"
-              className="absolute right-5 top-5 z-10 grid h-11 w-11 place-items-center rounded-full border border-white/25 text-white transition hover:border-gold hover:text-gold"
-            >
-              <X size={20} />
-            </button>
-            <div className="relative h-[min(86vh,56rem)] w-[min(92vw,72rem)]">
-              <Image
-                src={currentMainImage}
-                alt={product.name || "Product"}
-                fill
-                className="object-contain"
-                sizes="92vw"
-                onError={() => markImageUnavailable(currentImage)}
-              />
-            </div>
-            {media.length > 1 ? (
-              <>
-                <button
-                  type="button"
-                  onClick={previousImage}
-                  aria-label="Previous product image"
-                  className="absolute left-4 top-1/2 grid h-12 w-12 -translate-y-1/2 place-items-center rounded-full border border-white/25 text-white transition hover:border-gold hover:text-gold sm:left-8"
-                >
-                  <ChevronLeft size={22} />
-                </button>
-                <button
-                  type="button"
-                  onClick={nextImage}
-                  aria-label="Next product image"
-                  className="absolute right-4 top-1/2 grid h-12 w-12 -translate-y-1/2 place-items-center rounded-full border border-white/25 text-white transition hover:border-gold hover:text-gold sm:right-8"
-                >
-                  <ChevronRight size={22} />
-                </button>
-              </>
-            ) : null}
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
     </main>
   );
 }
