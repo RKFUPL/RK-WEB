@@ -34,6 +34,11 @@ test('footer navigation contains only implemented destinations', () => {
   assert.doesNotMatch(footer, /Cookie Preferences/);
 });
 
+test('footer uses the approved customer-facing Mumbai location name', () => {
+  assert.match(footer, /Mumbai Factory \/ Exhibit/);
+  assert.doesNotMatch(footer, /Mumbai Factory and Showroom/);
+});
+
 test('footer exposes only the approved social profiles with accessible labels', () => {
   assert.deepEqual(Object.keys(storefrontSocialLinks).sort(), ['instagram', 'linkedin']);
   assert.match(footer, /aria-label="Rashi Kapoor on Instagram"/);
