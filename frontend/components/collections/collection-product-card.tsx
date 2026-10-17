@@ -5,9 +5,10 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { trackAnalyticsEvent } from '@/lib/analytics';
-import { availabilityLabels, inr, normalizeColour, productVariantHref, type CatalogProduct, variantPrimaryAndHoverSources } from '@/lib/catalog';
+import { availabilityLabels, normalizeColour, productVariantHref, type CatalogProduct, variantPrimaryAndHoverSources } from '@/lib/catalog';
 import { readWishlist, toggleWishlist, wishlistChangedEvent } from '@/lib/storefront-wishlist';
 import { cloudinaryImageUrl } from '@/lib/utils';
+import { PriceCurrencyRow } from '@/components/commerce/price-currency-row';
 
 function productColourText(product: CatalogProduct) {
   const value = product.attributes?.colors?.length ? product.attributes.colors : product.attributes?.color;
@@ -145,8 +146,7 @@ export function CollectionProductCard({ product, href, selectedColour = '' }: { 
         </div>
         {product.availability === 'custom_order' ? <span className="shrink-0 text-[0.5rem] uppercase tracking-[0.18em] text-gold">Custom</span> : null}
       </div>
-      <p className="mt-2 text-xs text-charcoal/70 sm:text-sm">{product.price === undefined ? 'Price on request' : inr.format(product.price)}</p>
-      {product.price !== undefined && (product.taxInclusive || product.mrpIncludesGst) ? <p className="mt-1.5 text-[0.5rem] uppercase tracking-[0.18em] text-charcoal/42">MRP · Inclusive of GST</p> : null}
+      <PriceCurrencyRow amount={product.price} className="mt-2 text-xs text-charcoal/70 sm:text-sm" />
       {product.availability === 'sold_out' ? <button type="button" disabled className="mt-4 inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.56rem] uppercase tracking-[0.24em] text-charcoal opacity-40"><ShoppingBag size={14} strokeWidth={1.35} />Sold out</button> : <Link href={route} className="mt-4 inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.56rem] uppercase tracking-[0.24em] text-charcoal transition hover:border-gold hover:text-gold"><ShoppingBag size={14} strokeWidth={1.35} />{sizeConfigured || product.variants?.length ? 'Choose options' : 'View product'}</Link>}
     </div>
   </article>;

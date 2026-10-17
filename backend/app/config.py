@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import timedelta
 
@@ -22,6 +23,12 @@ class BaseConfig:
     RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
     RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "")
     RAZORPAY_MODE = os.getenv("RAZORPAY_MODE", "test").strip().lower() or "test"
+    try:
+        PUBLIC_FX_RATES = json.loads(os.getenv("PUBLIC_FX_RATES", "{}"))
+    except json.JSONDecodeError:
+        PUBLIC_FX_RATES = {}
+    FX_PROVIDER_URL = os.getenv("FX_PROVIDER_URL", "https://open.er-api.com/v6/latest/INR").strip()
+    FX_CACHE_TTL_SECONDS = int(os.getenv("FX_CACHE_TTL_SECONDS", "21600"))
     RATELIMIT_DEFAULT = "200 per hour"
     RATELIMIT_STORAGE_URI = os.getenv("RATELIMIT_STORAGE_URI", "memory://")
     STOCK_INTEGRATION_BOOTSTRAP_SECRET = os.getenv("STOCK_INTEGRATION_BOOTSTRAP_SECRET", "")

@@ -23,7 +23,8 @@ import { cartChangedEvent, readStoredCart, removeStoredCartItem, updateStoredCar
 import { readWishlist, removeFromWishlist, wishlistChangedEvent, type StorefrontWishlistItem } from '@/lib/storefront-wishlist';
 import type { Cart } from '@/lib/store-types';
 import { cn } from '@/lib/utils';
-import { inr } from '@/lib/catalog';
+import { useCurrency } from '@/components/commerce/currency-provider';
+import { ForexTicker } from '@/components/commerce/forex-ticker';
 import { ShippingTimeline } from '@/components/commerce/shipping-timeline';
 import { cartItemShippingTimeline } from '@/lib/shipping-timeline';
 import { cartLineKey, getCartSubtotal } from '@/lib/cart';
@@ -55,6 +56,7 @@ function AccountPreview({ user, onNavigate }: { user: HeaderUser; onNavigate: ()
 }
 
 export function StickyHeader({ transparentAtTop = false, transparentTheme = 'light' }: StickyHeaderProps) {
+  const { formatPrice } = useCurrency();
   const [scrolled, setScrolled] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -427,6 +429,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
         </nav>
 
         <div className="hidden items-center gap-5 lg:flex">
+          <ForexTicker />
           <button
             type="button"
             onClick={() => { loadCollectionLinks(); setSearchOpen(true); }}
@@ -637,6 +640,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
               </div>
 
               <div className="mt-8 space-y-3 text-xs uppercase tracking-[0.3em] text-charcoal/60">
+                <ForexTicker mobile />
                 {utilityLinks.map(({ label, Icon }) => (
                   <div key={label}>
                   <button
@@ -726,7 +730,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
                       </div>
                       <p className="mt-1 text-[0.68rem] text-charcoal/55 dark:text-white/55">{item.category || 'Couture'}</p>
                       {item.colour || item.sku ? <p className="mt-1 text-[0.62rem] uppercase tracking-[0.14em] text-charcoal/55 dark:text-white/55">{item.colour || 'Colour'}{item.sku ? ` · ${item.sku}` : ''}</p> : null}
-                      <p className="mt-1 text-xs text-charcoal/70 dark:text-white/70">{item.price === undefined ? 'Price on request' : inr.format(item.price)}</p>
+                      <p className="mt-1 text-xs text-charcoal/70 dark:text-white/70">{formatPrice(item.price)}</p>
                       <p className="mt-1 text-[0.62rem] text-charcoal/55 dark:text-white/55">{item.availability || 'Available on request'}</p>
                       {item.sizeOptions?.length ? <p className="mt-2 text-[0.62rem] uppercase tracking-[0.14em] text-charcoal/55 dark:text-white/55">Sizes: {item.sizeOptions.join(' · ')}</p> : null}
                       <div className="mt-3 flex flex-wrap gap-3">
@@ -782,10 +786,10 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
                 </button>
               </div>
               <div className={`min-h-0 flex-1 overflow-y-auto bg-[#fffdf9] dark:bg-[#121212] ${shoppingBag.items.length ? 'px-6' : 'flex items-center justify-center px-8 text-center text-sm text-charcoal/55 dark:text-white/60'}`}>
-                {shoppingBag.items.length ? shoppingBag.items.map((item) => { const lineKey = cartLineKey(item); return <div key={lineKey} className="flex gap-4 border-b border-black/10 py-5 dark:border-white/10"><div className="h-24 w-20 shrink-0 overflow-hidden rounded-[12px] bg-sand">{item.image ? <img src={item.image} alt={item.name} className="h-full w-full object-cover" /> : null}</div><div className="min-w-0 flex-1"><p className="font-display text-lg">{item.name}</p>{item.variant ? <p className="mt-1 text-[0.6rem] uppercase tracking-[0.18em] text-charcoal/50 dark:text-white/50">{item.variant.name}: {item.variant.value}</p> : null}{item.customSize ? <p className="mt-1 text-[0.6rem] uppercase tracking-[0.18em] text-charcoal/50 dark:text-white/50">Custom size · {item.customSize.unit}</p> : null}<p className="mt-2 text-xs text-charcoal/70 dark:text-white/70">Unit price: {inr.format(item.price)}</p><p className="mt-1 text-xs text-charcoal/70 dark:text-white/70">Subtotal: {inr.format(item.price * item.quantity)}</p><ShippingTimeline timeline={cartItemShippingTimeline(item)} compact /><div className="mt-3 flex items-center gap-2"><button type="button" onClick={() => updateStoredCartQuantity(item.productId, item.quantity - 1, item.variant?.id, lineKey)} aria-label={`Decrease quantity of ${item.name}`} className="grid h-8 w-8 place-items-center border border-black/15 transition hover:text-gold dark:border-white/20"><Minus size={13} /></button><span className="min-w-6 text-center text-xs">{item.quantity}</span><button type="button" disabled={item.quantity >= 50} onClick={() => updateStoredCartQuantity(item.productId, item.quantity + 1, item.variant?.id, lineKey)} aria-label={`Increase quantity of ${item.name}`} className="grid h-8 w-8 place-items-center border border-black/15 transition hover:text-gold disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/20"><Plus size={13} /></button></div><button type="button" onClick={() => removeStoredCartItem(item.productId, item.variant?.id, lineKey)} className="mt-3 text-[0.55rem] uppercase tracking-[0.2em] text-gold">Remove</button></div></div>; }) : <div className="flex min-h-full flex-col items-center justify-center gap-4 text-center"><ShoppingBag className="h-7 w-7 text-gold" strokeWidth={1.25} /><p>Your bag is empty.</p><Link href="/collections" onClick={() => setBagOpen(false)} className="border-b border-charcoal/40 pb-2 text-[0.6rem] uppercase tracking-[0.25em] dark:border-white/40">Explore Collections</Link></div>}
+                {shoppingBag.items.length ? shoppingBag.items.map((item) => { const lineKey = cartLineKey(item); return <div key={lineKey} className="flex gap-4 border-b border-black/10 py-5 dark:border-white/10"><div className="h-24 w-20 shrink-0 overflow-hidden rounded-[12px] bg-sand">{item.image ? <img src={item.image} alt={item.name} className="h-full w-full object-cover" /> : null}</div><div className="min-w-0 flex-1"><p className="font-display text-lg">{item.name}</p>{item.variant ? <p className="mt-1 text-[0.6rem] uppercase tracking-[0.18em] text-charcoal/50 dark:text-white/50">{item.variant.name}: {item.variant.value}</p> : null}{item.customSize ? <p className="mt-1 text-[0.6rem] uppercase tracking-[0.18em] text-charcoal/50 dark:text-white/50">Custom size · {item.customSize.unit}</p> : null}<p className="mt-2 text-xs text-charcoal/70 dark:text-white/70">Unit price: {formatPrice(item.price)}</p><p className="mt-1 text-xs text-charcoal/70 dark:text-white/70">Subtotal: {formatPrice(item.price * item.quantity)}</p><ShippingTimeline timeline={cartItemShippingTimeline(item)} compact /><div className="mt-3 flex items-center gap-2"><button type="button" onClick={() => updateStoredCartQuantity(item.productId, item.quantity - 1, item.variant?.id, lineKey)} aria-label={`Decrease quantity of ${item.name}`} className="grid h-8 w-8 place-items-center border border-black/15 transition hover:text-gold dark:border-white/20"><Minus size={13} /></button><span className="min-w-6 text-center text-xs">{item.quantity}</span><button type="button" disabled={item.quantity >= 50} onClick={() => updateStoredCartQuantity(item.productId, item.quantity + 1, item.variant?.id, lineKey)} aria-label={`Increase quantity of ${item.name}`} className="grid h-8 w-8 place-items-center border border-black/15 transition hover:text-gold disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/20"><Plus size={13} /></button></div><button type="button" onClick={() => removeStoredCartItem(item.productId, item.variant?.id, lineKey)} className="mt-3 text-[0.55rem] uppercase tracking-[0.2em] text-gold">Remove</button></div></div>; }) : <div className="flex min-h-full flex-col items-center justify-center gap-4 text-center"><ShoppingBag className="h-7 w-7 text-gold" strokeWidth={1.25} /><p>Your bag is empty.</p><Link href="/collections" onClick={() => setBagOpen(false)} className="border-b border-charcoal/40 pb-2 text-[0.6rem] uppercase tracking-[0.25em] dark:border-white/40">Explore Collections</Link></div>}
               </div>
               <div className="border-t border-black/10 bg-[#fffdf9] px-6 py-5 dark:border-white/10 dark:bg-[#121212]">
-                {shoppingBag.items.length ? <div className="mb-4 flex items-center justify-between text-sm"><span>Subtotal</span><span>{inr.format(getCartSubtotal(shoppingBag))}</span></div> : null}
+                {shoppingBag.items.length ? <div className="mb-4 flex items-center justify-between text-sm"><span>Subtotal</span><span>{formatPrice(getCartSubtotal(shoppingBag))}</span></div> : null}
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Link href="/checkout" onClick={() => setBagOpen(false)} aria-disabled={!shoppingBag.items.length} className={`flex w-full items-center justify-center bg-ink px-5 py-4 text-xs uppercase tracking-[0.24em] text-ivory transition hover:bg-gold hover:text-ink ${!shoppingBag.items.length ? 'pointer-events-none opacity-40' : ''}`}>Checkout</Link>
                   <Link href="/bag" onClick={() => setBagOpen(false)} className="flex w-full items-center justify-center border border-charcoal px-5 py-4 text-xs uppercase tracking-[0.24em] transition hover:border-gold hover:text-gold dark:border-white/60">View full bag</Link>

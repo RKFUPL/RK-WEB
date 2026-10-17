@@ -141,6 +141,7 @@ SETTINGS_DEFAULTS = {
     "emailNotifications": True,
     "orderNotifications": True,
     "lowStockNotifications": True,
+    "showStorefrontForex": True,
     "courierOptions": [],
 }
 
@@ -720,6 +721,12 @@ def get_settings():
     return jsonify({"settings": _settings(database())}), 200
 
 
+@storefront_lookbooks_bp.get("/storefront-settings")
+def get_public_storefront_settings():
+    settings = _settings(database())
+    return jsonify({"settings": {"showStorefrontForex": bool(settings["showStorefrontForex"])}}), 200
+
+
 @storefront_lookbooks_bp.get("/lookbooks")
 def get_public_lookbooks():
     db = database()
@@ -888,6 +895,7 @@ def update_settings():
         "emailNotifications": bool(payload.get("emailNotifications")),
         "orderNotifications": bool(payload.get("orderNotifications")),
         "lowStockNotifications": bool(payload.get("lowStockNotifications")),
+        "showStorefrontForex": bool(payload.get("showStorefrontForex")),
         "courierOptions": couriers,
     }
     actor = current_user()

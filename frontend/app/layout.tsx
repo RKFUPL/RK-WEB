@@ -5,6 +5,7 @@ import './globals.css';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { AnalyticsTracker } from '@/components/analytics-tracker';
 import { siteUrl } from '@/lib/site-metadata';
+import { CurrencyProvider } from '@/components/commerce/currency-provider';
 
 const aakaar = localFont({
   src: '../../HV-Muse-Regular.otf',
@@ -39,7 +40,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
     <html lang="en" data-scroll-behavior="smooth">
       <body className={`${aakaar.variable} bg-ivory text-charcoal antialiased`}>
         <AnalyticsTracker />
-        {children}
+        <CurrencyProvider>{children}</CurrencyProvider>
         <ThemeToggle />
       </body>
     </html>

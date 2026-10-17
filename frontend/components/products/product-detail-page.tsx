@@ -29,7 +29,6 @@ import { trackAnalyticsEvent } from "@/lib/analytics";
 import {
   availabilityLabels,
   availableGalleryMedia,
-  inr,
   normalizeColour,
   variantMediaSources,
   type CatalogProduct,
@@ -44,6 +43,7 @@ import {
   wishlistChangedEvent,
 } from "@/lib/storefront-wishlist";
 import { cloudinaryImageUrl } from "@/lib/utils";
+import { PriceCurrencyRow } from "@/components/commerce/price-currency-row";
 
 function textValue(value: unknown) {
   if (Array.isArray(value)) return value.filter(Boolean).join(", ");
@@ -456,11 +456,6 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
   const soldOut = selectedAvailability === "sold_out";
   const runwayCustomOrder =
     isRunwayProduct && selectedAvailability !== "in_stock";
-  const taxInclusive =
-    product.taxInclusive === true ||
-    product.mrpIncludesGst === true ||
-    collections.some((collection) => collection.taxInclusive) ||
-    isAnamikaProduct;
   const shippingTimeline = productShippingTimeline(product, selectedVariant, Boolean(customMeasurements._customReady));
   const requireSignIn = () => {
     if (window.localStorage.getItem("rk_access_token")) return true;
@@ -945,16 +940,7 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
               {summaryDescription}
             </p>
           <div className="mt-7 border-t border-black/12 pt-5 dark:border-white/15">
-              <p className="text-lg">
-                {selectedPrice === undefined
-                  ? "Price on request"
-                  : inr.format(selectedPrice)}
-              </p>
-              {selectedPrice !== undefined && taxInclusive ? (
-                <p className="mt-2 text-[0.56rem] uppercase tracking-[0.2em] text-charcoal/45">
-                  MRP · Inclusive of GST
-                </p>
-              ) : null}
+              <PriceCurrencyRow amount={selectedPrice} className="text-lg" />
               <p className="mt-3 text-[0.58rem] uppercase tracking-[0.25em] text-gold">
                 {availabilityLabels[selectedAvailability]}
               </p>

@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { StickyHeader } from '@/components/home/sticky-header';
 import { ShippingTimeline } from '@/components/commerce/shipping-timeline';
 import { cartLineKey, getCartSubtotal } from '@/lib/cart';
-import { inr } from '@/lib/catalog';
+import { useCurrency } from '@/components/commerce/currency-provider';
 import { cartChangedEvent, readStoredCart, removeStoredCartItem, updateStoredCartQuantity, updateStoredCartSize } from '@/lib/storefront-cart';
 import type { Cart, CartItem } from '@/lib/store-types';
 import { cartItemShippingTimeline } from '@/lib/shipping-timeline';
@@ -38,6 +38,7 @@ function VariantDetails({ item }: { item: CartItem }) {
 }
 
 export default function BagPage() {
+  const { formatPrice } = useCurrency();
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [cart, setCart] = useState<Cart>({ items: [], currency: 'INR' });
 
@@ -81,14 +82,14 @@ export default function BagPage() {
                   <button type="button" disabled={item.quantity >= 50} onClick={() => updateStoredCartQuantity(item.productId, item.quantity + 1, item.variantId, lineKey)} aria-label={`Increase quantity of ${item.name}`} className="grid h-8 w-8 place-items-center transition hover:text-gold disabled:cursor-not-allowed disabled:opacity-35"><Plus size={13} /></button>
                 </div>
               </div>
-              <p className="mt-2 text-sm">{inr.format(item.price)}</p>
+              <p className="mt-2 text-sm">{formatPrice(item.price)}</p>
             </div>
             <button type="button" onClick={() => removeStoredCartItem(item.productId, item.variantId, lineKey)} aria-label={`Remove ${item.name}`} className="self-start p-2 text-charcoal/45 transition hover:text-gold"><X size={16} /></button>
           </article>;
         })}</div>
         <aside className="h-fit border border-black/12 p-6 dark:border-white/15">
           <p className="text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/50">Summary</p>
-          <div className="mt-6 flex justify-between border-b border-black/10 pb-5 text-sm dark:border-white/10"><span>Subtotal</span><span>{inr.format(getCartSubtotal(cart))}</span></div>
+          <div className="mt-6 flex justify-between border-b border-black/10 pb-5 text-sm dark:border-white/10"><span>Subtotal</span><span>{formatPrice(getCartSubtotal(cart))}</span></div>
           <p className="mt-5 text-xs leading-6 text-charcoal/55">MRP is inclusive of GST. Shipping is confirmed at checkout.</p>
           <Link href="/checkout" className="mt-7 flex w-full justify-center bg-ink px-5 py-4 text-[0.6rem] uppercase tracking-[0.25em] text-ivory transition hover:bg-gold hover:text-ink">Continue to checkout</Link>
         </aside>

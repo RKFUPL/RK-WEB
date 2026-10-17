@@ -24,12 +24,20 @@ from ...catalog import (
     product_view,
 )
 from ...extensions import limiter
+from ...fx_rates import currency_context as build_currency_context
 from ...product_variants import find_variant, product_has_visible_variants, sync_product_variants
 from ...rbac import database
 from ...workdrive import WorkDriveFileNotFound, WorkDriveUnavailable, download_file, is_supported_permalink
 
 
 catalog_bp = Blueprint("catalog", __name__)
+
+
+@catalog_bp.get("/currency-context")
+def currency_context():
+    """Return validated display rates and safe freshness metadata."""
+    country = request.headers.get("CF-IPCountry") or request.headers.get("X-Vercel-IP-Country") or ""
+    return jsonify(build_currency_context(current_app.config, country_code=country))
 
 
 def _normalised_values(value):
