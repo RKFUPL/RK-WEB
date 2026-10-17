@@ -131,6 +131,7 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
     useState<number>();
   const [quantity, setQuantity] = useState(1);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [mainImageAspectRatio, setMainImageAspectRatio] = useState(4 / 5);
   const [openSection, setOpenSection] = useState("");
   const [message, setMessage] = useState("");
   const [notFound, setNotFound] = useState(false);
@@ -736,7 +737,9 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
         <div className="flex justify-center lg:justify-start">
             <div
               ref={mainImageFrameRef}
-              className="relative aspect-[4/5] h-auto w-full max-w-[35rem] overflow-hidden rounded-[14px] bg-sand"
+              data-testid="product-image-viewport"
+              className="relative h-auto w-full max-w-[35rem] overflow-hidden rounded-lg bg-transparent"
+              style={{ aspectRatio: mainImageAspectRatio, borderRadius: 8, clipPath: "inset(0 round 8px)" }}
             >
               {currentMainImage ? (
                 <button
@@ -750,8 +753,16 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
                     alt={product.name || "Product"}
                     fill
                     priority
-                    className="object-contain transition-opacity duration-500"
+                    data-testid="product-image-layer"
+                    className="h-full w-full rounded-lg object-cover transition-opacity duration-500"
+                    style={{ borderRadius: 8, clipPath: "inset(0 round 8px)" }}
                     sizes="(max-width: 1024px) 100vw, 58vw"
+                    onLoad={(event) => {
+                      const { naturalWidth, naturalHeight } = event.currentTarget;
+                      if (naturalWidth > 0 && naturalHeight > 0) {
+                        setMainImageAspectRatio(naturalWidth / naturalHeight);
+                      }
+                    }}
                     onError={() => markImageUnavailable(currentImage)}
                   />
                 </button>
