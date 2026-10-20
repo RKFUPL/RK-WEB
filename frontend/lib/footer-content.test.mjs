@@ -6,10 +6,11 @@ import { storefrontSocialLinks } from './storefront-social.ts';
 
 const footer = readFileSync(new URL('../components/home/footer.tsx', import.meta.url), 'utf8');
 
-test('footer preserves the house signature and verified contact identity', () => {
-  assert.match(footer, /Fashion is not just what you wear,/);
-  assert.match(footer, /it&apos;s a legacy you carry\./);
-  assert.match(footer, /sm:whitespace-nowrap/);
+test('footer preserves the approved house signature and verified contact identity', () => {
+  assert.match(footer, /Beyond what you wear lies the/);
+  assert.match(footer, /legacy you embody\./);
+  assert.match(footer, /A celebration of Indian heritage, timeless artistry and contemporary couture\./);
+  assert.match(footer, /Discover the art of couture\. Book your private appointment with the House\./);
   assert.match(footer, /legalIdentity\.customerCareEmail/);
   assert.match(footer, /legalIdentity\.customerCarePhone/);
   assert.equal(legalIdentity.companyName, 'Rashi Kapoor Fashion Unicus Pvt. Ltd.');

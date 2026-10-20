@@ -45,7 +45,7 @@ export default function CareersPage() {
       <section className="careers-page-contact">
         <p className="text-[0.65rem] uppercase tracking-[0.38em] text-gold">Find your place</p>
         <h2 className="mt-5 font-display text-5xl tracking-[-0.04em] text-charcoal md:text-7xl">Bring your point of view.</h2>
-        <a href="mailto:careers@rashikapoor.com" className="mt-8 inline-flex border border-gold px-5 py-3 text-[0.65rem] uppercase tracking-[0.28em] text-charcoal transition hover:bg-gold hover:text-ink">Introduce yourself →</a>
+        <a href="mailto:hr@rashikapoorofficial.com" className="mt-8 inline-flex border border-gold px-5 py-3 text-[0.65rem] uppercase tracking-[0.28em] text-charcoal transition hover:bg-gold hover:text-ink">Introduce yourself →</a>
       </section>
       <Footer />
     </main>

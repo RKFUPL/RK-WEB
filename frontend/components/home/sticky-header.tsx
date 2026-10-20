@@ -43,7 +43,7 @@ const utilityLinks = [
   { label: 'Shopping Bag', Icon: ShoppingBag },
 ] as const;
 const navItemClass =
-  'border-0 bg-transparent p-0 font-body text-[0.72rem] uppercase tracking-[0.25em] text-current transition duration-500 hover:text-gold';
+  'border-0 bg-transparent p-0 font-body text-[0.78rem] uppercase tracking-[0.24em] text-current transition duration-500 hover:text-gold';
 
 type StickyHeaderProps = {
   transparentAtTop?: boolean;
@@ -333,7 +333,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
         isHomePage || headerVisible || searchOpen || menuOpen || wishlistOpen || bagOpen || accountOpen ? 'translate-y-0' : '-translate-y-full'
       )}
     >
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-10">
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-10 lg:py-[1.125rem]">
         <div className="flex w-full items-center justify-between gap-4 lg:w-auto">
           <Link href="/" className="flex items-center gap-3">
             <img
@@ -341,10 +341,10 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
               alt="RK Logo"
               width="80"
               height="40"
-              className={cn('rk-logo h-10 w-auto', transparentLogoIsLight && 'rk-logo-on-hero', isTransparent && activeTransparentTheme === 'dark' && 'rk-logo-on-light-hero')}
-              style={{ width: 'auto', height: '2.5rem', filter: transparentLogoIsLight ? 'brightness(0) invert(1)' : undefined }}
+              className={cn('rk-logo h-11 w-auto lg:h-12', transparentLogoIsLight && 'rk-logo-on-hero', isTransparent && activeTransparentTheme === 'dark' && 'rk-logo-on-light-hero')}
+              style={{ width: 'auto', filter: transparentLogoIsLight ? 'brightness(0) invert(1)' : undefined }}
             />
-            <span className="hidden border-l border-current/30 pl-3 text-[0.58rem] uppercase leading-[1.15] tracking-[0.32em] sm:block">Rashi<br />Kapoor</span>
+            <span className="hidden border-l border-current/30 pl-3 text-[0.64rem] uppercase leading-[1.18] tracking-[0.3em] sm:block">Rashi<br />Kapoor</span>
           </Link>
           <button
             type="button"
@@ -357,7 +357,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
           </button>
         </div>
 
-        <nav className="hidden items-center gap-7 lg:flex">
+        <nav className="hidden items-center gap-9 lg:flex">
           <button type="button" onClick={scrollToHome} className={navItemClass}>
             Home
           </button>
@@ -428,7 +428,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
           </button>
         </nav>
 
-        <div className="hidden items-center gap-5 lg:flex">
+        <div className="hidden items-center gap-6 lg:flex">
           <ForexTicker />
           <button
             type="button"
@@ -436,14 +436,14 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
             className="border-0 bg-transparent p-0 text-current transition hover:opacity-70"
             aria-label="Search"
           >
-            <Search className="h-4 w-4" />
+            <Search className="h-[1.15rem] w-[1.15rem]" />
           </button>
           <button type="button" onClick={openWishlist} className="border-0 bg-transparent p-0 text-current transition hover:opacity-70" aria-label="Wishlist">
-            <Heart className="h-4 w-4" />
+            <Heart className="h-[1.15rem] w-[1.15rem]" />
           </button>
           <div className="relative" onMouseEnter={() => accountUser && setAccountOpen(true)} onMouseLeave={() => setAccountOpen(false)}>
             <button type="button" onClick={openAccount} className={cn('border-0 bg-transparent p-0 text-current transition hover:opacity-70', accountAttention && 'animate-[rk-account-blink_1.2s_ease-in-out]')} aria-label="Account" aria-expanded={accountOpen}>
-              <UserRound className="h-4 w-4" />
+              <UserRound className="h-[1.15rem] w-[1.15rem]" />
             </button>
             <AnimatePresence>
               {accountOpen ? <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} className="absolute right-0 top-full z-50 mt-4 w-64 border border-black/10 bg-white p-5 text-charcoal shadow-[0_18px_45px_rgba(18,18,18,0.1)]" onMouseEnter={() => setAccountOpen(true)}>
@@ -452,7 +452,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
             </AnimatePresence>
           </div>
           <button type="button" onClick={openBag} className="border-0 bg-transparent p-0 text-current transition hover:opacity-70" aria-label="Shopping Bag">
-            <ShoppingBag className="h-4 w-4" />
+            <ShoppingBag className="h-[1.15rem] w-[1.15rem]" />
           </button>
         </div>
       </div>

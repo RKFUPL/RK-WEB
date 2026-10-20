@@ -135,9 +135,8 @@ export function FeaturedCollection({
           <button type="button" aria-label="Next Aakaar image" onClick={() => changeFrame(1)} className="pointer-events-auto absolute right-5 top-1/2 z-40 flex h-12 w-12 -translate-y-1/2 items-center justify-center border border-[#fff1df]/55 bg-black/10 text-[#fff1df] backdrop-blur-sm transition hover:border-gold hover:bg-gold hover:text-ink lg:right-8"><ArrowRight className="h-5 w-5" /></button>
         </> : null}
 
-        <div className="pointer-events-none absolute inset-x-6 top-28 z-20 flex items-start justify-between text-[0.58rem] uppercase tracking-[0.34em] text-[#fff1df]/75 lg:inset-x-12 lg:top-36">
+        <div className="pointer-events-none absolute inset-x-6 top-28 z-20 flex items-start text-[0.58rem] uppercase tracking-[0.34em] text-[#fff1df]/75 lg:inset-x-12 lg:top-36">
           <span>Rashi Kapoor / 2026</span>
-          <span className="hidden items-center gap-3 md:flex"><span className="h-px w-10 bg-gold/70" />Indian couture</span>
         </div>
 
         <motion.div
@@ -191,9 +190,6 @@ export function FeaturedCollection({
                 </div>
               </div>
 
-              <div className="hidden max-w-[10rem] border-l border-gold/60 pl-5 text-[0.57rem] uppercase leading-[1.8] tracking-[0.25em] text-[#fff1df]/65 md:block">
-                <span className="text-gold">A new chapter</span><br />in movement,<br />texture &amp;<br />quiet couture.
-              </div>
             </motion.div>
           )}
         </AnimatePresence>

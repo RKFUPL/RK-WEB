@@ -94,18 +94,16 @@ export function Footer() {
         )}
         <div className="absolute inset-0 flex items-end justify-between bg-gradient-to-t from-[#0c0908]/88 via-[#0c0908]/15 to-transparent px-6 pb-8 lg:px-12 lg:pb-10">
           <div>
-            <p className="mb-3 text-[0.6rem] uppercase tracking-[0.36em] text-gold">The house in person</p>
+            <p className="mb-3 text-[0.6rem] uppercase tracking-[0.36em] text-gold">The Flagship</p>
             <h3 className="font-display text-4xl leading-none tracking-[-0.03em] text-ivory md:text-6xl">Visit the house.</h3>
             <p className="mt-4 text-[0.62rem] uppercase tracking-[0.34em] text-ivory/65">Kolkata · Mumbai</p>
           </div>
-          <span className="hidden border-l border-gold/70 pl-4 text-[0.58rem] uppercase leading-[1.8] tracking-[0.26em] text-ivory/60 md:block">Store locator<br />Private appointments<br />by invitation</span>
         </div>
       </div>
 
       <div className="mx-auto max-w-7xl px-6 py-14 lg:px-10 lg:py-18">
-        <div className="mb-9 flex flex-wrap items-end justify-between gap-6 border-b border-white/10 pb-6">
+        <div className="mb-9 border-b border-white/10 pb-6">
           <div><p className="text-[0.62rem] uppercase tracking-[0.36em] text-gold">Locations</p><h2 className="mt-3 font-display text-3xl leading-none text-ivory md:text-5xl">Kolkata &amp; Mumbai.</h2></div>
-          <p className="max-w-sm text-sm leading-7 text-ivory/55">Private appointments, considered fittings and a closer look at the craft behind every collection.</p>
         </div>
       <div className="grid gap-6 md:grid-cols-2">
         {storeLocations.map((location) => (
@@ -149,9 +147,9 @@ export function Footer() {
               />
             </div>
             <p className="mt-7 max-w-xl font-display text-[1.55rem] leading-[1.2] text-ivory sm:text-[1.75rem] md:text-[1.9rem] xl:text-[2.15rem]">
-              <span className="block sm:whitespace-nowrap">Fashion is not just what you wear,</span><em className="mt-2 inline-block text-gold">it&apos;s a legacy you carry.</em>
+              Beyond what you wear lies the <em className="text-gold">legacy you embody.</em>
             </p>
-            <p className="mt-6 max-w-md text-sm leading-7 text-ivory/55">Indian craftsmanship, considered design and a modern couture perspective.</p>
+            <p className="mt-6 max-w-md text-sm leading-7 text-ivory/55">A celebration of Indian heritage, timeless artistry and contemporary couture.</p>
           </div>
           <nav aria-label="Footer navigation" className="grid grid-cols-1 gap-x-10 gap-y-10 sm:grid-cols-3 lg:gap-x-14">
             {footerColumns.map((column) => (
@@ -178,7 +176,7 @@ export function Footer() {
         </div>
         <div className="flex flex-col gap-8 border-b border-white/10 py-8 sm:flex-row sm:items-end sm:justify-between lg:py-9">
           <div>
-            <p className="text-[0.6rem] uppercase tracking-[0.26em] text-ivory/45">Contact the House</p>
+            <p className="max-w-xl text-sm leading-6 text-ivory/60">Discover the art of couture. Book your private appointment with the House.</p>
             <div className="mt-4 flex flex-col gap-2 text-sm text-ivory/72 sm:flex-row sm:gap-7">
               <a href={`mailto:${legalIdentity.customerCareEmail}`} className="rounded-sm transition hover:text-gold focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-4 focus-visible:outline-gold">{legalIdentity.customerCareEmail}</a>
               <a href={`tel:${legalIdentity.customerCarePhone.replace(/[\s()-]/g, '')}`} className="rounded-sm transition hover:text-gold focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-4 focus-visible:outline-gold">{legalIdentity.customerCarePhone}</a>

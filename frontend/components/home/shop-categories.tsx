@@ -36,19 +36,19 @@ export function ShopCategories() {
 
       <div className="relative z-10 mx-auto w-full max-w-[78rem] px-6 py-16 lg:px-10 lg:py-16">
         <div className="grid items-start gap-12 lg:grid-cols-[minmax(15rem,0.76fr)_minmax(0,1.24fr)] lg:gap-16">
-          <div className="max-w-[21rem] space-y-6">
+          <div className="max-w-[24rem] space-y-7">
             <div className="flex items-center gap-4">
-              <p className="text-[0.62rem] uppercase tracking-[0.38em] text-gold">All collections</p>
+              <p className="text-[0.72rem] uppercase tracking-[0.38em] text-gold">All collections</p>
               <span className="h-px w-12 bg-gold/65" />
             </div>
-            <h2 className="font-display text-[clamp(2.8rem,4.4vw,4.5rem)] leading-[0.94] tracking-[-0.035em] text-charcoal">
-              Drape yourself in<br />the luxury of the<br /><span className="whitespace-nowrap">house.</span>
+            <h2 className="font-display text-[clamp(3.25rem,5vw,5.25rem)] leading-[0.92] tracking-[-0.04em] text-charcoal">
+              Where the art of<br /> draping meets<br /><span className="whitespace-nowrap">timeless luxury.</span>
             </h2>
             <div className="flex items-center gap-3 text-gold" aria-hidden="true">
               <span className="h-px w-5 bg-gold/70" /><span className="text-base">✦</span><span className="h-px w-5 bg-gold/70" />
             </div>
-            <p className="max-w-[19rem] text-sm leading-6 text-charcoal/68">
-              A curated expression of our design philosophy. Each collection is a story woven in fabric, texture and craftsmanship, with its own palette, proportion, and distinct editorial point of view.
+            <p className="max-w-[22rem] text-base leading-7 text-charcoal/70">
+              An expression of our design philosophy, where exquisite fabrics, rich textures and meticulous craftsmanship come together in a timeless narrative of elegance and artistry.
             </p>
             <a href="/collections" className="inline-flex items-center gap-5 border border-gold/65 px-5 py-3 text-[0.6rem] uppercase tracking-[0.27em] text-charcoal transition duration-300 hover:bg-gold hover:text-ink">
               View all collections <span className="text-base leading-none">→</span>

@@ -12,10 +12,10 @@ export function Newsletter() {
       <div className="grid gap-14 lg:grid-cols-[0.72fr_1.28fr] lg:items-center lg:gap-24">
         <div className="max-w-xl space-y-8">
           <div className="space-y-5">
-            <div className="flex items-center gap-4"><p className="text-[0.62rem] uppercase tracking-[0.38em] text-gold">Careers at RK</p><span className="h-px w-14 bg-gold/60" /></div>
-            <h2 className="font-display text-[clamp(4rem,7vw,7.5rem)] leading-[0.82] tracking-[-0.04em] text-charcoal">Be part<br /><em className="text-gold">of the House.</em></h2>
-            <p className="max-w-md font-display text-2xl leading-[1.2] text-charcoal/70 md:text-3xl">
-              Join a team shaping the future of modern Indian luxury through design, craftsmanship, thoughtful storytelling and considered experiences.
+            <div className="flex items-center gap-4"><p className="text-[0.7rem] uppercase tracking-[0.36em] text-gold">An Invitation into Our World</p><span className="h-px w-14 bg-gold/60" /></div>
+            <h2 className="max-w-lg font-display text-[clamp(3.3rem,5.5vw,6rem)] leading-[0.92] tracking-[-0.04em] text-charcoal">Your vision belongs here.</h2>
+            <p className="max-w-lg font-display text-2xl leading-[1.25] text-charcoal/70 md:text-3xl">
+              Your vision belongs here. Explore our opportunities and apply to join the House today.
             </p>
             <Link href="/careers" className="inline-flex items-center gap-4 border-b border-gold pb-3 text-[0.65rem] uppercase tracking-[0.28em] text-charcoal transition hover:text-gold">Explore careers <span aria-hidden="true">→</span></Link>
           </div>
