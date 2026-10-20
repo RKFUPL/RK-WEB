@@ -87,7 +87,7 @@ export default function CollectionsPage() {
               <p className="text-[0.65rem] uppercase tracking-[0.3em] text-charcoal/60">Shop by collection</p>
               <h1 className="max-w-sm font-display text-6xl leading-[0.88] md:text-8xl">Where the art of draping meets timeless <span className="whitespace-nowrap"> luxury.</span></h1>
               <span className="block h-px w-14 bg-gold" />
-              <p className="max-w-sm text-sm leading-7 text-charcoal/65 md:text-base md:leading-8">A curated expression of our design philosophy. Each collection is a story woven in fabric, texture and craftsmanship, with its own palette, proportion, and distinct editorial point of view.</p>
+              <p className="max-w-sm text-sm leading-7 text-charcoal/65 md:text-base md:leading-8">An expression of our design philosophy, where exquisite fabrics, rich textures and meticulous craftsmanship come together in a timeless narrative of elegance and artistry.</p>
               <ExclusiveRunway />
             </header>
             <section aria-label="Available collections" className="min-w-0">
