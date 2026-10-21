@@ -16,8 +16,6 @@ def _load_environment(backend_env: Path) -> None:
     process_keys = set(os.environ)
     load_dotenv(backend_env / ".env", override=False)
     local_env = backend_env / ".env.local"
-    if not local_env.exists():
-        return
     for key, value in dotenv_values(local_env).items():
         if value is not None and key not in process_keys:
             os.environ[key] = value
