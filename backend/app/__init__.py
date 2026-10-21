@@ -37,17 +37,18 @@ from .blueprints.admin.routes import admin_bp, ensure_dashboard_indexes, storefr
 from .blueprints.analytics.routes import analytics_bp, storefront_activity_bp
 from .blueprints.catalog.routes import catalog_bp
 from .blueprints.content.routes import content_bp
-from .catalog import ensure_catalog_indexes, ensure_catalog_seed_once
+from .catalog import ensure_catalog_indexes, ensure_catalog_seed
 from .blueprints.payments.routes import payments_bp, razorpay_webhook_bp
 from .blueprints.orders.routes import customer_orders_bp, staff_orders_bp
 from .feedback import feedback_bp, ensure_feedback_indexes
 from .returns import returns_bp
 from .blueprints.staff.routes import staff_bp
 from .blueprints.integrations.routes import integrations_bp
-from .config import get_config
+from .config import get_config, validate_database_maintenance_target
 from .extensions import cors, jwt, limiter, mail, mongo
 from .credential_sync import ensure_indexes as ensure_credential_sync_indexes
 from .catalog_sync_v1 import ensure_indexes as ensure_catalog_sync_indexes
+from .order_fulfillment import migrate_legacy_orders
 
 
 def create_app() -> Flask:
@@ -98,15 +99,28 @@ def create_app() -> Flask:
     limiter.init_app(app)
     mail.init_app(app)
     mongo.init_app(app)
-    try:
-        if mongo.db is not None:
-            ensure_catalog_indexes(mongo.db)
-            ensure_catalog_seed_once(mongo.db)
-            ensure_dashboard_indexes(mongo.db)
-            ensure_credential_sync_indexes(mongo.db)
-            ensure_catalog_sync_indexes(mongo.db)
-    except Exception:
-        app.logger.exception("Unable to initialize catalog indexes during startup")
+
+    @app.cli.command("database-maintenance")
+    def database_maintenance():
+        """Explicitly create indexes and canonical catalog records."""
+        import click
+
+        expected_database = click.prompt("Exact database name", type=str)
+        try:
+            configured_database = validate_database_maintenance_target(app.config, expected_database)
+        except RuntimeError as error:
+            raise click.ClickException(str(error)) from error
+        database = mongo.db
+        if database is None or str(getattr(database, "name", configured_database)) != configured_database:
+            raise click.ClickException("Initialized database does not match configured database")
+        ensure_catalog_indexes(database)
+        ensure_catalog_seed(database)
+        ensure_dashboard_indexes(database)
+        ensure_feedback_indexes(database)
+        ensure_credential_sync_indexes(database)
+        ensure_catalog_sync_indexes(database)
+        migrate_legacy_orders(database)
+        click.echo("Database maintenance completed")
 
     @app.before_request
     def handle_api_preflight():
@@ -129,20 +143,6 @@ def create_app() -> Flask:
                 httponly=True, samesite=app.config.get("SHARED_SESSION_COOKIE_SAMESITE", "Lax"),
             )
         return response
-
-    @app.before_request
-    def maintain_feedback_data():
-        # The deployed app does not run a separate cron process. TTL indexes
-        # provide the database-side cleanup, while feedback requests perform
-        # an immediate cleanup for installations whose Mongo TTL monitor is
-        # delayed.
-        if request.path.startswith("/api/feedback/"):
-            try:
-                ensure_feedback_indexes(mongo.db)
-                from .feedback import cleanup_feedback
-                cleanup_feedback(mongo.db)
-            except Exception:
-                app.logger.exception("Unable to maintain feedback expiry data")
 
     @jwt.token_in_blocklist_loader
     def token_is_revoked(_jwt_header, jwt_payload):

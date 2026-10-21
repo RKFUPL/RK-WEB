@@ -244,6 +244,18 @@ def sync_product_variants(database, product: dict | ObjectId, *, force: bool = F
     return document
 
 
+def product_with_computed_variants(database, product: dict | ObjectId) -> dict | None:
+    """Return a normalized product view without persisting from a read path."""
+    document = database.products.find_one({"_id": product}) if isinstance(product, ObjectId) else product
+    if not document:
+        return None
+    collections = list(database.collections.find(
+        {"productRefs.productId": document["_id"]},
+        {"name": 1, "slug": 1, "collectionType": 1, "status": 1},
+    ))
+    return {**document, **build_product_variants(document, collections)}
+
+
 def all_variants(product: dict) -> list[dict]:
     return [dict(item) for item in product.get("variants", []) if isinstance(item, dict)] if isinstance(product.get("variants"), list) else []
 

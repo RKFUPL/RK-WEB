@@ -17,7 +17,6 @@ from ...catalog import (
     collection_hero,
     collection_view,
     ensure_catalog_seed,
-    ensure_catalog_seed_once,
     managed_collections,
     product_collection_ids,
     product_view,
@@ -26,7 +25,7 @@ from ...catalog import (
 )
 from ...order_fulfillment import RETURN_FULFILLMENT_STATUSES, actor_view, migrate_legacy_orders, timeline_event
 from ...inventory import default_size_inventory, has_size_system, normalise_size_inventory, total_size_stock
-from ...product_variants import VARIANT_STATUSES, find_variant, normalise_colour, sync_product_variants
+from ...product_variants import VARIANT_STATUSES, find_variant, normalise_colour, product_with_computed_variants, sync_product_variants
 from ...rbac import current_user, database, effective_permissions, requireStaff
 from ...time_utils import json_value as serialize_json_value
 from ...catalog_sync_v1 import enqueue as enqueue_catalog_event, make_event
@@ -653,7 +652,6 @@ def get_collection(slug: str):
     if denied:
         return denied
     db = database()
-    ensure_catalog_seed(db)
     collection = collection_document(db, slug)
     if not collection:
         return jsonify({"error": "Collection not found."}), 404
@@ -865,7 +863,6 @@ def dashboard():
     if "quotes:manage" in permissions:
         counts["quotes"] = db.quotes.count_documents({"status": {"$ne": "converted"}})
     if "orders:manage" in permissions:
-        migrate_legacy_orders(db)
         fulfillment_counts = {
             status: db.orders.count_documents({"fulfillment.status": status})
             for status in ("order_placed", "confirmed", "processing", "packed", "shipped", "out_for_delivery", "delivered", "return_requested", "returned", "refunded")
@@ -885,8 +882,6 @@ def list_resources(resource: str):
     if denied:
         return denied
     db = database()
-    if resource in {"products", "inventory"}:
-        ensure_catalog_seed_once(db)
     query = _customer_scope(current_user()) if resource == "customers" else {}
     # Archived products are the persisted form of a dashboard deletion. They
     # remain available for historical references, but must not repopulate the
@@ -1367,7 +1362,7 @@ def get_product_variant(product_id: str, variant_id: str):
         return jsonify({"error": "Product not found."}), 404
     selected = find_variant(product, variant_id)
     if not selected:
-        product = sync_product_variants(database(), product) or product
+        product = product_with_computed_variants(database(), product) or product
         selected = find_variant(product, variant_id)
     if not selected:
         return jsonify({"error": "Variant not found."}), 404

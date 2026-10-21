@@ -1,6 +1,23 @@
 import json
 import os
 from datetime import timedelta
+from urllib.parse import unquote, urlsplit
+
+
+def validate_database_maintenance_target(config, expected_database):
+    """Fail closed unless the explicit target agrees with config and URI path."""
+    configured = str(config.get("MONGO_DBNAME") or "").strip()
+    expected = str(expected_database or "").strip()
+    uri = str(config.get("MONGO_URI") or "").strip()
+    if not expected or expected != configured:
+        raise RuntimeError("Database maintenance target does not match the configured database")
+    parsed = urlsplit(uri)
+    if parsed.scheme not in {"mongodb", "mongodb+srv"} or not parsed.netloc:
+        raise RuntimeError("MongoDB configuration is invalid for database maintenance")
+    uri_database = unquote(parsed.path.lstrip("/"))
+    if uri_database and uri_database != configured:
+        raise RuntimeError("MongoDB URI database does not match the configured maintenance target")
+    return configured
 
 
 class BaseConfig:

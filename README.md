@@ -38,3 +38,7 @@ https://api.physihome.shop/api/webhooks/razorpay
 Use the same webhook secret in Razorpay and `RAZORPAY_WEBHOOK_SECRET`, and enable at least `payment.captured` and `payment.failed`. Webhook events are signature-checked against the raw request body and deduplicated by event ID.
 
 Local checkout starts at `/bag` and continues to `/checkout`. The application order remains `pending_payment` until Razorpay verification succeeds. A payment failure or dismissal leaves the shopping bag intact for retry.
+
+## Database maintenance
+
+Backend startup and GET requests do not create indexes, seed catalog records, migrate orders, or persist product normalization. After independently verifying the configured target, an operator can run `flask --app app database-maintenance` from `backend` and must enter the exact configured database name. Any maintenance failure aborts that command rather than being swallowed by application startup.

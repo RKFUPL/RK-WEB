@@ -13,8 +13,6 @@ from ...catalog import (
     collection_view,
     collection_product_count,
     collection_display_sort_key,
-    ensure_catalog_indexes,
-    ensure_catalog_seed_once,
     is_excluded_collection,
     is_runway_collection,
     product_document,
@@ -25,7 +23,7 @@ from ...catalog import (
 )
 from ...extensions import limiter
 from ...fx_rates import currency_context as build_currency_context
-from ...product_variants import find_variant, product_has_visible_variants, sync_product_variants
+from ...product_variants import find_variant, product_has_visible_variants, product_with_computed_variants, sync_product_variants
 from ...rbac import database
 from ...workdrive import WorkDriveFileNotFound, WorkDriveUnavailable, download_file, is_supported_permalink
 
@@ -349,8 +347,6 @@ def create_custom_order_request():
 def storefront_runway():
     started_at = perf_counter()
     db = database()
-    ensure_catalog_indexes(db)
-    ensure_catalog_seed_once(db)
     collection = _runway_collection(db)
     if not collection:
         return jsonify({"error": "Runway collection not found."}), 404
@@ -402,8 +398,6 @@ def storefront_runway():
 def storefront_collection(slug: str):
     started_at = perf_counter()
     db = database()
-    ensure_catalog_indexes(db)
-    ensure_catalog_seed_once(db)
     collection = collection_document(db, slug, STOREFRONT_COLLECTION_PROJECTION)
     collection_query_ms = (perf_counter() - started_at) * 1000
     if not collection:
@@ -468,7 +462,7 @@ def storefront_product(product_id: str):
     product = product_document(db, product_id)
     if not product:
         return jsonify({"error": "Product not found."}), 404
-    product = sync_product_variants(db, product) or product
+    product = product_with_computed_variants(db, product) or product
     if not product_has_visible_variants(product):
         return jsonify({"error": "Product not found."}), 404
     object_id = product["_id"]
