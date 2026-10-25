@@ -193,6 +193,10 @@ test("admin overview and gallery use authenticated persisted-media previews", ()
   assert.match(drawer, /api\/staff\/products\/\$\{encodeURIComponent\(product\.id\)\}\/media/);
   assert.doesNotMatch(drawer, /src=\{product\.media\[0\]\}/);
   assert.match(editor, /item\.renderUrl \|\| `\/api\/staff\/products/);
+  assert.match(editor, /failedMediaIds/);
+  assert.match(editor, /failedMediaIds\.has\(item\.id\)/);
+  assert.match(editor, /setFailedMediaIds\(new Set\(\)\)/);
+  assert.match(editor, /onError=\{\(\) => setFailedMediaIds\(\(current\) => new Set\(current\)\.add\(item\.id\)\)\}/);
   assert.match(editor, /Unsaved image relationship/);
   assert.match(editor, /Preview unavailable/);
 });

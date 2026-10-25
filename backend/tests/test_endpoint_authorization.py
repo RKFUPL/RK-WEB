@@ -80,7 +80,6 @@ class ProductDatabase:
         self.collections = SimpleNamespace(find=MagicMock(return_value=[]))
         self.inventory_adjustments = SimpleNamespace(insert_one=MagicMock())
         self.settings = SimpleNamespace(find_one=MagicMock(return_value={}), update_one=MagicMock())
-        self.catalog_sync_outbox = SimpleNamespace(update_one=MagicMock())
 
     def __getitem__(self, name):
         return getattr(self, name)
@@ -123,14 +122,12 @@ class EndpointAuthorizationTests(unittest.TestCase):
         with patch("app.rbac.current_user", return_value=admin), \
              patch("app.blueprints.staff.routes.current_user", return_value=admin), \
              patch("app.blueprints.staff.routes.database", return_value=database), \
-             patch("app.blueprints.staff.routes._queue_collection_event") as queue_event, \
              patch("app.blueprints.staff.routes._management_collection_payload", side_effect=lambda _db, item: {"collection": {"id": str(item["_id"]), "slug": item["slug"], "hero": item["hero"], "productCount": len(item["productRefs"])}}):
             response = self.client.post("/api/staff/collections", json=payload, headers=self.headers)
         self.assertEqual(response.status_code, 201)
         self.assertEqual(collections.document["productRefs"], [])
         self.assertEqual(collections.document["hero"]["image"], payload["hero"]["image"])
         self.assertEqual(response.get_json()["collection"]["productCount"], 0)
-        queue_event.assert_called_once()
 
     def test_collection_creation_rejects_invalid_or_duplicate_input(self):
         admin = {"_id": ObjectId(), "role": "admin", "isActive": True, "permissions": ["*"]}
@@ -285,7 +282,6 @@ class EndpointAuthorizationTests(unittest.TestCase):
             patch("app.rbac.current_user", return_value=admin),
             patch("app.blueprints.staff.routes.current_user", return_value=admin),
             patch("app.blueprints.staff.routes.database", return_value=database),
-            patch("app.blueprints.staff.routes._queue_media_delta") as queue_delta,
         ):
             response = self.client.delete(
                 f"/api/staff/products/{product_id}/media/parent-1",
@@ -296,10 +292,6 @@ class EndpointAuthorizationTests(unittest.TestCase):
         self.assertEqual(response.get_json()["removedMediaId"], "parent-1")
         self.assertEqual([item["id"] for item in document["catalogMedia"]], ["parent-2"])
         self.assertEqual(document["media"], ["https://workdrive.zoho.in/file/parent-2"])
-        queue_delta.assert_called_once()
-        before, after = queue_delta.call_args.args[1:3]
-        self.assertEqual([item["id"] for item in before["catalogMedia"]], ["parent-1", "parent-2"])
-        self.assertEqual([item["id"] for item in after["catalogMedia"]], ["parent-2"])
 
     def test_customer_cannot_call_admin_endpoint(self):
         customer = {"_id": "customer", "role": "customer", "isActive": True}
@@ -385,7 +377,6 @@ class EndpointAuthorizationTests(unittest.TestCase):
         with patch("app.rbac.current_user", return_value=admin), \
              patch("app.blueprints.staff.routes.current_user", return_value=admin), \
              patch("app.blueprints.staff.routes.database", return_value=database), \
-             patch("app.blueprints.staff.routes._queue_collection_event"), \
              patch("app.blueprints.staff.routes._management_collection_payload", side_effect=lambda _db, item: {"collection": {"status": item.get("status"), "isActive": item.get("isActive")}}):
             archived = self.client.post("/api/staff/collections/sandook/archive", headers=self.headers)
             restored = self.client.post("/api/staff/collections/sandook/restore", headers=self.headers)
@@ -403,13 +394,12 @@ class EndpointAuthorizationTests(unittest.TestCase):
         collection = {"_id": ObjectId(), "name": "Archived", "slug": "archived", "status": "archived", "isActive": False, "productRefs": [{"productId": product_id}]}
         collections = MutableCollection(collection)
         database = SimpleNamespace(collections=collections, products=MutableCollection({"_id": product_id, "name": "Still here"}))
-        with patch("app.rbac.current_user", return_value=admin), patch("app.blueprints.staff.routes.current_user", return_value=admin), patch("app.blueprints.staff.routes.database", return_value=database), patch("app.blueprints.staff.routes._queue_collection_event") as queue_event:
+        with patch("app.rbac.current_user", return_value=admin), patch("app.blueprints.staff.routes.current_user", return_value=admin), patch("app.blueprints.staff.routes.database", return_value=database):
             response = self.client.delete("/api/staff/collections/archived", headers=self.headers)
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.get_json()["deleted"])
         self.assertEqual(collections.document, {})
         self.assertEqual(database.products.document["name"], "Still here")
-        queue_event.assert_called_once()
 
     def test_variant_save_uses_saved_identifier_and_missing_variant_is_not_500(self):
         product_id = ObjectId()
@@ -537,8 +527,6 @@ class EndpointAuthorizationTests(unittest.TestCase):
             patch("app.blueprints.staff.routes.current_user", return_value=admin),
             patch("app.blueprints.staff.routes.database", return_value=database),
             patch("app.blueprints.staff.routes.sync_product_variants", side_effect=lambda _db, item, force=False: item),
-            patch("app.blueprints.staff.routes._queue_product_event"),
-            patch("app.blueprints.staff.routes.enqueue_catalog_event"),
         ):
             response = self.client.patch(
                 f"/api/staff/resources/products/{product_id}",
@@ -598,7 +586,6 @@ class EndpointAuthorizationTests(unittest.TestCase):
             patch("app.blueprints.staff.routes.current_user", return_value=admin),
             patch("app.blueprints.staff.routes.database", return_value=database),
             patch("app.blueprints.staff.routes.sync_product_variants", side_effect=lambda _db, item, force=False: item),
-            patch("app.blueprints.staff.routes._queue_product_event"),
         ):
             response = self.client.patch(
                 f"/api/staff/resources/products/{product_id}",

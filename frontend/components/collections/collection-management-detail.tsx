@@ -998,7 +998,9 @@ export function CollectionManagementDetail({
       const payload = await response.json();
       if (!response.ok)
         throw new Error(payload.error ?? "Unable to update collection.");
-      setData(payload as DetailPayload);
+      if (payload && typeof payload === "object" && "collection" in payload) {
+        setData(payload as DetailPayload);
+      }
       return payload;
     } catch (requestError) {
       setError(

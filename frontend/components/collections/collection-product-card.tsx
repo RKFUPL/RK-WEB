@@ -9,20 +9,12 @@ import { availabilityLabels, normalizeColour, productVariantHref, type CatalogPr
 import { readWishlist, toggleWishlist, wishlistChangedEvent } from '@/lib/storefront-wishlist';
 import { cloudinaryImageUrl } from '@/lib/utils';
 import { PriceCurrencyRow } from '@/components/commerce/price-currency-row';
+import { colourSwatchValue, useColourSwatches } from '@/lib/colour-swatches';
 
 function productColourText(product: CatalogProduct) {
   const value = product.attributes?.colors?.length ? product.attributes.colors : product.attributes?.color;
   if (Array.isArray(value)) return value.filter(Boolean).map(normalizeColour).join(', ');
   return value ? normalizeColour(value) : '';
-}
-
-function colourSwatchValue(value?: string) {
-  const colours: Record<string, string> = {
-    ivory: '#fffff0', red: '#b4232f', blue: '#235a9f', navy: '#172a46', black: '#171717', white: '#ffffff',
-    beige: '#d8c5a5', brown: '#714b35', gold: '#b69252', green: '#37624a', pink: '#d98ca3', 'hot pink': '#d93384',
-    maroon: '#6e2639', grey: '#858585', gray: '#858585',
-  };
-  return colours[String(value || '').trim().toLowerCase()];
 }
 
 export function CollectionProductCard({ product, href, selectedColour = '' }: { product: CatalogProduct; href?: string; selectedColour?: string }) {
@@ -40,6 +32,7 @@ export function CollectionProductCard({ product, href, selectedColour = '' }: { 
   const [selectedVariantId, setSelectedVariantId] = useState(defaultVariant?.id || '');
   const [colourMenuOpen, setColourMenuOpen] = useState(false);
   const [failedImages, setFailedImages] = useState<Set<string>>(() => new Set());
+  const colourSwatches = useColourSwatches();
   const colourSelectorRef = useRef<HTMLDivElement>(null);
   const filteredVariant = selectedColour
     ? selectableVariants.find((variant) => normalizeColour(variant.colour) === normalizeColour(selectedColour))
@@ -128,12 +121,12 @@ export function CollectionProductCard({ product, href, selectedColour = '' }: { 
       {product.availability === 'sold_out' ? <span className="absolute bottom-3 left-3 bg-ink/82 px-3 py-2 text-[0.52rem] uppercase tracking-[0.24em] text-white">Sold out</span> : null}
       {selectableVariants.length > 1 ? <div ref={colourSelectorRef} className="absolute bottom-3 right-3 z-20 sm:bottom-4 sm:right-4">
         <button type="button" aria-label={`Choose colour. ${normalizeColour(selectedVariant?.colour)} selected. ${selectableVariants.length} colours available.`} aria-haspopup="menu" aria-expanded={colourMenuOpen} onClick={(event) => { event.preventDefault(); event.stopPropagation(); setColourMenuOpen((open) => !open); }} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/45 bg-ivory/95 px-3 py-2 text-[0.52rem] uppercase tracking-[0.14em] text-charcoal shadow-[0_8px_24px_rgba(18,18,18,.14)] backdrop-blur-md transition hover:border-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/70">
-          <span className="flex items-center -space-x-0.5" aria-hidden="true">{visibleSwatches.map((variant) => <span key={variant.id} className={`h-4 w-4 rounded-full border ${variant.id === selectedVariant?.id ? 'relative z-10 border-gold ring-1 ring-gold/70' : 'border-black/15'}`} style={{ backgroundColor: colourSwatchValue(variant.colour) || '#b7aa99' }} />)}</span>
+          <span className="flex items-center -space-x-0.5" aria-hidden="true">{visibleSwatches.map((variant) => <span key={variant.id} className={`h-4 w-4 rounded-full border ${variant.id === selectedVariant?.id ? 'relative z-10 border-gold ring-1 ring-gold/70' : 'border-black/15'}`} style={{ backgroundColor: colourSwatchValue(variant.colour, colourSwatches) || '#b7aa99' }} />)}</span>
           {hiddenColourCount ? <span aria-hidden="true" className="font-medium">+{hiddenColourCount}</span> : null}
           <ChevronDown size={12} aria-hidden="true" className={`transition-transform ${colourMenuOpen ? 'rotate-180' : ''}`} />
         </button>
         {colourMenuOpen ? <div role="menu" aria-label="Available colours" className="absolute bottom-full right-0 mb-2 min-w-44 rounded-2xl border border-black/10 bg-ivory p-2 shadow-[0_18px_45px_rgba(18,18,18,.18)]">
-          {selectableVariants.map((variant) => <button key={variant.id} type="button" role="menuitemradio" aria-checked={variant.id === selectedVariant?.id} onClick={(event) => { event.preventDefault(); event.stopPropagation(); setSelectedVariantId(variant.id); setColourMenuOpen(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[0.58rem] uppercase tracking-[0.14em] hover:bg-sand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/70"><span className={`h-3.5 w-3.5 rounded-full border ${variant.id === selectedVariant?.id ? 'border-gold ring-2 ring-gold/25' : 'border-black/15'}`} style={{ backgroundColor: colourSwatchValue(variant.colour) || '#b7aa99' }} /><span className="flex-1">{normalizeColour(variant.colour)}</span>{variant.id === selectedVariant?.id ? <span className="text-gold" aria-hidden="true">✓</span> : null}</button>)}
+          {selectableVariants.map((variant) => <button key={variant.id} type="button" role="menuitemradio" aria-checked={variant.id === selectedVariant?.id} onClick={(event) => { event.preventDefault(); event.stopPropagation(); setSelectedVariantId(variant.id); setColourMenuOpen(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[0.58rem] uppercase tracking-[0.14em] hover:bg-sand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/70"><span className={`h-3.5 w-3.5 rounded-full border ${variant.id === selectedVariant?.id ? 'border-gold ring-2 ring-gold/25' : 'border-black/15'}`} style={{ backgroundColor: colourSwatchValue(variant.colour, colourSwatches) || '#b7aa99' }} /><span className="flex-1">{normalizeColour(variant.colour)}</span>{variant.id === selectedVariant?.id ? <span className="text-gold" aria-hidden="true">✓</span> : null}</button>)}
         </div> : null}
       </div> : null}
     </div>

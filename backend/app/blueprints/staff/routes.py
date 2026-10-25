@@ -28,7 +28,6 @@ from ...inventory import default_size_inventory, has_size_system, normalise_size
 from ...product_variants import VARIANT_STATUSES, find_variant, normalise_colour, product_with_computed_variants, sync_product_variants
 from ...rbac import current_user, database, effective_permissions, requireStaff
 from ...time_utils import json_value as serialize_json_value
-from ...catalog_sync_v1 import enqueue as enqueue_catalog_event, make_event
 from ...workdrive import WorkDriveFileNotFound, WorkDriveUnavailable, download_file, is_supported_permalink
 
 staff_bp = Blueprint("staff", __name__)
@@ -70,16 +69,6 @@ def _validated_collection_hero(payload: dict, current: dict | None = None):
     if hero["type"] == "video" and not hero["video"]:
         return None, "A video hero requires a desktop video."
     return hero, None
-
-
-def _catalog_product_payload(product: dict) -> dict:
-    return {
-        "product_code": product.get("productCode") or product.get("styleCode") or product.get("sku"),
-        "sku": product.get("sku"), "name": product.get("name"), "description": product.get("description", ""),
-        "price": product.get("price"), "currency": product.get("currency", "INR"),
-        "tax_inclusive": bool(product.get("taxInclusive") or product.get("mrpIncludesGst")),
-        "category": product.get("category"), "status": product.get("status"), "active": product.get("isActive") is not False,
-    }
 
 
 def _normalize_catalog_media(items):
@@ -174,59 +163,6 @@ def _hydrate_created_variant_galleries(product: dict) -> dict:
             for position, item in enumerate(gallery)
         ]
     return {**product, "variants": variants}
-
-
-def _queue_media_delta(db, before, after, actor_id=None):
-    def media_items(value):
-        if isinstance(value, dict):
-            value = value.get("catalogMedia") or []
-        return value if isinstance(value, list) else []
-
-    before_media = media_items(before)
-    after_media = media_items(after)
-    before_items = {str(item.get("id") or item.get("media_id")): item for item in before_media if isinstance(item, dict) and (item.get("id") or item.get("media_id"))}
-    after_items = {str(item.get("id") or item.get("media_id")): item for item in after_media if isinstance(item, dict) and (item.get("id") or item.get("media_id"))}
-    product_identity = {"origin_system": after.get("source_system") or "rk-web", "origin_id": str(after.get("source_id") or after["_id"])}
-    emitted = []
-    for media_id, item in after_items.items():
-        if not item.get("public_id") and item.get("provider") == "cloudinary":
-            continue
-        if item.get("provider") == "zoho_workdrive" and "/file/" not in str(item.get("permalink") or ""):
-            continue
-        previous = before_items.get(media_id)
-        if media_id not in before_items:
-            event_type = "MEDIA_CREATED"
-        elif item == previous:
-            event_type = None
-        elif item.get("is_primary") != previous.get("is_primary"):
-            event_type = "MEDIA_PRIMARY_CHANGED"
-        elif item.get("position") != previous.get("position"):
-            event_type = "MEDIA_REORDERED"
-        else:
-            event_type = "MEDIA_UPDATED"
-        if event_type:
-            versions = dict(after.get("catalogVersions") or {}); version = int(versions.get("rk-web", 0)) + 1; versions["rk-web"] = version
-            db.products.update_one({"_id": after["_id"]}, {"$set": {"catalogVersions": versions, "catalogVersion": version}})
-            payload = {key: item[key] for key in ("id", "provider", "type", "url", "public_id", "permalink", "source", "owner_system", "position", "is_primary", "is_main", "is_hover", "alt_text", "description", "variant_id", "colour_slug", "colour") if item.get(key) is not None}
-            payload.update({"media_id": media_id, "product_identity": product_identity})
-            media_identity = {"origin_system": item.get("owner_system") if item.get("owner_system") in {"rk-web", "rk-stock"} else "rk-web", "origin_id": media_id}
-            emitted.append(enqueue_catalog_event(db, make_event(event_type, "media", media_id, version, payload, observed_versions=versions, identity=media_identity, actor_id=actor_id)))
-    for media_id, item in before_items.items():
-        if media_id in after_items:
-            continue
-        versions = dict(after.get("catalogVersions") or {}); version = int(versions.get("rk-web", 0)) + 1; versions["rk-web"] = version
-        db.products.update_one({"_id": after["_id"]}, {"$set": {"catalogVersions": versions, "catalogVersion": version}})
-        delete_payload = {"media_id": media_id, "owner_system": item.get("owner_system") or "rk-web", "provider": item.get("provider") or "cloudinary", "public_id": item.get("public_id") or media_id, "position": _integer(item.get("position"), 0), "is_primary": False, "product_identity": product_identity}
-        for key in ("type", "permalink", "url"):
-            if item.get(key) is not None:
-                delete_payload[key] = item[key]
-        media_identity = {"origin_system": item.get("owner_system") if item.get("owner_system") in {"rk-web", "rk-stock"} else "rk-web", "origin_id": media_id}
-        emitted.append(enqueue_catalog_event(db, make_event("MEDIA_DELETED", "media", media_id, version, delete_payload, observed_versions=versions, identity=media_identity, actor_id=actor_id)))
-    before_order = [str(item.get("id") or item.get("media_id")) for item in before_media if isinstance(item, dict)]
-    after_order = [str(item.get("id") or item.get("media_id")) for item in after_media if isinstance(item, dict)]
-    if before_order != after_order and before_order and after_order:
-        emitted.append(_queue_product_event(db, after, "PRODUCT_UPDATED", actor_id))
-    return emitted
 
 
 def _variant_media_entries(variant):
@@ -339,44 +275,6 @@ def _remove_media_relationship(product: dict, media_id: str):
         updates["media"] = [value for value in parent_media if value != target_url or value in remaining_urls]
     return updates
 
-
-def _queue_product_event(db, product: dict, event_type: str, actor_id=None):
-    if not hasattr(db, "catalog_sync_outbox"):
-        return None
-    product = db.products.find_one({"_id": product["_id"]}) or product
-    versions = dict(product.get("catalogVersions") or {})
-    version = int(versions.get("rk-web", 0)) + 1
-    versions["rk-web"] = version
-    db.products.update_one({"_id": product["_id"]}, {"$set": {"catalogVersions": versions, "catalogVersion": version}})
-    identity = {"origin_system": product.get("source_system") or "rk-web", "origin_id": str(product.get("source_id") or product["_id"])}
-    event = make_event(event_type, "product", product["_id"], version, _catalog_product_payload(product), observed_versions=versions, identity=identity, actor_id=actor_id)
-    return enqueue_catalog_event(db, event)
-
-
-def _queue_collection_event(db, collection: dict, event_type: str, actor_id=None):
-    if not hasattr(db, "catalog_sync_outbox"):
-        return None
-    collection = db.collections.find_one({"_id": collection["_id"]}) or collection
-    versions = dict(collection.get("catalogVersions") or {}); version = int(versions.get("rk-web", 0)) + 1; versions["rk-web"] = version
-    db.collections.update_one({"_id": collection["_id"]}, {"$set": {"catalogVersions": versions, "catalogVersion": version}})
-    payload = {key: collection.get(key) for key in ("name", "slug", "code", "description", "status")}
-    payload["active"] = collection.get("isActive") is not False and collection.get("status") != "archived"
-    identity = {"origin_system": collection.get("source_system") or "rk-web", "origin_id": str(collection.get("source_id") or collection["_id"])}
-    return enqueue_catalog_event(db, make_event(event_type, "collection", collection["_id"], version, payload, observed_versions=versions, identity=identity, actor_id=actor_id))
-
-
-def _queue_membership_event(db, product: dict, collection: dict, operation: str, display_order=None, actor_id=None):
-    if not hasattr(db, "catalog_sync_outbox"):
-        return None
-    product = db.products.find_one({"_id": product["_id"]}) or product
-    versions = dict(product.get("catalogVersions") or {}); version = int(versions.get("rk-web", 0)) + 1; versions["rk-web"] = version
-    db.products.update_one({"_id": product["_id"]}, {"$set": {"catalogVersions": versions, "catalogVersion": version}})
-    product_identity = {"origin_system": product.get("source_system") or "rk-web", "origin_id": str(product.get("source_id") or product["_id"])}
-    collection_identity = {"origin_system": collection.get("source_system") or "rk-web", "origin_id": str(collection.get("source_id") or collection["_id"])}
-    change = {"collection_identity": collection_identity, "operation": operation}
-    if display_order is not None: change["display_order"] = display_order
-    payload = {"product_identity": product_identity, "changes": [change]}
-    return enqueue_catalog_event(db, make_event("PRODUCT_COLLECTION_CHANGED", "product_collection", product["_id"], version, payload, observed_versions=versions, identity=product_identity, actor_id=actor_id))
 
 RESOURCE_PERMISSIONS = {
     "products": "products:manage",
@@ -620,7 +518,6 @@ def create_collection():
     }
     result = db.collections.insert_one(document)
     document["_id"] = result.inserted_id
-    _queue_collection_event(db, document, "COLLECTION_CREATED", current_user()["_id"])
     return jsonify(_management_collection_payload(db, db.collections.find_one({"_id": result.inserted_id}) or document)), 201
 
 
@@ -713,7 +610,6 @@ def update_collection(slug: str):
         updates["year"] = year
     db.collections.update_one({"_id": collection["_id"]}, {"$set": updates})
     updated_collection = db.collections.find_one({"_id": collection["_id"]})
-    _queue_collection_event(db, updated_collection, "COLLECTION_DEACTIVATED" if updated_collection.get("status") == "archived" else "COLLECTION_UPDATED", current_user()["_id"])
     return jsonify(_management_collection_payload(db, updated_collection)), 200
 
 
@@ -736,7 +632,6 @@ def archive_collection(slug: str):
         {"$set": {"status": "archived", "isActive": False, "statusBeforeArchive": previous_status, "updatedAt": now, "updatedBy": current_user()["_id"]}},
     )
     updated = db.collections.find_one({"_id": collection["_id"]})
-    _queue_collection_event(db, updated, "COLLECTION_DEACTIVATED", current_user()["_id"])
     return jsonify(_management_collection_payload(db, updated)), 200
 
 
@@ -761,7 +656,6 @@ def restore_collection(slug: str):
         {"$set": {"status": restored_status, "isActive": True, "updatedAt": now, "updatedBy": current_user()["_id"]}, "$unset": {"statusBeforeArchive": ""}},
     )
     updated = db.collections.find_one({"_id": collection["_id"]})
-    _queue_collection_event(db, updated, "COLLECTION_UPDATED", current_user()["_id"])
     return jsonify(_management_collection_payload(db, updated)), 200
 
 
@@ -782,7 +676,6 @@ def delete_archived_collection(slug: str):
     removed = db.collections.delete_one({"_id": collection["_id"]})
     if not removed.deleted_count:
         return jsonify({"error": "The archived collection could not be deleted."}), 409
-    _queue_collection_event(db, collection, "COLLECTION_DELETED", current_user()["_id"])
     return jsonify({"deleted": True, "slug": slug}), 200
 
 
@@ -804,7 +697,6 @@ def assign_collection_product(slug: str):
     if not product_id or not product:
         return jsonify({"error": "Product not found."}), 404
     add_product_reference(db, collection, product_id)
-    _queue_membership_event(db, product, collection, "ADD", actor_id=current_user()["_id"])
     sync_product_variants(db, product_id, force=True)
     return jsonify(_management_collection_payload(db, db.collections.find_one({"_id": collection["_id"]}))), 200
 
@@ -824,7 +716,6 @@ def unassign_collection_product(slug: str, product_id: str):
         return jsonify({"error": "Invalid product id."}), 400
     remove_product_reference(db, collection, object_id)
     product = db.products.find_one({"_id": object_id})
-    if product: _queue_membership_event(db, product, collection, "REMOVE", actor_id=current_user()["_id"])
     return jsonify(_management_collection_payload(db, db.collections.find_one({"_id": collection["_id"]}))), 200
 
 
@@ -845,7 +736,6 @@ def reorder_collection_product(slug: str, product_id: str):
     if not update_product_order(db, collection, object_id, display_order):
         return jsonify({"error": "Product is not assigned to this collection."}), 404
     product = db.products.find_one({"_id": object_id})
-    if product: _queue_membership_event(db, product, collection, "REORDER", display_order, current_user()["_id"])
     return jsonify(_management_collection_payload(db, db.collections.find_one({"_id": collection["_id"]}))), 200
 
 
@@ -1064,18 +954,11 @@ def create_resource(resource: str):
         if hydrated.get("variants") != document.get("variants"):
             db.products.update_one({"_id": document["_id"]}, {"$set": {"variants": hydrated["variants"], "updatedAt": now}})
             document = hydrated
-        _queue_product_event(db, document, "PRODUCT_CREATED", actor["_id"])
-        media_events = _queue_media_delta(db, {}, document, actor["_id"])
-        for requested_collection in requested_collections:
-            _queue_membership_event(db, document, requested_collection, "ADD", actor_id=actor["_id"])
     item = _document_view(document, "products" if resource == "products" else resource)
     if resource == "products":
         names = [str(collection.get("name") or "").strip() for collection in requested_collections]
         item.update({"collectionIds": [str(collection["_id"]) for collection in requested_collections], "collections": names, "collection": ", ".join(names)})
-    response = {"item": item}
-    if resource == "products":
-        response["mediaSync"] = {"status": "queued" if media_events else "not_required", "eventCount": len(media_events)}
-    return jsonify(response), 201
+    return jsonify({"item": item}), 201
 
 
 @staff_bp.patch("/resources/<resource>/<resource_id>")
@@ -1319,32 +1202,12 @@ def update_resource(resource: str, resource_id: str):
         if requested_collections is not None:
             _set_product_collections(db, object_id, requested_collections)
         updated_document = sync_product_variants(db, updated_document, force=any(key in updates for key in {"name", "sku", "attributes", "media", "price"})) or updated_document
-        _queue_product_event(db, updated_document, "PRODUCT_DEACTIVATED" if updated_document.get("status") == "archived" else "PRODUCT_UPDATED", actor["_id"])
-        if "category" in updates and updates.get("category"):
-            category_name = updates["category"]
-            category_slug = "-".join(category_name.casefold().split())
-            category_versions = dict((db.settings.find_one({"_id": "global"}) or {}).get("catalogVersions") or {})
-            category_version = int(category_versions.get("rk-web", 0)) + 1; category_versions["rk-web"] = category_version
-            db.settings.update_one({"_id": "global"}, {"$set": {"catalogVersions": category_versions}}, upsert=True)
-            enqueue_catalog_event(db, make_event("CATEGORY_UPDATED", "category", f"category:{category_slug}", category_version, {"name": category_name, "slug": category_slug, "active": True}, observed_versions=category_versions, identity={"origin_system": "rk-web", "origin_id": f"category:{category_slug}"}, actor_id=actor["_id"]))
-        media_events = _queue_media_delta(db, current, updated_document, actor["_id"]) if "media" in updates else []
-        if requested_collections is not None:
-            selected_ids = {entry["_id"] for entry in requested_collections}
-            for entry in requested_collections:
-                if entry["_id"] not in previous_collection_ids:
-                    _queue_membership_event(db, updated_document, entry, "ADD", actor_id=actor["_id"])
-            for removed_id in previous_collection_ids - selected_ids:
-                removed = db.collections.find_one({"_id": removed_id})
-                if removed: _queue_membership_event(db, updated_document, removed, "REMOVE", actor_id=actor["_id"])
     item = _document_view(updated_document, "products" if resource == "products" else resource)
     if resource == "products":
         assigned = list(db.collections.find({"productRefs.productId": object_id}, {"_id": 1, "name": 1}))
         names = sorted({str(entry.get("name") or "").strip() for entry in assigned if str(entry.get("name") or "").strip()}, key=str.casefold)
         item.update({"collectionIds": [str(entry["_id"]) for entry in assigned], "collections": names, "collection": ", ".join(names)})
-    response = {"item": item}
-    if resource == "products" and "media" in updates:
-        response["mediaSync"] = {"status": "queued" if media_events else "unchanged", "eventCount": len(media_events)}
-    return jsonify(response), 200
+    return jsonify({"item": item}), 200
 
 
 @staff_bp.get("/products/<product_id>/variants/<path:variant_id>")
@@ -1533,7 +1396,6 @@ def update_product_variant(product_id: str, variant_id: str):
             "createdBy": actor["_id"],
         })
     current = sync_product_variants(db, db.products.find_one({"_id": object_id}), force=True)
-    _queue_media_delta(db, before_product, after_product, actor["_id"])
     return jsonify({"item": _document_view(current, "products")}), 200
 
 
@@ -1602,11 +1464,9 @@ def delete_product_media_relationship(product_id: str, media_id: str):
         return jsonify({"error": "Media relationship changed before it could be removed. Reload and try again."}), 409
 
     updated = db.products.find_one({"_id": object_id})
-    media_events = _queue_media_delta(db, before_product, updated, actor["_id"])
     return jsonify({
         "item": _document_view(updated, "products"),
         "removedMediaId": relationship_id,
-        "mediaSync": {"status": "queued" if media_events else "unchanged", "eventCount": len(media_events)},
     }), 200
 
 
@@ -1624,9 +1484,6 @@ def delete_product(product_id: str):
     product = db.products.find_one({"_id": object_id}, {"name": 1, "sku": 1, "seedKey": 1})
     if not product:
         return jsonify({"error": "Product not found."}), 404
-
-    full_product = db.products.find_one({"_id": object_id}) or product
-    _queue_product_event(db, full_product, "PRODUCT_DELETED", current_user()["_id"])
 
     db.catalog_deletions.update_one(
         {"_id": f"product:{object_id}"},

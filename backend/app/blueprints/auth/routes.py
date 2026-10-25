@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta, timezone
 import hashlib
-import hmac
 import secrets
 import re
 
@@ -12,14 +11,13 @@ from flask_jwt_extended import create_access_token, get_jwt, unset_jwt_cookies
 from ...extensions import limiter, mongo
 from ...mail import send_otp
 from ...rbac import authenticated_user_id, effective_permissions, requireAuth
-from ...credential_sync import next_credential_version, sync_event
 
 auth_bp = Blueprint("auth", __name__)
 
 
 def _database():
     """Use the URI database when present, otherwise apply DB_NAME explicitly."""
-    return mongo.db or mongo.cx[current_app.config["MONGO_DBNAME"]]
+    return mongo.db if mongo.db is not None else mongo.cx[current_app.config["MONGO_DBNAME"]]
 
 
 def _shared_session_hash(token: str) -> str:
@@ -300,7 +298,6 @@ def signup_verify_otp():
     }).inserted_id
     _database().otp_challenges.delete_one({"_id": challenge["_id"]})
     user = _database().users.find_one({"_id": user_id})
-    sync_event(_database(), "USER_CREATED", user)
     session_token, expires = _create_shared_session(user_id)
     response = jsonify({"accessToken": create_access_token(identity=str(user_id)), "user": _public_user(user)})
     return _shared_cookie(response, session_token, expires), 201
@@ -324,10 +321,6 @@ def login():
     user = _database().users.find_one({"_id": user["_id"]})
     _database().users.update_one({"_id": user["_id"]}, {"$set": {"lastLoginAt": datetime.now(timezone.utc)}})
     user = _database().users.find_one({"_id": user["_id"]})
-    # RK-WEB remains authoritative for login.  This is a best-effort, one-time
-    # credential handoff; failures must never affect local authentication.
-    if user.get("role") in {"admin", "staff"}:
-        sync_event(_database(), "PASSWORD_CHANGED", user, password=password, version=user.get("credentialVersion", 0))
     session_token, expires = _create_shared_session(user["_id"])
     response = jsonify({"accessToken": create_access_token(identity=str(user["_id"])), "user": _public_user(user)})
     return _shared_cookie(response, session_token, expires), 200
@@ -370,10 +363,9 @@ def forgot_password_reset():
     _database().otp_challenges.update_one({"_id": challenge["_id"]}, {"$inc": {"otpAttempts": 1}})
     if not checkpw(otp.encode(), challenge["otpHash"].encode()):
         return jsonify({"error": "The recovery code is invalid or expired."}), 400
-    version = next_credential_version(user)
+    version = int(user.get("credentialVersion", 0)) + 1
     _database().users.update_one({"_id": user["_id"]}, {"$set": {"passwordHash": _password_hash(password), "credentialVersion": version, "updatedAt": now}})
     user["credentialVersion"] = version
-    sync_event(_database(), "PASSWORD_RESET", user, password=password, version=version)
     _database().otp_challenges.delete_one({"_id": challenge["_id"]})
     return jsonify({"message": "Password updated. You can now sign in."}), 200
 
@@ -430,132 +422,14 @@ def change_authenticated_password():
     if password != confirmation or not _valid_password(password) or password == current_password:
         return jsonify({"error": "Choose a new password of at least 8 characters."}), 400
     now = datetime.now(timezone.utc)
-    version = next_credential_version(user)
+    version = int(user.get("credentialVersion", 0)) + 1
     _database().users.update_one({"_id": user_id}, {"$set": {"passwordHash": _password_hash(password), "mustChangePassword": False, "credentialVersion": version, "updatedAt": now}})
     _database().auth_sessions.update_many({"userId": user_id, "revokedAt": None}, {"$set": {"revokedAt": now}})
     _database().profile_update_logs.insert_one({"user": user_id, "changedFields": ["passwordHash", "mustChangePassword"], "timestamp": now})
     refreshed, expires = _create_shared_session(user_id)
     updated = _database().users.find_one({"_id": user_id})
-    sync_event(_database(), "PASSWORD_CHANGED", updated, password=password, version=version)
     response = jsonify({"message": "Your password has been changed.", "user": _public_user(updated)})
     return _shared_cookie(response, refreshed, expires), 200
-
-
-@auth_bp.get("/shared/me")
-def shared_me():
-    expected = current_app.config.get("SHARED_SESSION_INTERNAL_SECRET", "")
-    supplied = request.headers.get("X-RK-Shared-Auth", "")
-    cookie = request.cookies.get(current_app.config["SHARED_SESSION_COOKIE_NAME"], "")
-    header_present = bool(supplied)
-    secret_match = bool(expected and supplied and hmac.compare_digest(supplied, expected))
-    session = None
-    session_lookup_db = None
-    session_active = False
-    session_expired = False
-    user = None
-    user_active = False
-    failure_reason = ""
-
-    if secret_match and cookie:
-        session_lookup_db = _database()
-        session = session_lookup_db.auth_sessions.find_one({
-            "tokenHash": _shared_session_hash(cookie),
-            "revokedAt": None,
-        })
-        expires_at = session.get("expiresAt") if session else None
-        if expires_at and expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-        now_utc = datetime.now(timezone.utc)
-        session_expired = bool(session and expires_at and expires_at <= now_utc)
-        session_active = bool(session and expires_at and expires_at > now_utc)
-        if session:
-            user = session_lookup_db.users.find_one({"_id": session.get("userId")})
-            user_active = bool(user and user.get("isActive", True) is not False)
-
-    if not header_present:
-        failure_reason = "missing_internal_header"
-    elif not secret_match:
-        failure_reason = "internal_secret_mismatch"
-    elif not cookie:
-        failure_reason = "missing_shared_cookie"
-    elif not session:
-        failure_reason = "session_not_found_or_revoked"
-    elif not session_active:
-        failure_reason = "session_expired"
-    elif not user:
-        failure_reason = "user_not_found"
-    elif not user_active:
-        failure_reason = "user_inactive"
-
-    def log_diagnostic(reason: str):
-        current_app.logger.warning(
-            "[SHARED_AUTH_DIAG] cookie=%s header=%s secret_match=%s "
-            "session_found=%s session_active=%s user_found=%s user_active=%s "
-            "role=%s reason=%s",
-            bool(cookie), header_present, secret_match, bool(session),
-            session_active, bool(user), user_active,
-            str((user or {}).get("role") or ""), reason,
-        )
-
-    # TEMPORARY LOCAL DIAGNOSTIC: expose status flags only while RK-WEB is
-    # explicitly targeting its isolated local test database. Never include
-    # credential, cookie, token, header, or secret values in this payload.
-    def local_401_payload(error: str, reason: str) -> dict:
-        payload = {"error": error}
-        local_host = request.host.split(":", 1)[0].lower() in {"localhost", "127.0.0.1", "::1"}
-        if current_app.debug and local_host:
-            role = (user or {}).get("role")
-            runtime_db = _database()
-            runtime_metadata = {
-                "diagnostic_version": "shared-auth-runtime-v3",
-                "runtime_config_dbname": str(current_app.config.get("MONGO_DBNAME") or ""),
-                "runtime_db_name": str(runtime_db.name),
-                "runtime_users_count": runtime_db.users.count_documents({}),
-                "runtime_auth_sessions_count": runtime_db.auth_sessions.count_documents({}),
-                "runtime_active_auth_sessions_count": runtime_db.auth_sessions.count_documents({"revokedAt": None}),
-                "runtime_admin_exists": bool(runtime_db.users.find_one({"role": "admin"}, {"_id": 1})),
-                "runtime_db_object_identity": hex(id(runtime_db)),
-                "shared_session_lookup_same_runtime_db": session_lookup_db is runtime_db,
-                "shared_session_lookup_returned_document": bool(session),
-                "session_lookup_found": bool(session),
-            }
-            payload["debug"] = {
-                "shared_cookie_present": bool(cookie),
-                "shared_header_present": header_present,
-                "internal_secret_configured": bool(expected),
-                "internal_secret_match": secret_match,
-                "session_hash_found": bool(session),
-                "session_active": session_active,
-                "session_expired": session_expired,
-                "user_id_present": bool(session and session.get("userId")),
-                "user_found": bool(user),
-                "user_active": user_active,
-                "user_role": role if role in {"admin", "staff", "customer"} else None,
-                "failure_reason": reason,
-                **runtime_metadata,
-            }
-            current_app.logger.warning(
-                "[SHARED_AUTH_RUNTIME] db_name=%s users=%s auth_sessions=%s "
-                "active_auth_sessions=%s session_found=%s",
-                runtime_metadata["runtime_db_name"],
-                runtime_metadata["runtime_users_count"],
-                runtime_metadata["runtime_auth_sessions_count"],
-                runtime_metadata["runtime_active_auth_sessions_count"],
-                runtime_metadata["shared_session_lookup_returned_document"],
-            )
-        return payload
-
-    if not expected or not secret_match:
-        reason = failure_reason or "internal_auth_failure"
-        log_diagnostic(reason)
-        return jsonify(local_401_payload("Authentication required.", reason)), 401
-    user = _shared_session_user(cookie)
-    if not user:
-        reason = failure_reason or "session_rejected"
-        log_diagnostic(reason)
-        return jsonify(local_401_payload("Invalid or expired shared session.", reason)), 401
-    log_diagnostic("none")
-    return jsonify({"user": _public_user(user)}), 200
 
 
 @auth_bp.put("/profile")
@@ -703,14 +577,13 @@ def verify_password_change():
     if not checkpw(otp.encode(), challenge["otpHash"].encode()):
         return jsonify({"error": "The verification code is invalid or expired."}), 400
 
-    version = next_credential_version(user)
+    version = int(user.get("credentialVersion", 0)) + 1
     _database().users.update_one(
         {"_id": user_id},
         {"$set": {"passwordHash": _password_hash(password), "credentialVersion": version, "updatedAt": now}},
     )
     challenges.delete_one({"_id": challenge["_id"]})
     user["credentialVersion"] = version
-    sync_event(_database(), "PASSWORD_CHANGED", user, password=password, version=version)
     _database().profile_update_logs.insert_one({"user": user_id, "changedFields": ["passwordHash"], "timestamp": now})
     return jsonify({"message": "Your password has been changed."}), 200
 
@@ -834,19 +707,5 @@ def logout():
     token = request.cookies.get(current_app.config["SHARED_SESSION_COOKIE_NAME"])
     if token:
         _database().auth_sessions.update_one({"tokenHash": _shared_session_hash(token), "revokedAt": None}, {"$set": {"revokedAt": datetime.now(timezone.utc)}})
-    response.set_cookie(current_app.config["SHARED_SESSION_COOKIE_NAME"], "", expires=0, max_age=0, domain=current_app.config.get("SHARED_SESSION_COOKIE_DOMAIN") or None, path="/", secure=current_app.config.get("SHARED_SESSION_COOKIE_SECURE", True), httponly=True, samesite=current_app.config.get("SHARED_SESSION_COOKIE_SAMESITE", "Lax"))
-    return response, 200
-
-
-@auth_bp.post("/shared/logout")
-def shared_logout():
-    expected = current_app.config.get("SHARED_SESSION_INTERNAL_SECRET", "")
-    supplied = request.headers.get("X-RK-Shared-Auth", "")
-    if not expected or not hmac.compare_digest(supplied, expected):
-        return jsonify({"error": "Authentication required."}), 401
-    token = request.cookies.get(current_app.config["SHARED_SESSION_COOKIE_NAME"], "")
-    if token:
-        _database().auth_sessions.update_one({"tokenHash": _shared_session_hash(token)}, {"$set": {"revokedAt": datetime.now(timezone.utc)}})
-    response = jsonify({"message": "Logged out."})
     response.set_cookie(current_app.config["SHARED_SESSION_COOKIE_NAME"], "", expires=0, max_age=0, domain=current_app.config.get("SHARED_SESSION_COOKIE_DOMAIN") or None, path="/", secure=current_app.config.get("SHARED_SESSION_COOKIE_SECURE", True), httponly=True, samesite=current_app.config.get("SHARED_SESSION_COOKIE_SAMESITE", "Lax"))
     return response, 200

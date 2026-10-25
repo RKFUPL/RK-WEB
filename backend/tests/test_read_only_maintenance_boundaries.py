@@ -54,7 +54,7 @@ def test_application_factory_does_not_run_database_maintenance_or_swallow_failur
     )
     assert _called_names(factory_without_cli).isdisjoint({
         "ensure_catalog_indexes", "ensure_catalog_seed", "ensure_dashboard_indexes",
-        "ensure_feedback_indexes", "ensure_credential_sync_indexes", "ensure_catalog_sync_indexes",
+        "ensure_feedback_indexes",
     })
     assert {"ensure_catalog_indexes", "ensure_catalog_seed", "ensure_feedback_indexes"}.issubset(_called_names(nested))
     assert "ensure_catalog_seed" in direct_calls

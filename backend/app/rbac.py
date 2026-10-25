@@ -26,7 +26,7 @@ STAFF_PERMISSIONS = (
 
 
 def database():
-    return mongo.db or mongo.cx[current_app.config["MONGO_DBNAME"]]
+    return mongo.db if mongo.db is not None else mongo.cx[current_app.config["MONGO_DBNAME"]]
 
 
 def _shared_user():

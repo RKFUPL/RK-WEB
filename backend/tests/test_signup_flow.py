@@ -122,34 +122,16 @@ class SignupFlowTests(unittest.TestCase):
             self.assertTrue(checkpw(new_password.encode(), user["passwordHash"].encode()))
             self.assertIsNone(self.database.otp_challenges.find_one({"userId": self.user_id, "purpose": "password-change"}))
 
-    def test_login_shared_session_rolls_and_logout_revokes_it(self):
+    def test_login_session_is_revoked_by_logout(self):
         user = {"_id": self.user_id, "email": "staff@example.com", "username": "staff", "displayName": "Staff User", "passwordHash": hashpw(b"safe-password", gensalt()).decode(), "role": "staff", "isActive": True}
         self.database.users.documents.append(user)
         with patch("app.blueprints.auth.routes._database", return_value=self.database), patch("app.rbac.database", return_value=self.database):
             login = self.client.post("/api/auth/login", json={"identifier": "staff@example.com", "password": "safe-password"})
             assert login.status_code == 200
             session = self.database.auth_sessions.documents[0]
-            original_expiry = session["expiresAt"]
-            session["expiresAt"] = datetime.now(timezone.utc) + timedelta(minutes=1)
-            shared = self.client.get("/api/auth/shared/me", headers={"X-RK-Shared-Auth": "test-only-internal-secret"})
-            assert shared.status_code == 200
-            assert shared.json["user"]["id"] == str(self.user_id)
-            assert session["expiresAt"] > original_expiry - timedelta(days=1)
             logout = self.client.post("/api/auth/logout", headers={"Authorization": f"Bearer {login.json['accessToken']}"})
             assert logout.status_code == 200
-            assert self.client.get("/api/auth/shared/me", headers={"X-RK-Shared-Auth": "test-only-internal-secret"}).status_code == 401
-
-    def test_expired_and_inactive_shared_sessions_are_rejected(self):
-        user = {"_id": self.user_id, "email": "staff@example.com", "role": "staff", "isActive": True}
-        self.database.users.documents.append(user)
-        with patch("app.blueprints.auth.routes._database", return_value=self.database), self.app.app_context():
-            token, _ = __import__("app.blueprints.auth.routes", fromlist=["_create_shared_session"])._create_shared_session(self.user_id)
-            self.client.set_cookie("rk_shared_session", token)
-            self.database.auth_sessions.documents[0]["expiresAt"] = datetime.now(timezone.utc) - timedelta(seconds=1)
-            assert self.client.get("/api/auth/shared/me", headers={"X-RK-Shared-Auth": "test-only-internal-secret"}).status_code == 401
-            self.database.auth_sessions.documents[0]["expiresAt"] = datetime.now(timezone.utc) + timedelta(days=1)
-            user["isActive"] = False
-            assert self.client.get("/api/auth/shared/me", headers={"X-RK-Shared-Auth": "test-only-internal-secret"}).status_code == 401
+            assert session["revokedAt"] is not None
 
     def test_staff_cannot_change_own_password_with_shared_session(self):
         user = {"_id": self.user_id, "email": "staff@example.com", "role": "staff", "isActive": True}

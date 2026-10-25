@@ -2,6 +2,9 @@
 
 Luxury womenswear ecommerce platform scaffold for the `Rashi Kapoor` brand.
 
+RK-WEB is an independent application. It uses its own backend, authentication,
+database configuration, and catalog; it does not call or require RK-STOCK.
+
 Current phase:
 - Frontend foundation
 - Brand system and luxury landing shell

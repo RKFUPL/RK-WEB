@@ -10,6 +10,9 @@ const dynamicRoute = readFileSync(new URL('../app/collections/[slug]/page.tsx', 
 const styles = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
 const management = readFileSync(new URL('../components/collections/collection-management-detail.tsx', import.meta.url), 'utf8');
 const catalogClient = readFileSync(new URL('./catalog-client.ts', import.meta.url), 'utf8');
+const collectionsPage = readFileSync(new URL('../app/collections/page.tsx', import.meta.url), 'utf8');
+const shopCategories = readFileSync(new URL('../components/home/shop-categories.tsx', import.meta.url), 'utf8');
+const adminProducts = readFileSync(new URL('../components/admin/admin-products.tsx', import.meta.url), 'utf8');
 
 test('collection request failures remain distinct from genuine empty collections', () => {
   assert.match(detail, /setCollectionError/);
@@ -61,4 +64,37 @@ test('collection navigation deduplicates short-lived public detail requests', ()
   assert.match(catalogClient, /collectionDetailRequests = new Map/);
   assert.match(catalogClient, /COLLECTION_DETAIL_TTL_MS = 30_000/);
   assert.match(catalogClient, /collectionDetailRequests\.delete\(key\)/);
+});
+
+test('Hastakala cards use collection media instead of a missing lookbook cover route', () => {
+  assert.doesNotMatch(collectionsPage, /lookbooks\/hastakala\/cover/);
+  assert.match(collectionsPage, /collection\.hero\?\.image \|\| collection\.heroImage/);
+  assert.doesNotMatch(shopCategories, /lookbooks\/hastakala\/cover/);
+  assert.match(shopCategories, /image=\{item\.image\}/);
+  assert.doesNotMatch(adminProducts, /lookbooks\/hastakala\/cover/);
+  assert.match(adminProducts, /collection\.heroImage \|\| collection\.hero\?\.image/);
+});
+
+test('admin collection cards use catalog media for Aakaar instead of a lookbook cover route', () => {
+  assert.doesNotMatch(adminProducts, /lookbooks\/aakaar\/cover/);
+  assert.match(adminProducts, /const collectionCardImage = \(collection: ManagedCollection\) =>/);
+  assert.match(adminProducts, /collection\.heroImage \|\| collection\.hero\?\.image/);
+  assert.match(adminProducts, /Campaign|Collection/);
+});
+
+test('storefront Aakaar prefers saved catalog media and retains editorial media as fallback', () => {
+  assert.match(collectionsPage, /normalizedName === 'aakaar'/);
+  assert.match(collectionsPage, /collection\.hero\?\.image \|\| collection\.heroImage \|\| editorial\?\.image/);
+  assert.match(management, /collection\.heroSource\?\.image \?\? collection\.hero\?\.image \?\? collection\.heroImage/);
+  assert.match(management, /savedHeroPreview = collection\.hero\?\.image \|\| collection\.heroImage/);
+});
+
+test('successful collection deletion does not replace detail state with the delete receipt', () => {
+  const mutationHelper = management.slice(
+    management.indexOf('const relationRequest'),
+    management.indexOf('const saveCollection'),
+  );
+  assert.match(mutationHelper, /typeof payload === "object" && "collection" in payload/);
+  assert.match(management, /method: "DELETE"/);
+  assert.match(management, /window\.location\.assign\(basePath\)/);
 });

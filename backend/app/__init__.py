@@ -1,9 +1,10 @@
 from pathlib import Path
 import os
 
-from flask import Flask, g, request
+from flask import Flask, current_app, g, request
 from flask import send_file
 from dotenv import dotenv_values, load_dotenv
+from pymongo.errors import ServerSelectionTimeoutError
 
 # Resolve the backend environment from the application location rather than
 # the caller's working directory. This keeps local `flask --app wsgi:app run`
@@ -41,11 +42,8 @@ from .blueprints.orders.routes import customer_orders_bp, staff_orders_bp
 from .feedback import feedback_bp, ensure_feedback_indexes
 from .returns import returns_bp
 from .blueprints.staff.routes import staff_bp
-from .blueprints.integrations.routes import integrations_bp
 from .config import get_config, validate_database_maintenance_target
 from .extensions import cors, jwt, limiter, mail, mongo
-from .credential_sync import ensure_indexes as ensure_credential_sync_indexes
-from .catalog_sync_v1 import ensure_indexes as ensure_catalog_sync_indexes
 from .order_fulfillment import migrate_legacy_orders
 
 
@@ -98,6 +96,16 @@ def create_app() -> Flask:
     mail.init_app(app)
     mongo.init_app(app)
 
+    @app.errorhandler(ServerSelectionTimeoutError)
+    def mongo_unavailable(_error):
+        current_app.logger.error(
+            "MongoDB server selection failed during %s %s (%s)",
+            request.method,
+            request.path,
+            type(_error).__name__,
+        )
+        return {"error": "Database temporarily unavailable."}, 503, {"Retry-After": "5"}
+
     @app.cli.command("database-maintenance")
     def database_maintenance():
         """Explicitly create indexes and canonical catalog records."""
@@ -115,8 +123,6 @@ def create_app() -> Flask:
         ensure_catalog_seed(database)
         ensure_dashboard_indexes(database)
         ensure_feedback_indexes(database)
-        ensure_credential_sync_indexes(database)
-        ensure_catalog_sync_indexes(database)
         migrate_legacy_orders(database)
         click.echo("Database maintenance completed")
 
@@ -144,7 +150,7 @@ def create_app() -> Flask:
 
     @jwt.token_in_blocklist_loader
     def token_is_revoked(_jwt_header, jwt_payload):
-        db = mongo.db or mongo.cx[app.config["MONGO_DBNAME"]]
+        db = mongo.db if mongo.db is not None else mongo.cx[app.config["MONGO_DBNAME"]]
         return db.revoked_tokens.find_one({"jti": jwt_payload.get("jti")}, {"_id": 1}) is not None
 
     app.register_blueprint(health_bp, url_prefix="/api")
@@ -164,7 +170,6 @@ def create_app() -> Flask:
     app.register_blueprint(staff_bp, url_prefix="/api/staff")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
     app.register_blueprint(storefront_lookbooks_bp, url_prefix="/api")
-    app.register_blueprint(integrations_bp, url_prefix="/api/integrations")
 
     @app.get("/")
     def index() -> tuple[dict[str, str], int]:

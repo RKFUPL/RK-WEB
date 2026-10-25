@@ -12,18 +12,6 @@
     networks:
       - rk-internal
 
-  catalog-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-    container_name: rk-catalog-worker
-    env_file:
-      - .env
-    command: python catalog_worker.py
-    networks:
-      - rk-internal
-    restart: unless-stopped
-
   frontend:
     container_name: rk-frontend
     build:

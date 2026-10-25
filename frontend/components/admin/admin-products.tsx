@@ -8,11 +8,7 @@ import { apiBaseUrl } from '@/lib/rbac';
 import type { ManagedCollection } from '@/lib/catalog';
 
 const collectionCardImage = (collection: ManagedCollection) =>
-  collection.name.trim().toLowerCase() === 'aakaar'
-    ? '/api/lookbooks/aakaar/cover'
-    : collection.name.trim().toLowerCase() === 'hastakala'
-      ? '/api/lookbooks/hastakala/cover'
-      : collection.heroImage || collection.hero?.image;
+  collection.heroImage || collection.hero?.image;
 
 export function AdminProducts() {
   const router = useRouter();

@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import re
 import secrets
+from re import fullmatch
 from urllib.parse import urlencode, urlparse
 
 from bcrypt import gensalt, hashpw
@@ -14,7 +15,6 @@ from ...dashboard_metrics import build_dashboard
 from ...order_fulfillment import migrate_legacy_orders
 from ...time_utils import json_value as serialize_json_value
 from ...mail import SENDERS, safe_status, send_test_email, test_smtp_connection, validate_recipient
-from ...credential_sync import next_credential_version, sync_event
 from ...extensions import limiter
 from ...workdrive import WorkDriveFileNotFound, WorkDriveUnavailable, begin_oauth as begin_workdrive_oauth, complete_oauth as complete_workdrive_oauth, download_file, external_share_id_from_permalink, file_id_from_permalink, is_supported_permalink, oauth_configuration as workdrive_oauth_configuration, safe_status as workdrive_status, test_connection as test_workdrive_connection
 
@@ -143,6 +143,7 @@ SETTINGS_DEFAULTS = {
     "lowStockNotifications": True,
     "showStorefrontForex": True,
     "courierOptions": [],
+    "colourSwatches": {},
 }
 
 LOOKBOOK_DEFAULTS = {
@@ -281,7 +282,7 @@ def _testimonial_payload(payload: dict, *, partial: bool = False):
                 return None, "Image URL must be a valid HTTPS URL without credentials or a fragment."
             if "workdrive.zoho" in parsed.hostname.casefold():
                 return None, "Private WorkDrive links cannot be used as public image URLs. Paste the link into Managed WorkDrive image instead, or use an approved public Cloudinary HTTPS image URL."
-            approved_host = current_app.config.get("STOCK_INTEGRATION_CLOUDINARY_HOST", "res.cloudinary.com").casefold()
+            approved_host = "res.cloudinary.com"
             if parsed.hostname.casefold() != approved_host:
                 return None, "Public testimonial images must use the approved Cloudinary HTTPS host. Use Managed WorkDrive image for a private WorkDrive file."
         values["imageUrl"] = image_url or None
@@ -421,6 +422,12 @@ def _document_view(document: dict) -> dict:
 def _settings(db) -> dict:
     stored = db.admin_settings.find_one({"_id": "store"}) or {}
     return {**SETTINGS_DEFAULTS, **{key: value for key, value in stored.items() if key not in {"_id", "updatedAt", "updatedBy"}}}
+
+
+def _colour_swatches(value) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key).strip().upper(): str(hex_value).strip().upper() for key, hex_value in value.items() if str(key).strip() and fullmatch(r"#[0-9A-Fa-f]{6}", str(hex_value).strip())}
 
 
 def _lookbooks(db) -> dict[str, str]:
@@ -590,7 +597,6 @@ def list_users():
         "updatedAt": now,
     }
     document["_id"] = db.users.insert_one(document).inserted_id
-    sync_event(db, "USER_CREATED", document, password=password)
     _user_admin_audit("user_created", document, role=role, active=active)
     return jsonify({"user": _user_view(document)}), 201
 
@@ -724,7 +730,7 @@ def get_settings():
 @storefront_lookbooks_bp.get("/storefront-settings")
 def get_public_storefront_settings():
     settings = _settings(database())
-    return jsonify({"settings": {"showStorefrontForex": bool(settings["showStorefrontForex"])}}), 200
+    return jsonify({"settings": {"showStorefrontForex": bool(settings["showStorefrontForex"]), "colourSwatches": _colour_swatches(settings.get("colourSwatches"))}}), 200
 
 
 @storefront_lookbooks_bp.get("/lookbooks")
@@ -749,6 +755,31 @@ def get_public_lookbook_asset(name_slug: str, kind: str):
 @requireAdmin
 def get_workdrive_integration():
     return jsonify({"integration": _safe_workdrive_integration(database())}), 200
+
+
+@admin_bp.get("/colour-swatches")
+@requireAdmin
+def get_colour_swatches():
+    return jsonify({"colourSwatches": _colour_swatches(_settings(database()).get("colourSwatches"))}), 200
+
+
+@admin_bp.put("/colour-swatches")
+@requireAdmin
+def update_colour_swatches():
+    submitted = request.get_json(silent=True) or {}
+    values = submitted.get("colourSwatches")
+    if not isinstance(values, dict):
+        return jsonify({"error": "Colour swatches must be an object."}), 400
+    current = _colour_swatches(_settings(database()).get("colourSwatches"))
+    for key, value in values.items():
+        name = str(key).strip().upper()
+        hex_value = str(value or "").strip().upper()
+        if not name or not fullmatch(r"#[0-9A-F]{6}", hex_value):
+            return jsonify({"error": "Colour swatches must use #RRGGBB values."}), 400
+        current[name] = hex_value
+    actor = current_user()
+    database().admin_settings.update_one({"_id": "store"}, {"$set": {"colourSwatches": current, "updatedAt": datetime.now(timezone.utc), "updatedBy": actor["_id"]}}, upsert=True)
+    return jsonify({"colourSwatches": current}), 200
 
 
 @admin_bp.post("/integrations/workdrive/test-connection")
@@ -936,7 +967,6 @@ def change_role(user_id: str):
         "timestamp": now,
     })
     target = users.find_one({"_id": target_id})
-    sync_event(database(), "ROLE_CHANGED", target, version=target.get("credentialVersion", 0), metadata={"previous_role": previous_role}, force=True)
     _user_admin_audit("user_role_changed", target, previousRole=previous_role, newRole=new_role)
     return jsonify({"user": _user_view(target)}), 200
 
@@ -1013,7 +1043,6 @@ def change_status(user_id: str):
     if not active:
         database().auth_sessions.update_many({"userId": target["_id"], "revokedAt": None}, {"$set": {"revokedAt": datetime.now(timezone.utc)}})
     updated = users.find_one({"_id": target["_id"]})
-    sync_event(database(), "STATUS_CHANGED", updated, version=updated.get("credentialVersion", 0), force=target.get("role") in {"admin", "staff"})
     _user_admin_audit("user_activated" if active else "user_deactivated", updated)
     return jsonify({"user": _user_view(updated)}), 200
 
@@ -1035,10 +1064,9 @@ def change_password(user_id: str):
         return jsonify({"error": "Only staff and admin passwords can be updated here."}), 400
 
     now = datetime.now(timezone.utc)
-    version = next_credential_version(target)
+    version = int(target.get("credentialVersion", 0)) + 1
     users.update_one({"_id": target["_id"]}, {"$set": {"passwordHash": _password_hash(password), "mustChangePassword": True, "credentialVersion": version, "updatedAt": now}})
     database().auth_sessions.update_many({"userId": target["_id"], "revokedAt": None}, {"$set": {"revokedAt": now}})
     _user_admin_audit("admin_password_reset", target)
     target["credentialVersion"] = version
-    sync_event(database(), "PASSWORD_RESET", target, password=password, version=version)
     return jsonify({"message": "Password updated successfully."}), 200
