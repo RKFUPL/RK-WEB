@@ -32,25 +32,18 @@ test('header has no currency selector and price surfaces share the compact contr
   assert.match(row, /pointer-events-none/);
 });
 
-test('forex header popover is setting-gated and renders server metadata', () => {
-  const ticker = read('../components/commerce/forex-ticker.tsx');
+test('raw forex details are admin-only while storefront conversion remains available', () => {
   const header = read('../components/home/sticky-header.tsx');
-  assert.match(ticker, /api\/storefront-settings/);
-  assert.match(ticker, /showStorefrontForex/);
-  assert.match(ticker, /aria-haspopup="dialog"/);
-  assert.match(ticker, /createPortal\(panel, document\.body\)/);
-  assert.match(ticker, /setPinned\(true\)/);
-  assert.match(ticker, /setTimeout\(\(\) =>/);
-  assert.match(ticker, /document\.addEventListener\('pointerdown', closeOutside\)/);
-  assert.match(ticker, /document\.addEventListener\('keydown', closeOnEscape\)/);
-  assert.match(ticker, /rateSource/);
-  assert.match(ticker, /rateType/);
-  assert.match(ticker, /ratesAsOf/);
-  assert.match(ticker, /daily indicative reference rates/i);
-  assert.match(ticker, /temporarily unavailable/);
-  assert.doesNotMatch(ticker, /<aside/);
-  assert.match(header, /<ForexTicker \/>/);
-  assert.match(header, /<ForexTicker mobile \/>/);
+  const provider = read('../components/commerce/currency-provider.tsx');
+  const admin = read('../components/admin/admin-settings.tsx');
+  assert.doesNotMatch(header, /ForexTicker|1 INR|rateSource|ratesAsOf/);
+  assert.match(provider, /api\/catalog\/currency-context/);
+  assert.match(provider, /formatDisplayPrice/);
+  assert.doesNotMatch(provider, /rateSource|rateType|ratesAsOf/);
+  assert.match(admin, /api\/admin\/forex/);
+  assert.match(admin, /1 INR =/);
+  assert.match(admin, /Last successful update/);
+  assert.match(admin, /Active provider/);
 });
 
 test('product photography containers do not add decorative frames', () => {

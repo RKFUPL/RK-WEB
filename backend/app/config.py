@@ -46,6 +46,8 @@ class BaseConfig:
         PUBLIC_FX_RATES = {}
     FX_PROVIDER_URL = os.getenv("FX_PROVIDER_URL", "https://open.er-api.com/v6/latest/INR").strip()
     FX_CACHE_TTL_SECONDS = int(os.getenv("FX_CACHE_TTL_SECONDS", "21600"))
+    TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY", "").strip()
+    TWELVE_DATA_COMMERCIAL_USE_APPROVED = os.getenv("TWELVE_DATA_COMMERCIAL_USE_APPROVED", "false").strip().lower() == "true"
     RATELIMIT_DEFAULT = "200 per hour"
     RATELIMIT_STORAGE_URI = os.getenv("RATELIMIT_STORAGE_URI", "memory://")
     AUTH_SESSION_DAYS = int(os.getenv("AUTH_SESSION_DAYS", "30"))

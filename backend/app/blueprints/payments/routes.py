@@ -74,6 +74,13 @@ def _safe_text(value: object, maximum: int = 240) -> str:
     return str(value or "").strip()[:maximum]
 
 
+def _display_currency(value: object) -> str:
+    currency = _safe_text(value, 3).upper()
+    if currency not in {"INR", "USD", "EUR", "AED", "GBP"}:
+        raise ValueError("Choose a supported display currency.")
+    return currency
+
+
 def _normalise_shipping(db, user_id: ObjectId, payload: dict) -> dict:
     address_id = _safe_text(payload.get("addressId"), 64)
     if address_id:
@@ -207,7 +214,7 @@ def _checkout_items(db, cart: object) -> tuple[list[dict], float]:
     return items, round(subtotal, 2)
 
 
-def _new_order_document(user: dict, shipping: dict, items: list[dict], subtotal: float, attempt_id: str, now: datetime) -> dict:
+def _new_order_document(user: dict, shipping: dict, items: list[dict], subtotal: float, attempt_id: str, now: datetime, display_currency: str = "INR") -> dict:
     customer_name = " ".join(filter(None, (user.get("firstName"), user.get("lastName")))) or user.get("displayName") or user.get("username") or "RK Customer"
     requires_confirmation = any(bool(item.get("requiresAvailabilityConfirmation")) for item in items)
     order = {
@@ -227,6 +234,7 @@ def _new_order_document(user: dict, shipping: dict, items: list[dict], subtotal:
         "total": subtotal,
         "amountPaise": int(round(subtotal * 100)),
         "currency": "INR",
+        "displayCurrency": display_currency,
         "status": "pending_payment",
         "paymentGateway": "razorpay",
         "paymentStatus": "pending",
@@ -407,6 +415,7 @@ def create_razorpay_order():
     _ensure_payment_indexes(db)
     ensure_catalog_seed(db)
     try:
+        display_currency = _display_currency(payload.get("displayCurrency", "INR"))
         shipping = _normalise_shipping(db, user_id, payload.get("shipping") if isinstance(payload.get("shipping"), dict) else {})
         items, subtotal = _checkout_items(db, payload.get("cart"))
     except ValueError as error:
@@ -423,7 +432,7 @@ def create_razorpay_order():
         return jsonify(_payment_response(existing)), 200
 
     now = datetime.now(timezone.utc)
-    order = existing or _new_order_document(user, shipping, items, subtotal, attempt_id, now)
+    order = existing or _new_order_document(user, shipping, items, subtotal, attempt_id, now, display_currency)
     if not existing:
         try:
             order["_id"] = db.orders.insert_one(order).inserted_id

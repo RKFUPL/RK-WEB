@@ -3,9 +3,15 @@ import hmac
 import unittest
 
 from app.payments import verify_payment_signature, verify_webhook_signature
+from app.blueprints.payments.routes import _display_currency
 
 
 class PaymentSignatureTests(unittest.TestCase):
+    def test_display_currency_is_validated_without_changing_payment_currency(self):
+        self.assertEqual(_display_currency("EUR"), "EUR")
+        with self.assertRaises(ValueError):
+            _display_currency("CAD")
+
     def test_payment_signature_accepts_the_expected_order_and_payment_pair(self):
         secret = "test_secret"
         message = "order_test|pay_test"

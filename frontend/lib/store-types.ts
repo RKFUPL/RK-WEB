@@ -11,6 +11,8 @@ export type ProductVariant = {
   status: 'active' | 'inactive';
 };
 
+import type { DisplayCurrency } from './currency';
+
 export type CartItem = {
   productId: string;
   productCode: string;
@@ -44,7 +46,7 @@ export type CartItem = {
 
 export type Cart = {
   items: CartItem[];
-  currency: 'INR';
+  currency: DisplayCurrency;
 };
 
 export type UserProfile = {

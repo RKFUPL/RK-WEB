@@ -43,5 +43,5 @@ test('header retains core destinations while increasing readable control sizing'
   assert.match(header, /text-\[0\.78rem\]/);
   assert.match(header, /lg:h-12/);
   assert.match(header, /h-\[1\.15rem\] w-\[1\.15rem\]/);
-  assert.match(header, /<ForexTicker \/>/);
+  assert.doesNotMatch(header, /ForexTicker/);
 });

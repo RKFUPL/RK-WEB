@@ -1,4 +1,5 @@
 import { addToCart, emptyCart, removeFromCart, cartLineKey, updateCartItemSize } from '@/lib/cart';
+import { isDisplayCurrency } from '@/lib/currency';
 import type { Cart, CartItem } from '@/lib/store-types';
 
 export const cartStorageKey = 'rk_shopping_bag';
@@ -9,7 +10,7 @@ export function readStoredCart(): Cart {
   try {
     const value = JSON.parse(window.localStorage.getItem(cartStorageKey) || 'null');
     return value && Array.isArray(value.items)
-      ? { items: value.items.map((item: CartItem) => item?.inventoryMode === 'variant' ? { ...item, stock: undefined } : item), currency: 'INR' }
+      ? { items: value.items.map((item: CartItem) => item?.inventoryMode === 'variant' ? { ...item, stock: undefined } : item), currency: isDisplayCurrency(value.currency) ? value.currency : 'INR' }
       : emptyCart;
   } catch {
     return emptyCart;

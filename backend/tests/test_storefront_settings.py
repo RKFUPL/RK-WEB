@@ -16,12 +16,12 @@ class StorefrontSettingsTests(unittest.TestCase):
         app.register_blueprint(storefront_lookbooks_bp, url_prefix="/api")
         return app
 
-    def test_forex_display_is_enabled_by_default_and_public_response_is_narrow(self):
+    def test_public_response_omits_private_forex_controls(self):
         database = SimpleNamespace(admin_settings=mongomock.MongoClient().db.admin_settings)
         with patch("app.blueprints.admin.routes.database", return_value=database):
             response = self.public_app().test_client().get("/api/storefront-settings")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json(), {"settings": {"showStorefrontForex": True, "colourSwatches": {}}})
+        self.assertEqual(response.get_json(), {"settings": {"colourSwatches": {}}})
         self.assertTrue(SETTINGS_DEFAULTS["showStorefrontForex"])
 
     def test_public_forex_display_reflects_persisted_disabled_value(self):
@@ -29,7 +29,7 @@ class StorefrontSettingsTests(unittest.TestCase):
         database.admin_settings.insert_one({"_id": "store", "showStorefrontForex": False, "supportEmail": "private@example.com"})
         with patch("app.blueprints.admin.routes.database", return_value=database):
             response = self.public_app().test_client().get("/api/storefront-settings")
-        self.assertEqual(response.get_json(), {"settings": {"showStorefrontForex": False, "colourSwatches": {}}})
+        self.assertEqual(response.get_json(), {"settings": {"colourSwatches": {}}})
 
     def test_settings_mutation_requires_admin_authentication(self):
         app = Flask(__name__)

@@ -16,6 +16,7 @@ from ...order_fulfillment import migrate_legacy_orders
 from ...time_utils import json_value as serialize_json_value
 from ...mail import SENDERS, safe_status, send_test_email, test_smtp_connection, validate_recipient
 from ...extensions import limiter
+from ...fx_rates import currency_context as build_currency_context
 from ...workdrive import WorkDriveFileNotFound, WorkDriveUnavailable, begin_oauth as begin_workdrive_oauth, complete_oauth as complete_workdrive_oauth, download_file, external_share_id_from_permalink, file_id_from_permalink, is_supported_permalink, oauth_configuration as workdrive_oauth_configuration, safe_status as workdrive_status, test_connection as test_workdrive_connection
 
 
@@ -727,10 +728,23 @@ def get_settings():
     return jsonify({"settings": _settings(database())}), 200
 
 
+@admin_bp.get("/forex")
+@requireAdmin
+def get_forex():
+    return jsonify({"forex": build_currency_context(current_app.config)}), 200
+
+
+@admin_bp.post("/forex/refresh")
+@requireAdmin
+@limiter.limit("10 per hour")
+def refresh_forex():
+    return jsonify({"forex": build_currency_context(current_app.config, force_refresh=True)}), 200
+
+
 @storefront_lookbooks_bp.get("/storefront-settings")
 def get_public_storefront_settings():
     settings = _settings(database())
-    return jsonify({"settings": {"showStorefrontForex": bool(settings["showStorefrontForex"]), "colourSwatches": _colour_swatches(settings.get("colourSwatches"))}}), 200
+    return jsonify({"settings": {"colourSwatches": _colour_swatches(settings.get("colourSwatches"))}}), 200
 
 
 @storefront_lookbooks_bp.get("/lookbooks")

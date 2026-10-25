@@ -5,6 +5,23 @@ Luxury womenswear ecommerce platform scaffold for the `Rashi Kapoor` brand.
 RK-WEB is an independent application. It uses its own backend, authentication,
 database configuration, and catalog; it does not call or require RK-STOCK.
 
+## Forex provider
+
+Storefront prices are converted from INR through the existing backend-cached
+currency context. Twelve Data support is backend-only and remains disabled
+unless commercial customer-facing use has been contractually approved. After
+that approval, configure these backend variables without exposing them to the
+frontend:
+
+```env
+TWELVE_DATA_API_KEY=
+TWELVE_DATA_COMMERCIAL_USE_APPROVED=true
+FX_CACHE_TTL_SECONDS=21600
+```
+
+The API key is never returned to clients. Raw rates, provider status, and
+manual refresh are restricted to the authenticated admin settings page.
+
 Current phase:
 - Frontend foundation
 - Brand system and luxury landing shell

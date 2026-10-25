@@ -24,7 +24,6 @@ import { readWishlist, removeFromWishlist, wishlistChangedEvent, type Storefront
 import type { Cart } from '@/lib/store-types';
 import { cn } from '@/lib/utils';
 import { useCurrency } from '@/components/commerce/currency-provider';
-import { ForexTicker } from '@/components/commerce/forex-ticker';
 import { ShippingTimeline } from '@/components/commerce/shipping-timeline';
 import { cartItemShippingTimeline } from '@/lib/shipping-timeline';
 import { cartLineKey, getCartSubtotal } from '@/lib/cart';
@@ -429,7 +428,6 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
         </nav>
 
         <div className="hidden items-center gap-6 lg:flex">
-          <ForexTicker />
           <button
             type="button"
             onClick={() => { loadCollectionLinks(); setSearchOpen(true); }}
@@ -640,7 +638,6 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
               </div>
 
               <div className="mt-8 space-y-3 text-xs uppercase tracking-[0.3em] text-charcoal/60">
-                <ForexTicker mobile />
                 {utilityLinks.map(({ label, Icon }) => (
                   <div key={label}>
                   <button

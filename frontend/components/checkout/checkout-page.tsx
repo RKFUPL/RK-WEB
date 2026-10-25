@@ -9,7 +9,7 @@ import { ShippingTimeline } from '@/components/commerce/shipping-timeline';
 import { emptyCart, getCartSubtotal } from '@/lib/cart';
 import { apiBaseUrl } from '@/lib/rbac';
 import { cartChangedEvent, readStoredCart, writeStoredCart } from '@/lib/storefront-cart';
-import { inr } from '@/lib/catalog';
+import { useCurrency } from '@/components/commerce/currency-provider';
 import type { Cart } from '@/lib/store-types';
 import { cartItemShippingTimeline } from '@/lib/shipping-timeline';
 
@@ -88,6 +88,7 @@ function Field({ label, value, onChange, required = true, placeholder }: { label
 }
 
 function CheckoutItemSummary({ item }: { item: Cart['items'][number] }) {
+  const { formatPrice } = useCurrency();
   const measurements = item.customSize?.measurements ? Object.entries(item.customSize.measurements) : [];
   return <div className="flex justify-between gap-4 border-b border-black/10 pb-5 text-sm dark:border-white/10">
     <div>
@@ -95,14 +96,16 @@ function CheckoutItemSummary({ item }: { item: Cart['items'][number] }) {
       <p className="mt-1 text-xs text-charcoal/55">{item.colour || item.variant?.value || 'Default colour'}{item.sku ? ` · ${item.sku}` : ''}</p>
       {item.size ? <p className="mt-1 text-xs text-charcoal/55">Size {item.size}</p> : null}
       {item.customSize ? <div className="mt-1 text-xs leading-5 text-charcoal/55"><p>Custom size · {item.customSize.unit}</p>{measurements.map(([name, value]) => <p key={name}>{name}: {value} {item.customSize?.unit}</p>)}</div> : null}
-      <p className="mt-1 text-xs text-charcoal/55">{item.quantity} × {inr.format(item.price)}</p>
+      <p className="mt-1 text-xs text-charcoal/55">{item.quantity} × {formatPrice(item.price)}</p>
       <ShippingTimeline timeline={cartItemShippingTimeline(item)} compact />
     </div>
-    <span>{inr.format(item.price * item.quantity)}</span>
+    <span>{formatPrice(item.price * item.quantity)}</span>
   </div>;
 }
 
 export function CheckoutPage() {
+  const { currency, formatPrice } = useCurrency();
+  const inr = { format: formatPrice };
   const router = useRouter();
   const [cart, setCart] = useState<Cart>({ items: [], currency: 'INR' });
   const [addresses, setAddresses] = useState<Address[]>([]);
@@ -167,6 +170,7 @@ export function CheckoutPage() {
             purchaseMode: item.purchaseMode,
             customSize: item.customSize,
           })),
+          displayCurrency: currency,
           shipping: { ...shipping, addressId: selectedAddressId || undefined },
         }),
       });
