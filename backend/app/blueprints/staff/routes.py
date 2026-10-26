@@ -14,6 +14,7 @@ from ...catalog import (
     PRODUCT_AVAILABILITY,
     add_product_reference,
     collection_document,
+    collection_cover_source,
     collection_hero,
     collection_view,
     ensure_catalog_seed,
@@ -55,6 +56,26 @@ def _validated_collection_hero(payload: dict, current: dict | None = None):
     for key in ("type", "image", "video", "poster", "mobileImage", "mobileVideo", "layout", "label", "ctaLabel"):
         if key in payload:
             hero[key] = str(payload.get(key) or "").strip()
+    if "images" in payload:
+        if not isinstance(payload.get("images"), list) or len(payload["images"]) > 12:
+            return None, "Hero images must be a list of at most 12 items."
+        images = []
+        for raw in payload["images"]:
+            if not isinstance(raw, dict):
+                return None, "Each hero image must be an object."
+            image = str(raw.get("image") or "").strip()
+            mobile_image = str(raw.get("mobileImage") or "").strip()
+            if not image or not _valid_collection_media_url(image) or (mobile_image and not _valid_collection_media_url(mobile_image)):
+                return None, "Each hero slide requires a valid desktop image and an optional valid mobile image."
+            supplied_id = str(raw.get("id") or "").strip()
+            slide_id = supplied_id if re.fullmatch(r"[A-Za-z0-9_-]{1,80}", supplied_id) else hashlib.sha256(f"{image}|{mobile_image}".encode()).hexdigest()[:16]
+            images.append({
+                "id": slide_id, "image": image, "mobileImage": mobile_image,
+                "alt": str(raw.get("alt") or "").strip()[:240],
+                "desktopObjectPosition": str(raw.get("desktopObjectPosition") or "center center").strip()[:80],
+                "mobileObjectPosition": str(raw.get("mobileObjectPosition") or raw.get("desktopObjectPosition") or "center center").strip()[:80],
+            })
+        hero["images"] = images
     hero["type"] = hero["type"].lower()
     hero["layout"] = hero["layout"].lower()
     if hero["type"] not in COLLECTION_HERO_TYPES:
@@ -64,7 +85,7 @@ def _validated_collection_hero(payload: dict, current: dict | None = None):
     for key in ("image", "video", "poster", "mobileImage", "mobileVideo"):
         if hero[key] and not _valid_collection_media_url(hero[key]):
             return None, f"Hero {key} must be an HTTPS API/public URL, a local API path, or an approved WorkDrive file/share link."
-    if hero["type"] == "image" and not hero["image"]:
+    if hero["type"] == "image" and not hero["image"] and "images" not in payload:
         return None, "An image hero requires a desktop image."
     if hero["type"] == "video" and not hero["video"]:
         return None, "A video hero requires a desktop video."
@@ -451,6 +472,7 @@ def _customer_access(customer_id: ObjectId, user: dict) -> dict:
 def _management_collection_payload(db, collection: dict) -> dict:
     detail = collection_view(db, collection)
     detail["heroSource"] = collection_hero(collection)
+    detail["coverImageSource"] = collection_cover_source(collection)
     assigned_ids = {product["id"] for product in detail["products"]}
     all_products = list(db.products.find({}).sort("createdAt", -1).limit(200))
     available_products = [product_view(product) for product in all_products if str(product["_id"]) not in assigned_ids]
@@ -585,11 +607,11 @@ def update_collection(slug: str):
         updates["collectionType"] = collection_type
     if "taxInclusive" in payload:
         updates["taxInclusive"] = bool(payload.get("taxInclusive"))
-    for key in ("description", "heroImage"):
+    for key in ("description", "heroImage", "coverImage"):
         if key in payload:
             value = str(payload.get(key) or "").strip()
-            if key == "heroImage" and not _valid_collection_media_url(value):
-                return jsonify({"error": "Hero image must be an HTTPS API/public image URL, a local API path, or an approved WorkDrive file/share link."}), 400
+            if key in {"heroImage", "coverImage"} and value and not _valid_collection_media_url(value):
+                return jsonify({"error": f"{key} must be an HTTPS API/public image URL, a local API path, or an approved WorkDrive file/share link."}), 400
             updates[key] = value
     if "hero" in payload:
         hero_payload = payload.get("hero")
@@ -599,7 +621,6 @@ def update_collection(slug: str):
         if hero_error:
             return jsonify({"error": hero_error}), 400
         updates["hero"] = hero
-        updates["heroImage"] = hero["image"] or hero["poster"]
     for key in ("season", "designerNote", "collectionNumber", "location", "campaignInformation"):
         if key in payload:
             updates[key] = str(payload.get(key) or "").strip()

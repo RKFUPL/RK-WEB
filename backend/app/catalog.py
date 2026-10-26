@@ -27,7 +27,7 @@ from .product_variants import (
 
 def natural_product_sort_key(product: dict):
     value = str(product.get("styleCode") or product.get("productCode") or product.get("sku") or product.get("name") or "").strip().casefold()
-    return tuple((1, int(part)) if part.isdigit() else (0, part) for part in re.split(r"(\d+)", value) if part), str(product.get("_id") or "")
+    return tuple((1, int(part)) if part.isdigit() else (0, part) for part in re.split(r"(\d+)", value) if part), str(product.get("_id") or product.get("id") or "")
 from .time_utils import json_value as serialize_json_value
 
 
@@ -88,6 +88,7 @@ STOREFRONT_COLLECTION_PROJECTION = {
     "taxInclusive": 1,
     "description": 1,
     "heroImage": 1,
+    "coverImage": 1,
     "hero": 1,
     "season": 1,
     "year": 1,
@@ -784,19 +785,39 @@ def is_runway_collection(collection: dict | None) -> bool:
 def collection_hero(collection: dict) -> dict:
     """Return a normalized, backwards-compatible hero configuration."""
     configured = collection.get("hero") if isinstance(collection.get("hero"), dict) else {}
-    fallback_image = str(configured.get("image") or collection.get("heroImage") or "").strip()
+    fallback_image = str((configured["image"] if "image" in configured else collection.get("heroImage")) or "").strip()
     hero_type = str(configured.get("type") or "image").lower()
     layout = str(configured.get("layout") or "media_dominant").lower()
+    images = []
+    for position, raw in enumerate(configured.get("images") or []):
+        if not isinstance(raw, dict):
+            continue
+        image = str(raw.get("image") or "").strip()
+        if not image:
+            continue
+        mobile_image = str(raw.get("mobileImage") or "").strip()
+        supplied_id = str(raw.get("id") or "").strip()
+        slide_id = supplied_id if re.fullmatch(r"[A-Za-z0-9_-]{1,80}", supplied_id) else sha256(f"{image}|{mobile_image}".encode()).hexdigest()[:16]
+        images.append({
+            "id": slide_id,
+            "image": image,
+            "mobileImage": mobile_image,
+            "alt": str(raw.get("alt") or "").strip()[:240],
+            "desktopObjectPosition": str(raw.get("desktopObjectPosition") or "center center").strip(),
+            "mobileObjectPosition": str(raw.get("mobileObjectPosition") or raw.get("desktopObjectPosition") or "center center").strip(),
+            "position": position,
+        })
     return {
         "type": hero_type if hero_type in COLLECTION_HERO_TYPES else "image",
         "image": fallback_image,
         "video": str(configured.get("video") or "").strip(),
-        "poster": str(configured.get("poster") or fallback_image).strip(),
+        "poster": str((configured["poster"] if "poster" in configured else fallback_image) or "").strip(),
         "mobileImage": str(configured.get("mobileImage") or "").strip(),
         "mobileVideo": str(configured.get("mobileVideo") or "").strip(),
         "layout": layout if layout in COLLECTION_HERO_LAYOUTS else "media_dominant",
         "label": str(configured.get("label") or "The Collection").strip(),
         "ctaLabel": str(configured.get("ctaLabel") or "Explore Collection").strip(),
+        "images": images,
     }
 
 
@@ -806,8 +827,27 @@ def collection_image_url(collection: dict, source: str, slot: str = "desktop") -
     parsed = urlparse(value)
     if parsed.hostname in {"workdrive.zoho.in", "workdrive.zohoexternal.in"}:
         slug = str(collection.get("slug") or "").strip()
-        return f"/api/catalog/collections/{slug}/hero-image/{slot}" if slug else ""
+        version = sha256(value.encode()).hexdigest()[:12]
+        return f"/api/catalog/collections/{slug}/hero-image/{slot}?v={version}" if slug else ""
     return value
+
+
+def collection_cover_image_url(collection: dict, source: str) -> str:
+    """Return a browser-safe cover URL without coupling it to hero media."""
+    value = str(source or "").strip()
+    parsed = urlparse(value)
+    if parsed.hostname in {"workdrive.zoho.in", "workdrive.zohoexternal.in"}:
+        slug = str(collection.get("slug") or "").strip()
+        version = sha256(value.encode()).hexdigest()[:12]
+        return f"/api/catalog/collections/{slug}/cover-image?v={version}" if slug else ""
+    return value
+
+
+def collection_cover_source(collection: dict) -> str:
+    """Use a dedicated cover when configured, otherwise preserve legacy records."""
+    if "coverImage" in collection:
+        return str(collection.get("coverImage") or "").strip()
+    return str(collection.get("heroImage") or collection_hero(collection)["image"] or "").strip()
 
 
 def public_collection_hero(collection: dict) -> dict:
@@ -815,6 +855,14 @@ def public_collection_hero(collection: dict) -> dict:
     hero["image"] = collection_image_url(collection, hero["image"], "desktop")
     hero["poster"] = collection_image_url(collection, hero["poster"], "poster")
     hero["mobileImage"] = collection_image_url(collection, hero["mobileImage"], "mobile")
+    slug = str(collection.get("slug") or "").strip()
+    for slide in hero["images"]:
+        if urlparse(slide["image"]).hostname in {"workdrive.zoho.in", "workdrive.zohoexternal.in"}:
+            version = sha256(slide["image"].encode()).hexdigest()[:12]
+            slide["image"] = f"/api/catalog/collections/{slug}/hero-images/{slide['id']}/desktop?v={version}"
+        if urlparse(slide["mobileImage"]).hostname in {"workdrive.zoho.in", "workdrive.zohoexternal.in"}:
+            version = sha256(slide["mobileImage"].encode()).hexdigest()[:12]
+            slide["mobileImage"] = f"/api/catalog/collections/{slug}/hero-images/{slide['id']}/mobile?v={version}"
     return hero
 
 
@@ -1455,7 +1503,8 @@ def collection_view(
         "collectionType": collection.get("collectionType", "standard"),
         "taxInclusive": bool(collection.get("taxInclusive")),
         "description": collection.get("description"),
-        "heroImage": collection_image_url(collection, collection_hero(collection)["image"], "desktop"),
+        "heroImage": collection_cover_image_url(collection, collection_cover_source(collection)),
+        "coverImage": collection_cover_image_url(collection, collection_cover_source(collection)),
         "hero": public_collection_hero(collection),
         "season": collection.get("season"),
         "year": collection.get("year"),

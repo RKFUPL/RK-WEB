@@ -87,7 +87,6 @@ def record_event():
         source = "direct"
 
     user_agent = _safe_text(request.user_agent.string, 300)
-    referrer = _safe_text(request.referrer, 500)
     signed_in_user = None
     try:
         verify_jwt_in_request(optional=True)
@@ -95,25 +94,18 @@ def record_event():
         if identity and ObjectId.is_valid(identity):
             signed_in_user = database().users.find_one(
                 {"_id": ObjectId(identity)},
-                {"displayName": 1, "firstName": 1, "lastName": 1, "role": 1},
+                {"role": 1},
             )
     except Exception:
         # Analytics must never prevent a storefront page from loading.
         signed_in_user = None
 
-    customer_name = ""
     if signed_in_user:
         # Internal accounts must never be recorded as storefront customers or
         # traffic visitors. Their admin/staff dashboard activity is separate
         # from customer analytics.
         if signed_in_user.get("role") in {"admin", "staff"}:
             return jsonify({"recorded": True}), 202
-        customer_name = _safe_text(
-            " ".join(filter(None, (signed_in_user.get("firstName"), signed_in_user.get("lastName"))))
-            or signed_in_user.get("displayName")
-            or "Signed-in customer",
-            120,
-        )
 
     raw_properties = payload.get("properties") if isinstance(payload.get("properties"), dict) else {}
     properties = {}
@@ -130,13 +122,11 @@ def record_event():
         "visitorId": visitor_id,
         "sessionId": session_id,
         "userId": signed_in_user["_id"] if signed_in_user else None,
-        "customerName": customer_name or None,
         "path": path,
         "source": source,
         "device": _client_device(user_agent),
         "browser": _client_browser(user_agent),
         "os": _client_os(user_agent),
-        "referrer": referrer,
         "properties": properties,
         "createdAt": datetime.now(timezone.utc),
     })

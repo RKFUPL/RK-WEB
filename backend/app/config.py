@@ -91,7 +91,27 @@ class ProductionConfig(BaseConfig):
 
 
 def get_config() -> type[BaseConfig]:
-    env = os.getenv("FLASK_ENV", "development").lower()
-    if env == "production":
+    marker = next((os.getenv(name, "").strip().lower() for name in ("FLASK_ENV", "APP_ENV", "ENVIRONMENT") if os.getenv(name, "").strip()), "")
+    if marker in {"production", "prod"}:
         return ProductionConfig
-    return DevelopmentConfig
+    if marker in {"development", "dev", "test", "testing"}:
+        return DevelopmentConfig
+    if marker:
+        raise RuntimeError("Invalid application environment marker; use development or production")
+    # Flask's local CLI and pytest are explicit non-production contexts. A
+    # WSGI/Gunicorn launch without a marker is treated as production so a
+    # deployment cannot silently inherit development defaults.
+    if os.getenv("FLASK_RUN_FROM_CLI") or os.getenv("PYTEST_CURRENT_TEST"):
+        return DevelopmentConfig
+    return ProductionConfig
+
+
+def validate_security_config(config) -> None:
+    """Reject known placeholder signing keys in production without rotating keys."""
+    if bool(config.get("DEBUG")):
+        return
+    placeholders = {"", "change-me", "change-me-too"}
+    for name in ("SECRET_KEY", "JWT_SECRET_KEY"):
+        value = str(config.get(name) or "").strip()
+        if value in placeholders or len(value.encode("utf-8")) < 32:
+            raise RuntimeError(f"{name} must be configured with at least 32 bytes for production")

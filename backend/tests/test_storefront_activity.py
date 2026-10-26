@@ -32,4 +32,7 @@ def test_storefront_activity_accepts_post_and_rejects_get():
     assert post_response.status_code == 202
     assert post_response.get_json() == {"recorded": True}
     assert database.analytics_events.count_documents({"event": "page_view"}) == 1
+    stored = database.analytics_events.find_one({"event": "page_view"})
+    assert "customerName" not in stored
+    assert "referrer" not in stored
     assert get_response.status_code == 405

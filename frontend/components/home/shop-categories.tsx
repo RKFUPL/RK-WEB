@@ -17,7 +17,7 @@ export function ShopCategories() {
           const editorial = collectionGalleryPages.find((item) => item.route.replace(/^\/collections\//, '') === collection.slug || item.name.toLowerCase() === collection.name.toLowerCase());
           return [collection.slug, {
           route: `/collections/${collection.slug}`,
-          image: collection.hero?.image || collection.heroImage || editorial?.hero?.image || editorial?.image || '',
+          image: collection.coverImage || collection.heroImage || collection.hero?.image || editorial?.hero?.image || editorial?.image || '',
         }];
         })));
       })

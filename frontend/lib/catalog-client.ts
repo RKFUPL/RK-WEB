@@ -29,7 +29,7 @@ export function fetchCatalogCollection(slug: string): Promise<ManagedCollection 
   const cached = collectionDetailRequests.get(key);
   if (cached && cached.expiresAt > now) return cached.request;
 
-  const request = fetch(`${apiBaseUrl}/api/catalog/collections/${encodeURIComponent(slug)}`)
+  const request = fetch(`${apiBaseUrl}/api/catalog/collections/${encodeURIComponent(slug)}`, { cache: 'no-store' })
     .then(async (response) => {
       const payload = await response.json() as { collection?: ManagedCollection & { products: CatalogProduct[] }; error?: string };
       if (!response.ok || !payload.collection) throw new Error(payload.error || 'Unable to load collection.');

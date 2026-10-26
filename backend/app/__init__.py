@@ -42,7 +42,7 @@ from .blueprints.orders.routes import customer_orders_bp, staff_orders_bp
 from .feedback import feedback_bp, ensure_feedback_indexes
 from .returns import returns_bp
 from .blueprints.staff.routes import staff_bp
-from .config import get_config, validate_database_maintenance_target
+from .config import get_config, validate_database_maintenance_target, validate_security_config
 from .extensions import cors, jwt, limiter, mail, mongo
 from .order_fulfillment import migrate_legacy_orders
 
@@ -50,6 +50,9 @@ from .order_fulfillment import migrate_legacy_orders
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config.from_object(get_config())
+    validate_security_config(app.config)
+    if len(str(app.config.get("JWT_SECRET_KEY") or "").encode("utf-8")) < 32:
+        app.logger.warning("JWT_SECRET_KEY is shorter than the recommended 32 bytes; rotate it through a controlled session-invalidating change.")
 
     frontend_url = app.config.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
     # Keep the production allowlist explicit because authentication uses
@@ -179,6 +182,8 @@ def create_app() -> Flask:
     def favicon():
         repo_root = Path(__file__).resolve().parents[2]
         favicon_path = repo_root / "frontend" / "public" / "RK_LOGOMARK.svg"
+        if not favicon_path.is_file():
+            return "", 204
         return send_file(favicon_path, mimetype="image/svg+xml")
 
     return app

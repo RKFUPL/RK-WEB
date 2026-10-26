@@ -61,9 +61,9 @@ export default function CollectionsPage() {
     return {
       ...collection,
       name: normalizedName === 'aakaar' ? 'Aakaar' : collection.name,
-      image: normalizedName === 'aakaar'
-          ? collection.hero?.image || collection.heroImage || editorial?.image || ''
-          : collection.hero?.image || collection.heroImage || editorial?.hero?.image || editorial?.image || '',
+      image: collection.coverImage || collection.heroImage || (normalizedName === 'aakaar'
+          ? collection.hero?.image || editorial?.image || ''
+          : collection.hero?.image || editorial?.hero?.image || editorial?.image || ''),
       summary: collection.description || editorial?.summary,
       fontFamily: 'RK Anamika',
     };

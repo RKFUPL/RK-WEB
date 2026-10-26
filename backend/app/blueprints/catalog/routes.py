@@ -9,6 +9,7 @@ from flask import Blueprint, Response, current_app, jsonify, request, stream_wit
 from ...catalog import (
     STOREFRONT_COLLECTION_PROJECTION,
     collection_document,
+    collection_cover_source,
     collection_hero,
     collection_view,
     collection_product_count,
@@ -170,6 +171,51 @@ def storefront_collection_hero_image(slug: str, slot: str):
         return jsonify({"error": "Collection image not found."}), 404
     hero = collection_hero(collection)
     source = {"desktop": hero["image"], "mobile": hero["mobileImage"], "poster": hero["poster"]}[slot]
+    if not source or not is_supported_permalink(source):
+        return jsonify({"error": "Collection image not found."}), 404
+    try:
+        downloaded = download_file(source, db, prefer_preview=True)
+    except WorkDriveFileNotFound:
+        return jsonify({"error": "Collection image not found."}), 404
+    except WorkDriveUnavailable:
+        return jsonify({"error": "Collection image is temporarily unavailable."}), 503
+    response = Response(downloaded.response.content, status=200, content_type=downloaded.response.headers.get("Content-Type", "application/octet-stream"))
+    response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=600"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+@catalog_bp.get("/collections/<slug>/cover-image")
+def storefront_collection_cover_image(slug: str):
+    db = database()
+    collection = collection_document(db, slug)
+    if not collection or collection.get("status") == "archived" or collection.get("isActive") is False:
+        return jsonify({"error": "Collection image not found."}), 404
+    source = collection_cover_source(collection)
+    if not source or not is_supported_permalink(source):
+        return jsonify({"error": "Collection image not found."}), 404
+    try:
+        downloaded = download_file(source, db, prefer_preview=True)
+    except WorkDriveFileNotFound:
+        return jsonify({"error": "Collection image not found."}), 404
+    except WorkDriveUnavailable:
+        return jsonify({"error": "Collection image is temporarily unavailable."}), 503
+    response = Response(downloaded.response.content, status=200, content_type=downloaded.response.headers.get("Content-Type", "application/octet-stream"))
+    response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=600"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+@catalog_bp.get("/collections/<slug>/hero-images/<slide_id>/<slot>")
+def storefront_collection_hero_slide(slug: str, slide_id: str, slot: str):
+    if slot not in {"desktop", "mobile"}:
+        return jsonify({"error": "Collection image not found."}), 404
+    db = database()
+    collection = collection_document(db, slug)
+    if not collection or collection.get("status") == "archived" or collection.get("isActive") is False:
+        return jsonify({"error": "Collection image not found."}), 404
+    slide = next((item for item in collection_hero(collection).get("images", []) if item["id"] == slide_id), None)
+    source = slide.get("mobileImage" if slot == "mobile" else "image") if slide else ""
     if not source or not is_supported_permalink(source):
         return jsonify({"error": "Collection image not found."}), 404
     try:

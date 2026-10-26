@@ -62,7 +62,7 @@ export function CollectionDetailPage({ collection }: { collection: CollectionPag
     titleScale: collection.hero?.titleScale || 'standard',
   }), [collection.hero, collection.image]);
   const configuredHeroImage = managedCollection
-    ? managedCollection.hero?.image || managedCollection.heroImage || ''
+    ? managedCollection.hero?.image || ''
     : loading
       ? ''
       : collection.hero?.image || collection.image;
@@ -70,12 +70,13 @@ export function CollectionDetailPage({ collection }: { collection: CollectionPag
     ...fallbackHero,
     ...(managedCollection?.hero || {}),
     ...(collection.hero || {}),
-    type: managedCollection?.hero?.type || collection.hero?.type || 'image',
+    type: managedCollection ? managedCollection.hero?.type || 'image' : loading ? 'image' : collection.hero?.type || 'image',
     image: configuredHeroImage,
     video: managedCollection?.hero?.video || collection.hero?.video || '',
-    poster: managedCollection ? managedCollection.hero?.poster || configuredHeroImage : collection.hero?.poster || configuredHeroImage,
-    mobileImage: managedCollection ? managedCollection.hero?.mobileImage || configuredHeroImage : collection.hero?.mobileImage || configuredHeroImage,
+    poster: managedCollection ? managedCollection.hero?.poster || configuredHeroImage : loading ? '' : collection.hero?.poster || configuredHeroImage,
+    mobileImage: managedCollection ? managedCollection.hero?.mobileImage || configuredHeroImage : loading ? '' : collection.hero?.mobileImage || configuredHeroImage,
     mobileVideo: managedCollection?.hero?.mobileVideo || collection.hero?.mobileVideo || '',
+    images: managedCollection ? managedCollection.hero?.images || [] : loading ? [] : collection.hero?.images || [],
     layout: 'full_bleed',
   };
   const displayCollection: StorefrontCollection = managedCollection ? {

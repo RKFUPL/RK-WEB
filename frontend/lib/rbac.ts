@@ -85,13 +85,11 @@ function clearAuthState() {
 export async function logout() {
   const token = window.localStorage.getItem('rk_access_token');
   try {
-    if (token) {
-      await fetch(`${apiBaseUrl}/api/auth/logout`, {
-        method: 'POST',
-        ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
-        credentials: 'include',
-      });
-    }
+    await fetch(`${apiBaseUrl}/api/auth/logout`, {
+      method: 'POST',
+      ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+      credentials: 'include',
+    });
   } finally {
     clearAuthState();
     window.location.assign('/account');

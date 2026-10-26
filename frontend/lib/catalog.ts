@@ -79,6 +79,15 @@ export type CollectionHeroConfig = {
   textPosition?: CollectionHeroTextPosition;
   textTheme?: CollectionHeroTextTheme;
   titleScale?: CollectionHeroTitleScale;
+  images?: Array<{
+    id: string;
+    image: string;
+    mobileImage?: string;
+    alt?: string;
+    desktopObjectPosition?: string;
+    mobileObjectPosition?: string;
+    position?: number;
+  }>;
 };
 
 export type CatalogProduct = {
@@ -302,6 +311,8 @@ export type ManagedCollection = {
   collectionType?: "standard" | "runway";
   taxInclusive?: boolean;
   description?: string;
+  coverImage?: string;
+  coverImageSource?: string;
   heroImage?: string;
   hero?: CollectionHeroConfig;
   heroSource?: CollectionHeroConfig;

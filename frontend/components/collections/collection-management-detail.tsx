@@ -17,6 +17,7 @@ import {
   guardedMediaCleanupPlan,
   inr,
   type CatalogProduct,
+  type CollectionHeroConfig,
   type ManagedCollection,
   type ProductAvailability,
 } from "@/lib/catalog";
@@ -41,6 +42,59 @@ type DetailPayload = {
 const inputClass =
   "admin-field mt-2 text-sm";
 const isWorkDriveImage = (value: string) => /^https:\/\/workdrive\.zoho(?:external)?\.in\//i.test(value.trim());
+type HeroSlide = NonNullable<CollectionHeroConfig["images"]>[number];
+
+type ParsedHeroImage = Pick<HeroSlide, "image" | "alt">;
+
+function parsePastedHeroImages(value: string): ParsedHeroImage[] | null {
+  const urlPattern = /https:\/\/workdrive\.zoho(?:external)?\.in\/file\/[^\s]+/gi;
+  const matches = [...value.matchAll(urlPattern)];
+  if (matches.length < 2) return null;
+  const parsed: ParsedHeroImage[] = [];
+  let cursor = 0;
+  for (const match of matches) {
+    const prefix = value.slice(cursor, match.index ?? cursor).trim();
+    const alt = prefix.replace(/\s*-\s*$/, "").trim();
+    if (!alt || !match[0]) return [];
+    parsed.push({ alt, image: match[0] });
+    cursor = (match.index ?? cursor) + match[0].length;
+  }
+  return value.slice(cursor).trim() ? [] : parsed;
+}
+
+function HeroSlideEditor({ slide, index, count, token, savedPreview, onChange, onMove, onRemove }: {
+  slide: HeroSlide; index: number; count: number; token: string; savedPreview?: string;
+  onChange: (changes: Partial<HeroSlide>) => void; onMove: (direction: -1 | 1) => void; onRemove: () => void;
+}) {
+  const [preview, setPreview] = useState(savedPreview || (!isWorkDriveImage(slide.image) ? slide.image : ""));
+  const [previewError, setPreviewError] = useState("");
+  useEffect(() => {
+    if (!slide.image) { setPreview(""); setPreviewError(""); return; }
+    if (!isWorkDriveImage(slide.image)) { setPreview(slide.image); setPreviewError(""); return; }
+    if (savedPreview) { setPreview(savedPreview); setPreviewError(""); return; }
+    let objectUrl = "";
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/staff/collections/image-preview`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ url: slide.image }), signal: controller.signal });
+        if (!response.ok) throw new Error("Preview unavailable");
+        objectUrl = URL.createObjectURL(await response.blob());
+        setPreview(objectUrl); setPreviewError("");
+      } catch { if (!controller.signal.aborted) { setPreview(""); setPreviewError("Secure preview unavailable"); } }
+    }, 450);
+    return () => { window.clearTimeout(timer); controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [slide.image, savedPreview, token]);
+
+  return <div className="grid gap-3 rounded-lg border border-black/[.07] p-3 md:grid-cols-2">
+    <div className="aspect-video w-full max-w-md overflow-hidden rounded-md bg-[#efece6] md:col-span-2">{preview ? <img src={preview} alt={slide.alt || `Hero slide ${index + 1} preview`} className="h-full w-full object-cover" onError={() => { setPreview(""); setPreviewError("Preview unavailable"); }} /> : <div className="grid h-full place-items-center text-xs text-[#8a7b68]">{previewError || "Add an image URL to preview"}</div>}</div>
+    <label className="text-[9px] uppercase tracking-[.14em] text-[#8a9098] md:col-span-2">Slide desktop image URL<input required value={slide.image} onChange={(event) => onChange({ image: event.target.value })} className={inputClass} /></label>
+    <label className="text-[9px] uppercase tracking-[.14em] text-[#8a9098]">Optional slide mobile image URL<input value={slide.mobileImage || ""} onChange={(event) => onChange({ mobileImage: event.target.value })} className={inputClass} /></label>
+    <label className="text-[9px] uppercase tracking-[.14em] text-[#8a9098]">Alt text<input value={slide.alt || ""} onChange={(event) => onChange({ alt: event.target.value })} className={inputClass} /></label>
+    <label className="text-[9px] uppercase tracking-[.14em] text-[#8a9098]">Desktop position<input value={slide.desktopObjectPosition || "center center"} onChange={(event) => onChange({ desktopObjectPosition: event.target.value })} className={inputClass} /></label>
+    <label className="text-[9px] uppercase tracking-[.14em] text-[#8a9098]">Mobile position<input value={slide.mobileObjectPosition || "center center"} onChange={(event) => onChange({ mobileObjectPosition: event.target.value })} className={inputClass} /></label>
+    <div className="flex flex-wrap items-center gap-2 md:col-span-2"><button type="button" disabled={index === 0} onClick={() => onMove(-1)} className="rounded border border-black/10 px-3 py-2 text-xs disabled:opacity-30">Move up</button><button type="button" disabled={index === count - 1} onClick={() => onMove(1)} className="rounded border border-black/10 px-3 py-2 text-xs disabled:opacity-30">Move down</button><button type="button" onClick={onRemove} className="ml-auto inline-flex items-center gap-2 rounded border border-red-200 px-3 py-2 text-xs text-red-700"><Trash2 size={13} /> Remove</button></div>
+  </div>;
+}
 const availabilityOptions: ProductAvailability[] = [
   "in_stock",
   "custom_order",
@@ -851,8 +905,9 @@ export function CollectionManagementDetail({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editingCollection, setEditingCollection] = useState(false);
   const [heroPreviewFailed, setHeroPreviewFailed] = useState(false);
-  const [draftWorkDrivePreview, setDraftWorkDrivePreview] = useState("");
-  const [draftWorkDriveError, setDraftWorkDriveError] = useState("");
+  const [coverPreviewFailed, setCoverPreviewFailed] = useState(false);
+  const [draftCoverPreview, setDraftCoverPreview] = useState("");
+  const [draftCoverError, setDraftCoverError] = useState("");
   const [adding, setAdding] = useState(false);
   const [assigning, setAssigning] = useState(false);
   const [existingProductId, setExistingProductId] = useState("");
@@ -860,9 +915,9 @@ export function CollectionManagementDetail({
     name: "",
     status: "collection",
     description: "",
+    coverImage: "",
     heroType: "image",
     heroLayout: "media_dominant",
-    heroImage: "",
     heroVideo: "",
     heroPoster: "",
     heroMobileImage: "",
@@ -877,10 +932,32 @@ export function CollectionManagementDetail({
     campaignInformation: "",
   });
   const [collectionBaseline, setCollectionBaseline] = useState<typeof collectionForm | null>(null);
+  const [heroImages, setHeroImages] = useState<NonNullable<CollectionHeroConfig["images"]>>([]);
+  const [heroImagesBaseline, setHeroImagesBaseline] = useState<NonNullable<CollectionHeroConfig["images"]>>([]);
+  const [heroImageParseError, setHeroImageParseError] = useState("");
+  const collectionDraftRevision = useRef(0);
   const token = () => window.localStorage.getItem("rk_access_token") ?? "";
+  const validHeroImages = heroImages.filter((slide) => slide.image.trim());
   const normalizeCollectionValue = (value: string) => value.trim().replace(/\s+/g, " ");
   const collectionEditableKeys = Object.keys(collectionForm) as Array<keyof typeof collectionForm>;
-  const collectionDirty = Boolean(collectionBaseline && collectionEditableKeys.some((key) => normalizeCollectionValue(collectionForm[key]) !== normalizeCollectionValue(collectionBaseline[key])));
+  const collectionDirty = Boolean(collectionBaseline && (collectionEditableKeys.some((key) => normalizeCollectionValue(collectionForm[key]) !== normalizeCollectionValue(collectionBaseline[key])) || JSON.stringify(validHeroImages) !== JSON.stringify(heroImagesBaseline)));
+  useEffect(() => { collectionDraftRevision.current += 1; }, [collectionForm, heroImages]);
+  const addHeroImage = () => setHeroImages((items) => [...items, { id: `draft-${crypto.randomUUID()}`, image: "", mobileImage: "", alt: "", desktopObjectPosition: "center center", mobileObjectPosition: "center center" }]);
+  const updateHeroImage = (index: number, value: string) => {
+    const parsed = parsePastedHeroImages(value);
+    if (parsed?.length) {
+      setHeroImageParseError("");
+      setHeroImages((items) => [
+        ...items.slice(0, index),
+        ...parsed.map((item) => ({ id: `draft-${crypto.randomUUID()}`, image: item.image, mobileImage: "", alt: item.alt, desktopObjectPosition: "center center", mobileObjectPosition: "center center" })),
+        ...items.slice(index + 1),
+      ]);
+      return;
+    }
+    if (parsed && !parsed.length) setHeroImageParseError("Paste each image as Name - WorkDrive URL, with one image per entry.");
+    else setHeroImageParseError("");
+    setHeroImages((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, image: value } : item));
+  };
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -899,11 +976,11 @@ export function CollectionManagementDetail({
         name: collection.name,
         status: collection.status,
         description: collection.description ?? "",
+        coverImage: collection.coverImageSource ?? collection.coverImage ?? collection.heroImage ?? collection.hero?.image ?? "",
         heroType: collection.hero?.type ?? "image",
         heroLayout: collection.hero?.layout ?? "media_dominant",
-        heroImage: collection.heroSource?.image ?? collection.hero?.image ?? collection.heroImage ?? "",
         heroVideo: collection.heroSource?.video ?? collection.hero?.video ?? "",
-        heroPoster: collection.heroSource?.poster ?? collection.hero?.poster ?? collection.heroImage ?? "",
+        heroPoster: collection.heroSource?.poster ?? collection.hero?.poster ?? "",
         heroMobileImage: collection.heroSource?.mobileImage ?? collection.hero?.mobileImage ?? "",
         heroMobileVideo: collection.heroSource?.mobileVideo ?? collection.hero?.mobileVideo ?? "",
         heroLabel: collection.heroSource?.label ?? collection.hero?.label ?? "The Collection",
@@ -917,7 +994,15 @@ export function CollectionManagementDetail({
       };
       setCollectionForm(nextForm);
       setCollectionBaseline(nextForm);
+      const savedHeroImages = collection.heroSource?.images ?? collection.hero?.images ?? [];
+      const legacyDesktopImage = collection.heroSource?.image ?? collection.hero?.image ?? "";
+      const legacySlide = legacyDesktopImage ? { id: `legacy-${legacyDesktopImage.slice(-16)}`, image: legacyDesktopImage, mobileImage: "", alt: "", desktopObjectPosition: "center center", mobileObjectPosition: "center center" } : null;
+      const nextHeroImages = (legacySlide && !savedHeroImages.some((slide) => slide.image === legacyDesktopImage) ? [legacySlide, ...savedHeroImages] : savedHeroImages)
+        .filter((slide, index, items) => items.findIndex((candidate) => candidate.image === slide.image) === index);
+      setHeroImages(nextHeroImages.length ? nextHeroImages : [{ id: `draft-${crypto.randomUUID()}`, image: "", mobileImage: "", alt: "", desktopObjectPosition: "center center", mobileObjectPosition: "center center" }]);
+      setHeroImagesBaseline(nextHeroImages);
       setHeroPreviewFailed(false);
+      setCoverPreviewFailed(false);
       return payload as DetailPayload;
     } catch (requestError) {
       setError(
@@ -932,17 +1017,14 @@ export function CollectionManagementDetail({
   }, [slug]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
-  useEffect(() => {
-    if (!editingCollection || !isWorkDriveImage(collectionForm.heroImage)) {
-      setDraftWorkDrivePreview("");
-      setDraftWorkDriveError("");
+    if (!editingCollection || !isWorkDriveImage(collectionForm.coverImage)) {
+      setDraftCoverPreview("");
+      setDraftCoverError("");
       return;
     }
-    if (collectionForm.heroImage === data?.collection.heroSource?.image) {
-      setDraftWorkDrivePreview(data.collection.hero?.image || data.collection.heroImage || "");
-      setDraftWorkDriveError("");
+    if (collectionForm.coverImage === data?.collection.coverImageSource) {
+      setDraftCoverPreview(data.collection.coverImage || data.collection.heroImage || "");
+      setDraftCoverError("");
       return;
     }
     let objectUrl = "";
@@ -952,23 +1034,23 @@ export function CollectionManagementDetail({
         const response = await fetch(`${apiBaseUrl}/api/staff/collections/image-preview`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ url: collectionForm.heroImage }),
+          body: JSON.stringify({ url: collectionForm.coverImage }),
           signal: controller.signal,
         });
-        if (!response.ok) {
-          const payload = await response.json();
-          throw new Error(payload.error || "Unable to preview this WorkDrive image.");
-        }
+        if (!response.ok) throw new Error("Unable to preview this WorkDrive image.");
         objectUrl = URL.createObjectURL(await response.blob());
-        setDraftWorkDrivePreview(objectUrl);
-        setDraftWorkDriveError("");
-        setHeroPreviewFailed(false);
+        setDraftCoverPreview(objectUrl);
+        setDraftCoverError("");
+        setCoverPreviewFailed(false);
       } catch (previewError) {
-        if (!controller.signal.aborted) setDraftWorkDriveError(previewError instanceof Error ? previewError.message : "Unable to preview this WorkDrive image.");
+        if (!controller.signal.aborted) setDraftCoverError(previewError instanceof Error ? previewError.message : "Unable to preview this WorkDrive image.");
       }
     }, 450);
     return () => { window.clearTimeout(timer); controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [collectionForm.heroImage, data, editingCollection]);
+  }, [collectionForm.coverImage, data, editingCollection]);
+  useEffect(() => {
+    void load();
+  }, [load]);
   const canManageProducts = Boolean(
     data?.permissions.includes("products:manage"),
   );
@@ -1016,18 +1098,24 @@ export function CollectionManagementDetail({
 
   const saveCollection = async (event: FormEvent) => {
     event.preventDefault();
+    if (busy) return;
+    const submittedRevision = collectionDraftRevision.current;
     const baseline = collectionBaseline;
     const body: Record<string, unknown> = {};
-    for (const key of ["name", "status", "description", "season", "year", "designerNote", "collectionNumber", "location", "campaignInformation"] as const) {
+    for (const key of ["name", "status", "description", "coverImage", "season", "year", "designerNote", "collectionNumber", "location", "campaignInformation"] as const) {
       if (!baseline || normalizeCollectionValue(collectionForm[key]) !== normalizeCollectionValue(baseline[key])) body[key] = key === "year" ? collectionForm.year || null : collectionForm[key];
     }
     const heroKeys = {
-      type: "heroType", layout: "heroLayout", image: "heroImage", video: "heroVideo", poster: "heroPoster",
+      type: "heroType", layout: "heroLayout", video: "heroVideo", poster: "heroPoster",
       mobileImage: "heroMobileImage", mobileVideo: "heroMobileVideo", label: "heroLabel", ctaLabel: "heroCtaLabel",
     } as const;
-    const hero = Object.fromEntries(Object.entries(heroKeys).flatMap(([target, source]) =>
+    const hero: Record<string, unknown> = Object.fromEntries(Object.entries(heroKeys).flatMap(([target, source]) =>
       !baseline || normalizeCollectionValue(collectionForm[source]) !== normalizeCollectionValue(baseline[source]) ? [[target, collectionForm[source]]] : [],
     ));
+    if (JSON.stringify(validHeroImages) !== JSON.stringify(heroImagesBaseline)) {
+      hero.images = validHeroImages;
+      hero.image = validHeroImages[0]?.image || "";
+    }
     if (Object.keys(hero).length) body.hero = hero;
     if (!Object.keys(body).length) {
       setEditingCollection(false);
@@ -1042,6 +1130,10 @@ export function CollectionManagementDetail({
       },
     );
     if (payload) {
+      if (collectionDraftRevision.current !== submittedRevision) {
+        setMessage("Submitted changes were saved. Newer unsaved edits remain in the form; save again when ready.");
+        return;
+      }
       const refreshed = await load(true);
       if (!refreshed) {
         setError("Collection was updated, but authoritative read-back is unavailable. Your draft remains available.");
@@ -1156,11 +1248,9 @@ export function CollectionManagementDetail({
       </section>
     );
   const collection = data.collection;
-  const savedHeroSource = collection.heroSource?.image ?? "";
-  const savedHeroPreview = collection.hero?.image || collection.heroImage || "";
-  const draftHeroPreview = isWorkDriveImage(collectionForm.heroImage)
-    ? (draftWorkDrivePreview || (collectionForm.heroImage === savedHeroSource ? savedHeroPreview : ""))
-    : collectionForm.heroImage;
+  const draftPortraitPreview = isWorkDriveImage(collectionForm.coverImage)
+    ? (draftCoverPreview || (collectionForm.coverImage === collection.coverImageSource ? collection.coverImage || collection.heroImage || "" : ""))
+    : collectionForm.coverImage;
 
   return (
     <>
@@ -1217,26 +1307,26 @@ export function CollectionManagementDetail({
                 {collection.description || "No collection description yet."}
               </p>
             </div>
-            <div className="min-h-56 border-t border-black/[.06] bg-[#efece6] dark:border-white/[.08] dark:bg-white/[.03] lg:border-l lg:border-t-0">
+            <div className="h-[140px] max-h-[160px] border-t border-black/[.06] bg-[#efece6] p-3 dark:border-white/[.08] dark:bg-white/[.03] sm:h-[180px] sm:max-h-[200px] lg:border-l lg:border-t-0">
               {collection.hero?.type === "video" && collection.hero.video ? (
                 <video
                   muted
                   playsInline
                   controls
                   poster={collection.hero.poster || collection.hero.image}
-                  className="h-full max-h-80 w-full object-cover lg:max-h-none"
+                  className="h-full w-full object-contain"
                 >
                   <source src={collection.hero.video} />
                 </video>
-              ) : (collection.hero?.image || collection.heroImage) && !heroPreviewFailed ? (
+              ) : (collection.coverImage || collection.heroImage || collection.hero?.image) && !heroPreviewFailed ? (
                 <img
-                  src={collection.hero?.image || collection.heroImage}
+                  src={collection.coverImage || collection.heroImage || collection.hero?.image || ""}
                   alt={`${collection.name} collection`}
-                  className="h-full max-h-80 w-full object-cover lg:max-h-none"
+                  className="h-full w-full object-contain"
                   onError={() => setHeroPreviewFailed(true)}
                 />
               ) : (
-                <div className="grid h-full min-h-56 place-items-center text-center text-[#9a7a4d]">
+                <div className="grid h-full place-items-center text-center text-[#9a7a4d]">
                   <div>
                     <ImageIcon size={28} className="mx-auto" />
                     <p className="mt-2 text-[10px] uppercase tracking-[.16em]">
@@ -1252,25 +1342,6 @@ export function CollectionManagementDetail({
               onSubmit={saveCollection}
               className="border-t border-black/[.06] bg-[#faf8f4] p-6 dark:border-white/[.08] dark:bg-white/[.025]"
             >
-              <div className="mb-6 overflow-hidden rounded-xl border border-black/[.08] bg-[#efece6]">
-                <div className="aspect-video w-full">
-                  {draftHeroPreview && !heroPreviewFailed ? (
-                    <img
-                      src={draftHeroPreview}
-                      alt={`${collectionForm.name || collection.name} hero preview`}
-                      className="h-full w-full object-cover"
-                      onError={() => setHeroPreviewFailed(true)}
-                    />
-                  ) : (
-                    <div className="grid h-full place-items-center px-6 text-center text-[#7d694d]">
-                      <div><ImageIcon size={28} className="mx-auto"/><p className="mt-2 text-sm font-medium">{draftWorkDriveError || (isWorkDriveImage(collectionForm.heroImage) ? "Loading secure WorkDrive preview…" : "Image preview unavailable")}</p><p className="mt-1 text-xs text-[#8a7b68]">Use a supported API image URL or an approved WorkDrive file link.</p></div>
-                    </div>
-                  )}
-                </div>
-                <div className="border-t border-black/[.06] bg-white/70 px-4 py-3 text-xs text-[#746b61]">
-                  {collectionForm.heroImage === savedHeroSource ? "Saved collection image" : "Unsaved image preview"}
-                </div>
-              </div>
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="text-[9px] uppercase tracking-[.14em] text-[#8a9098]">
                   Name
@@ -1317,18 +1388,31 @@ export function CollectionManagementDetail({
                     className={inputClass}
                   />
                 </label>
-                <label className="text-[9px] uppercase tracking-[.14em] text-[#8a9098] md:col-span-2">
-                  Collection image
-                  <input
-                    value={collectionForm.heroImage}
-                    onChange={(event) => {
-                      setHeroPreviewFailed(false);
-                      setCollectionForm((current) => ({ ...current, heroImage: event.target.value }));
-                    }}
-                    className={inputClass}
-                  />
-                  <span className="mt-2 block normal-case tracking-normal text-[11px] leading-4 text-[#8a9098]">Accepts an existing API/public image URL or an approved Zoho WorkDrive file/share link. WorkDrive images are served through the secure collection proxy.</span>
-                </label>
+                <div className="md:col-span-2 rounded-xl border border-black/[.08] bg-white/70 p-4">
+                  <h3 className="text-sm font-semibold uppercase tracking-[.14em] text-[#776a5b]">Collection Image (Portrait)</h3>
+                  <p className="mt-2 text-xs leading-5 text-[#8a9098]">Used for the collection card and collection preview. Separate from the landscape banner.</p>
+                  <div className="mt-3 flex flex-wrap items-start gap-4">
+                    <div className="h-[150px] w-[108px] overflow-hidden rounded-md border border-black/[.08] bg-[#efece6]">
+                      {draftPortraitPreview && !coverPreviewFailed ? <img src={draftPortraitPreview} alt={`${collectionForm.name || collection.name} portrait preview`} className="h-full w-full object-cover" onError={() => setCoverPreviewFailed(true)} /> : <div className="grid h-full place-items-center px-2 text-center text-xs text-[#7d694d]">{draftCoverError || "No portrait image"}</div>}
+                    </div>
+                    <label className="min-w-[240px] flex-1 text-[9px] uppercase tracking-[.14em] text-[#8a9098]">Collection Image (Portrait) URL<input value={collectionForm.coverImage} onChange={(event) => { setCoverPreviewFailed(false); setCollectionForm((current) => ({ ...current, coverImage: event.target.value })); }} className={inputClass} /></label>
+                  </div>
+                </div>
+                <div className="md:col-span-2">
+                  <h3 className="text-sm font-semibold uppercase tracking-[.14em] text-[#776a5b]">Collection Banner (Landscape)</h3>
+                  <p className="mt-2 text-xs leading-5 text-[#8a9098]">The landscape banner appears at the top of the collection page. Use one image for a static banner or add multiple slides for a slideshow. The portrait collection image above is managed separately.</p>
+                </div>
+                {slug.toLowerCase() !== "aakaar" ? <div className="md:col-span-2 rounded-xl border border-black/[.08] bg-white/70 p-4">
+                  <div className="flex items-center justify-between gap-4">
+                  <div><p className="text-[9px] uppercase tracking-[.14em] text-[#8a9098]">Landscape image configuration</p><p className="mt-1 text-xs text-[#8a9098]">One configured image creates a static landscape hero. Two or more create a slideshow in this order. Removing images updates the behavior automatically.</p></div>
+                    <button type="button" onClick={addHeroImage} className="inline-flex items-center gap-2 rounded-lg border border-black/10 px-3 py-2 text-[9px] uppercase tracking-[.14em]"><Plus size={13} /> Add image</button>
+                  </div>
+                  <div className="mt-4 space-y-4">
+                    {heroImageParseError ? <p className="text-xs text-red-600" role="alert">{heroImageParseError}</p> : null}
+                    {heroImages.map((slide, index) => <HeroSlideEditor key={slide.id} slide={slide} index={index} count={heroImages.length} token={token()} savedPreview={(collection.hero?.images || []).find((item) => item.id === slide.id && collection.heroSource?.images?.find((source) => source.id === slide.id)?.image === slide.image)?.image} onChange={(changes) => { if (typeof changes.image === "string") updateHeroImage(index, changes.image); else setHeroImages((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, ...changes } : item)); }} onMove={(direction) => setHeroImages((items) => { const next = [...items]; const target = index + direction; [next[index], next[target]] = [next[target], next[index]]; return next; })} onRemove={() => setHeroImages((items) => { const next = items.filter((_, itemIndex) => itemIndex !== index); return next.length ? next : [{ id: `draft-${crypto.randomUUID()}`, image: "", mobileImage: "", alt: "", desktopObjectPosition: "center center", mobileObjectPosition: "center center" }]; })} />)}
+                    {!heroImages.length ? <div className="rounded-lg border border-dashed border-black/10 px-4 py-6 text-center text-xs text-[#8a9098]">No landscape images configured. Click Add image to create the first editable entry.</div> : null}
+                  </div>
+                </div> : null}
                 <details className="md:col-span-2 rounded-xl border border-black/[.08] bg-white/70 p-4">
                   <summary className="cursor-pointer text-xs font-medium uppercase tracking-[.14em] text-[#776a5b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#9a7a4d]">Advanced settings</summary>
                   <p className="mt-2 text-xs leading-5 text-[#8a9098]">Optional campaign media and editorial metadata. Existing values remain unchanged unless edited here.</p>
@@ -1393,7 +1477,7 @@ export function CollectionManagementDetail({
                   />
                 </label>
                 <label className="text-[9px] uppercase tracking-[.14em] text-[#8a9098] md:col-span-2">
-                  Desktop video URL
+                  Desktop Banner Video URL
                   <input
                     value={collectionForm.heroVideo}
                     onChange={(event) =>
@@ -1406,7 +1490,7 @@ export function CollectionManagementDetail({
                   />
                 </label>
                 <label className="text-[9px] uppercase tracking-[.14em] text-[#8a9098] md:col-span-2">
-                  Video poster URL
+                  Banner Video Poster URL
                   <input
                     value={collectionForm.heroPoster}
                     onChange={(event) =>

@@ -7,7 +7,7 @@ from flask import Flask
 
 from app.catalog import AAKAAR_COLLECTION_SEED, AAKAAR_PRODUCT_SEEDS, ANAMIKA_PRODUCT_SEEDS, HASTAKALA_PRODUCT_SEEDS, NORMAL_COLLECTIONS, PRODUCT_SEEDS, _ensure_compatible_index, _product_seed_document, collection_hero, collection_product_count, collection_view, ensure_catalog_seed, is_excluded_collection, is_runway_collection, natural_product_sort_key, product_card_view, product_view
 from app.blueprints.catalog.routes import _shop_matches, catalog_bp
-from app.blueprints.staff.routes import _replace_parent_catalog_media, _variant_gallery_payload
+from app.blueprints.staff.routes import _replace_parent_catalog_media, _validated_collection_hero, _variant_gallery_payload
 from app.inventory import DEFAULT_CUSTOM_SIZE_FIELDS, STANDARD_SIZES, custom_size_fields, validate_custom_size
 from app.product_variants import _product_colours, normalise_colour
 from app.workdrive import WorkDriveDownload
@@ -26,8 +26,36 @@ class CatalogTests(unittest.TestCase):
 
         self.assertEqual(collection_view(database, direct, include_products=False)["hero"]["image"], "/api/media/collection.jpg")
         rendered = collection_view(database, managed, include_products=False)
-        self.assertEqual(rendered["hero"]["image"], "/api/catalog/collections/managed/hero-image/desktop")
+        self.assertTrue(rendered["hero"]["image"].startswith("/api/catalog/collections/managed/hero-image/desktop?v="))
         self.assertNotIn("workdrive.zoho.in", str(rendered))
+
+    def test_collection_hero_images_are_backward_compatible_and_proxied_by_stable_id(self):
+        database = MagicMock()
+        database.products.find.return_value = []
+        collection = {"_id": ObjectId(), "slug": "managed", "hero": {"image": "/legacy.jpg", "images": [
+            {"id": "first", "image": "https://workdrive.zoho.in/file/file123", "mobileImage": "/mobile.jpg", "alt": "Campaign one"},
+            {"image": "/second.jpg"},
+        ]}, "productRefs": []}
+
+        rendered = collection_view(database, collection, include_products=False)["hero"]
+
+        self.assertEqual(rendered["image"], "/legacy.jpg")
+        self.assertEqual(rendered["images"][0]["id"], "first")
+        self.assertTrue(rendered["images"][0]["image"].startswith("/api/catalog/collections/managed/hero-images/first/desktop?v="))
+        self.assertEqual(rendered["images"][0]["mobileImage"], "/mobile.jpg")
+        self.assertEqual(rendered["images"][1]["image"], "/second.jpg")
+
+    def test_collection_hero_image_list_preserves_order_and_rejects_unsafe_urls(self):
+        hero, error = _validated_collection_hero({"images": [
+            {"id": "second", "image": "/second.jpg"},
+            {"id": "first", "image": "https://images.example.com/first.jpg", "mobileImage": "/first-mobile.jpg"},
+        ]}, {"hero": {"image": "/legacy.jpg"}})
+        self.assertIsNone(error)
+        self.assertEqual([item["id"] for item in hero["images"]], ["second", "first"])
+
+        invalid, error = _validated_collection_hero({"images": [{"image": "javascript:alert(1)"}]}, {"hero": {"image": "/legacy.jpg"}})
+        self.assertIsNone(invalid)
+        self.assertIn("valid desktop image", error)
 
     def test_collection_workdrive_proxy_is_bound_to_saved_collection_source(self):
         app = Flask(__name__)
@@ -43,6 +71,34 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content_type, "image/jpeg")
         download.assert_called_once_with(collection["hero"]["image"], ANY, prefer_preview=True)
+
+    def test_collection_cover_proxy_is_independent_from_hero_source(self):
+        app = Flask(__name__)
+        app.register_blueprint(catalog_bp, url_prefix="/api/catalog")
+        collection = {"_id": ObjectId(), "slug": "hastakala", "status": "collection", "coverImage": "https://workdrive.zoho.in/file/cover123", "hero": {"image": "https://workdrive.zoho.in/file/banner456"}}
+        upstream = MagicMock(content=b"cover-bytes", headers={"Content-Type": "image/jpeg"})
+
+        with patch("app.blueprints.catalog.routes.database", return_value=MagicMock()), \
+             patch("app.blueprints.catalog.routes.collection_document", return_value=collection), \
+             patch("app.blueprints.catalog.routes.download_file", return_value=WorkDriveDownload(upstream, "cover123")) as download:
+            response = app.test_client().get("/api/catalog/collections/hastakala/cover-image")
+
+        self.assertEqual(response.status_code, 200)
+        download.assert_called_once_with(collection["coverImage"], ANY, prefer_preview=True)
+
+    def test_collection_slide_proxy_is_bound_to_saved_slide(self):
+        app = Flask(__name__)
+        app.register_blueprint(catalog_bp, url_prefix="/api/catalog")
+        collection = {"_id": ObjectId(), "slug": "hastakala", "status": "collection", "hero": {"images": [{"id": "slide-one", "image": "https://workdrive.zoho.in/file/file123"}]}}
+        upstream = MagicMock(content=b"slide-bytes", headers={"Content-Type": "image/jpeg"})
+
+        with patch("app.blueprints.catalog.routes.database", return_value=MagicMock()), \
+             patch("app.blueprints.catalog.routes.collection_document", return_value=collection), \
+             patch("app.blueprints.catalog.routes.download_file", return_value=WorkDriveDownload(upstream, "file123")) as download:
+            response = app.test_client().get("/api/catalog/collections/hastakala/hero-images/slide-one/desktop")
+
+        self.assertEqual(response.status_code, 200)
+        download.assert_called_once_with(collection["hero"]["images"][0]["image"], ANY, prefer_preview=True)
 
     def test_shop_filters_real_catalogue_fields_and_combines_filters(self):
         record = {
@@ -569,6 +625,46 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(hero["image"], "https://example.com/hero.jpg")
         self.assertEqual(hero["poster"], "https://example.com/hero.jpg")
         self.assertEqual(hero["layout"], "media_dominant")
+
+    def test_collection_cover_and_banner_are_independent_and_banner_can_be_cleared(self):
+        cover = "https://example.com/portrait.jpg"
+        banner = "https://example.com/banner.jpg"
+        collection = {"_id": ObjectId(), "slug": "separate", "heroImage": cover, "coverImage": cover, "hero": {"image": banner}}
+        hero = collection_hero(collection)
+        self.assertEqual(hero["image"], banner)
+        rendered = collection_view(type("DB", (), {"products": type("Products", (), {"find": lambda self, *args, **kwargs: []})()})(), collection, include_products=False)
+        self.assertEqual(rendered["coverImage"], cover)
+        self.assertEqual(rendered["hero"]["image"], banner)
+        cleared = {**collection, "hero": {"image": "", "images": [{"id": "slide", "image": "https://example.com/slide.jpg"}]}}
+        self.assertEqual(collection_hero(cleared)["image"], "")
+
+        updated, error = _validated_collection_hero({"video": "https://example.com/new.mp4"}, collection)
+        self.assertIsNone(error)
+        self.assertEqual(updated["image"], banner)
+        self.assertEqual(updated["video"], "https://example.com/new.mp4")
+
+        legacy = {"_id": ObjectId(), "slug": "legacy", "heroImage": cover, "productRefs": []}
+        legacy_rendered = collection_view(type("DB", (), {"products": type("Products", (), {"find": lambda self, *args, **kwargs: []})()})(), legacy, include_products=False)
+        self.assertEqual(legacy_rendered["coverImage"], cover)
+
+    def test_empty_unified_hero_images_explicitly_clears_landscape_hero(self):
+        updated, error = _validated_collection_hero({"type": "image", "image": "", "images": []}, {
+            "hero": {"type": "image", "image": "https://example.com/old-banner.jpg", "images": [{"id": "old", "image": "https://example.com/old-banner.jpg"}]}
+        })
+        self.assertIsNone(error)
+        self.assertEqual(updated["image"], "")
+        self.assertEqual(updated["images"], [])
+
+    def test_unified_hero_images_accept_multiple_ordered_workdrive_entries(self):
+        updated, error = _validated_collection_hero({"type": "image", "image": "https://workdrive.zoho.in/file/one", "images": [
+            {"id": "one", "image": "https://workdrive.zoho.in/file/one", "alt": "First"},
+            {"id": "two", "image": "https://workdrive.zoho.in/file/two", "alt": "Second"},
+        ]}, {"hero": {"type": "image", "image": ""}})
+        self.assertIsNone(error)
+        self.assertEqual([item["id"] for item in updated["images"]], ["one", "two"])
+        self.assertEqual([item["image"] for item in updated["images"]], [
+            "https://workdrive.zoho.in/file/one", "https://workdrive.zoho.in/file/two"
+        ])
 
     def test_video_hero_configuration_is_preserved(self):
         hero = collection_hero({"hero": {"type": "video", "video": "https://example.com/film.mp4", "poster": "https://example.com/poster.jpg", "layout": "full_bleed"}})
