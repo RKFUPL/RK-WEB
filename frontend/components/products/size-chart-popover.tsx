@@ -38,7 +38,7 @@ export function SizeChartPopover() {
       aria-expanded={open}
       className="text-[0.62rem] uppercase tracking-[0.2em] text-gold transition hover:text-charcoal"
     >
-      Don&apos;t know your size?
+      Size guide
     </button>
     <AnimatePresence>
       {open ? <motion.div

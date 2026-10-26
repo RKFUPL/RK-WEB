@@ -20,6 +20,7 @@ from ...catalog import (
     product_is_runway,
     public_media_version,
     product_view,
+    natural_product_sort_key,
 )
 from ...extensions import limiter
 from ...fx_rates import public_currency_context as build_currency_context
@@ -131,7 +132,7 @@ def storefront_products():
     elif sort in {"price_asc", "price_desc"}:
         records.sort(key=lambda item: (item.get("price") is None, item.get("price") or 0, item["id"]), reverse=sort == "price_desc")
     else:
-        records.sort(key=lambda item: (featured_order.get(item["id"], 10**9), item.get("displayOrder", 10**9), item["id"]))
+        records.sort(key=natural_product_sort_key)
     try:
         page = max(1, int(request.args.get("page", 1)))
         page_size = min(60, max(1, int(request.args.get("pageSize", 24))))

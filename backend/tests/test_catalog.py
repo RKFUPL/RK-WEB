@@ -5,7 +5,7 @@ from unittest.mock import ANY, MagicMock, patch
 from bson import ObjectId
 from flask import Flask
 
-from app.catalog import AAKAAR_COLLECTION_SEED, AAKAAR_PRODUCT_SEEDS, ANAMIKA_PRODUCT_SEEDS, HASTAKALA_PRODUCT_SEEDS, NORMAL_COLLECTIONS, PRODUCT_SEEDS, _ensure_compatible_index, _product_seed_document, collection_hero, collection_product_count, collection_view, ensure_catalog_seed, is_excluded_collection, is_runway_collection, product_card_view, product_view
+from app.catalog import AAKAAR_COLLECTION_SEED, AAKAAR_PRODUCT_SEEDS, ANAMIKA_PRODUCT_SEEDS, HASTAKALA_PRODUCT_SEEDS, NORMAL_COLLECTIONS, PRODUCT_SEEDS, _ensure_compatible_index, _product_seed_document, collection_hero, collection_product_count, collection_view, ensure_catalog_seed, is_excluded_collection, is_runway_collection, natural_product_sort_key, product_card_view, product_view
 from app.blueprints.catalog.routes import _shop_matches, catalog_bp
 from app.blueprints.staff.routes import _replace_parent_catalog_media, _variant_gallery_payload
 from app.inventory import DEFAULT_CUSTOM_SIZE_FIELDS, STANDARD_SIZES, custom_size_fields, validate_custom_size
@@ -14,6 +14,10 @@ from app.workdrive import WorkDriveDownload
 
 
 class CatalogTests(unittest.TestCase):
+    def test_natural_product_sort_key_orders_numeric_style_codes(self):
+        products = [{"styleCode": code, "_id": code} for code in ("CK 100", "CK 90", "CK 89", "CK 88")]
+        self.assertEqual([item["styleCode"] for item in sorted(products, key=natural_product_sort_key)], ["CK 88", "CK 89", "CK 90", "CK 100"])
+
     def test_collection_hero_keeps_api_images_direct_and_proxies_workdrive(self):
         database = MagicMock()
         database.products.find.return_value = []

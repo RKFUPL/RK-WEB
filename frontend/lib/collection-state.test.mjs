@@ -12,6 +12,8 @@ const management = readFileSync(new URL('../components/collections/collection-ma
 const catalogClient = readFileSync(new URL('./catalog-client.ts', import.meta.url), 'utf8');
 const collectionsPage = readFileSync(new URL('../app/collections/page.tsx', import.meta.url), 'utf8');
 const shopCategories = readFileSync(new URL('../components/home/shop-categories.tsx', import.meta.url), 'utf8');
+const sizeChart = readFileSync(new URL('../components/products/size-chart-popover.tsx', import.meta.url), 'utf8');
+const naturalSort = readFileSync(new URL('./natural-sort.ts', import.meta.url), 'utf8');
 const adminProducts = readFileSync(new URL('../components/admin/admin-products.tsx', import.meta.url), 'utf8');
 
 test('collection request failures remain distinct from genuine empty collections', () => {
@@ -70,9 +72,24 @@ test('Hastakala cards use collection media instead of a missing lookbook cover r
   assert.doesNotMatch(collectionsPage, /lookbooks\/hastakala\/cover/);
   assert.match(collectionsPage, /collection\.hero\?\.image \|\| collection\.heroImage/);
   assert.doesNotMatch(shopCategories, /lookbooks\/hastakala\/cover/);
-  assert.match(shopCategories, /image=\{item\.image\}/);
+  assert.match(shopCategories, /catalogCollections\[item\.href/);
+  assert.match(shopCategories, /collection\.hero\?\.image \|\| collection\.heroImage/);
   assert.doesNotMatch(adminProducts, /lookbooks\/hastakala\/cover/);
   assert.match(adminProducts, /collection\.heroImage \|\| collection\.hero\?\.image/);
+});
+
+test('homepage collection cards resolve images and links by catalog slug', () => {
+  assert.match(shopCategories, /collection\.slug/);
+  assert.match(shopCategories, /catalogCollections\[item\.href/);
+  assert.match(shopCategories, /editorial\?\.hero\?\.image \|\| editorial\?\.image/);
+  assert.doesNotMatch(shopCategories, /\?\.image \|\| item\.image/);
+  assert.doesNotMatch(shopCategories, /collectionRoutes\[item\.title\.toLowerCase\(\)\]/);
+});
+
+test('size guide label and natural product sorting are shared', () => {
+  assert.match(sizeChart, />\s*Size guide\s*</);
+  assert.match(naturalSort, /Number\(part\)/);
+  assert.match(products, /compareProductCodes/);
 });
 
 test('admin collection cards use catalog media for Aakaar instead of a lookbook cover route', () => {

@@ -6,6 +6,7 @@ quotes, and the storefront resolve the same record.
 """
 from datetime import datetime, timezone
 from hashlib import sha256
+import re
 from threading import Lock
 from urllib.parse import urlparse
 
@@ -22,6 +23,11 @@ from .product_variants import (
     sync_product_variants,
     visible_variants,
 )
+
+
+def natural_product_sort_key(product: dict):
+    value = str(product.get("styleCode") or product.get("productCode") or product.get("sku") or product.get("name") or "").strip().casefold()
+    return tuple((1, int(part)) if part.isdigit() else (0, part) for part in re.split(r"(\d+)", value) if part), str(product.get("_id") or "")
 from .time_utils import json_value as serialize_json_value
 
 
