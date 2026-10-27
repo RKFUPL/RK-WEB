@@ -5,7 +5,7 @@ import { LegalContentsNav } from '@/components/site/legal-contents-nav';
 import { featuredCollection } from '@/lib/home-content';
 import { legalIdentity } from '@/lib/legal-identity';
 
-export type LegalSection = { title: string; body: string };
+export type LegalSection = { title: string; body: string; paragraphs?: string[] };
 
 export function LegalPage({ eyebrow, title, intro, updated = '08 October 2026', sections }: { eyebrow: string; title: string; intro: string; updated?: string; sections: LegalSection[] }) {
   return (
@@ -36,7 +36,11 @@ export function LegalPage({ eyebrow, title, intro, updated = '08 October 2026', 
             <section id={`section-${index + 1}`} key={section.title} className="scroll-mt-28 py-11 first:pt-0 last:pb-0 md:scroll-mt-32 md:py-14">
               <p className="text-[0.62rem] uppercase tracking-[0.35em] text-gold">{String(index + 1).padStart(2, '0')}</p>
               <h2 className="mt-4 text-balance font-display text-[clamp(2rem,4vw,3.35rem)] leading-[1.02] tracking-[-0.025em]">{section.title}</h2>
-              <p className="mt-6 break-words text-[0.95rem] leading-8 text-charcoal/72 md:text-base md:leading-8">{section.body}</p>
+              <div className="mt-6 space-y-5">
+                {(section.paragraphs?.length ? section.paragraphs : [section.body]).map((paragraph) => (
+                  <p key={paragraph} className="break-words text-[0.95rem] leading-8 text-charcoal/72 md:text-base md:leading-8">{paragraph}</p>
+                ))}
+              </div>
             </section>
           ))}
           <p className="pt-10 text-sm leading-8 text-charcoal/55">Questions about this page? Contact <Link href={`mailto:${legalIdentity.customerCareEmail}`} className="text-gold underline-offset-4 hover:underline">{legalIdentity.customerCareEmail}</Link>.</p>

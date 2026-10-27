@@ -18,6 +18,15 @@ class CatalogTests(unittest.TestCase):
         products = [{"styleCode": code, "_id": code} for code in ("CK 100", "CK 90", "CK 89", "CK 88")]
         self.assertEqual([item["styleCode"] for item in sorted(products, key=natural_product_sort_key)], ["CK 88", "CK 89", "CK 90", "CK 100"])
 
+    def test_natural_product_sort_key_uses_displayed_name_before_identifiers(self):
+        products = [
+            {"name": "CK 100", "styleCode": "ZZ 1", "_id": "100"},
+            {"name": "CK 90", "styleCode": "AA 1", "_id": "90"},
+            {"name": "ck 89", "styleCode": "BB 1", "_id": "89"},
+            {"name": "CK 88", "styleCode": "CC 1", "_id": "88"},
+        ]
+        self.assertEqual([item["name"] for item in sorted(products, key=natural_product_sort_key)], ["CK 88", "ck 89", "CK 90", "CK 100"])
+
     def test_collection_hero_keeps_api_images_direct_and_proxies_workdrive(self):
         database = MagicMock()
         database.products.find.return_value = []

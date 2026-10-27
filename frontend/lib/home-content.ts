@@ -104,6 +104,14 @@ export const featuredCollectionFrames = [
 
 const collectionPagesUnordered: readonly CollectionPage[] = [
   {
+    name: 'Aakaar',
+    route: '/collections/aakaar',
+    status: 'Collection',
+    summary: featuredCollection.description,
+    image: featuredCollection.image,
+    fontFamily: 'RK Campaign',
+  },
+  {
     name: 'Anamika',
     route: '/collections/collections-of-anamika',
     status: 'Collection',
@@ -198,18 +206,7 @@ const collectionPagesUnordered: readonly CollectionPage[] = [
 
 export const collectionPages: readonly CollectionPage[] = sortByCollectionOrder(collectionPagesUnordered, (collection) => collection.name);
 
-/** The coming-soon Aakaar card is intentionally a gallery-only entry. */
 export const collectionGalleryPages: readonly (CollectionPage & { comingSoon?: boolean })[] = sortByCollectionOrder([
-  {
-    name: 'Aakaar',
-    route: '/aakaar',
-    status: 'Coming Soon',
-    summary: featuredCollection.description,
-    image: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg',
-    fontFamily: 'RK Campaign',
-    fontUrl: 'https://res.cloudinary.com/fm1bwbrd/raw/upload/v1786736151/TAN-MON_CHERI-Regular_w92ze1.otf',
-    comingSoon: true,
-  },
   ...collectionPages,
 ], (collection) => collection.name);
 

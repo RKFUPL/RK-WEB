@@ -446,7 +446,7 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
   const backCollection = collections[0];
   const backCollectionHref =
     backCollection?.slug === "aakaar"
-      ? "/aakaar/collection"
+      ? "/collections/aakaar"
       : backCollection
         ? `/collections/${backCollection.slug}`
         : "";

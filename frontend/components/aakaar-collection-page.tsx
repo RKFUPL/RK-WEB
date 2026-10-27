@@ -181,7 +181,7 @@ export function AakaarCollectionPage() {
 
     <section className="bg-ivory px-4 py-20 text-center text-charcoal dark:bg-[#0b0b0b] dark:text-[#f5f2ee] sm:px-8 lg:py-28">
       <p className="text-[0.58rem] uppercase tracking-[0.32em] text-charcoal/55 dark:text-[#f5f2ee]/55">For more information, contact</p>
-      <a href="mailto:contact@rashikapooroffical.com" className="mt-3 inline-block font-display text-xl transition hover:text-gold md:text-2xl">contact@rashikapooroffical.com</a>
+      <a href="mailto:contact@rashikapoorofficial.com" className="mt-3 inline-block font-display text-xl transition hover:text-gold md:text-2xl">contact@rashikapoorofficial.com</a>
     </section>
     <Footer />
   </main>;

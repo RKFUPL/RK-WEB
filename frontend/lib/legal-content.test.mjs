@@ -7,6 +7,7 @@ import { verifiedShippingPolicy } from './shipping-timeline.ts';
 const source = readFileSync(new URL('./legal-content.ts', import.meta.url), 'utf8');
 const legalPageSource = readFileSync(new URL('../components/site/legal-page.tsx', import.meta.url), 'utf8');
 const contentsNavSource = readFileSync(new URL('../components/site/legal-contents-nav.tsx', import.meta.url), 'utf8');
+const sitemapSource = readFileSync(new URL('../app/sitemap.ts', import.meta.url), 'utf8');
 const termsSource = source.slice(source.indexOf("terms: { title: 'Terms & Conditions'"), source.indexOf("shippingDelivery: {"));
 const termsTitles = [...termsSource.matchAll(/^\s{4}\['([^']+)',/gm)].map((match) => match[1]);
 
@@ -60,6 +61,7 @@ test('policy pages preserve ordered section anchors and responsive contents navi
   assert.match(legalPageSource, /<LegalContentsNav sections=\{sections\} mobile \/>/);
   assert.match(legalPageSource, /md:sticky md:top-28/);
   assert.match(legalPageSource, /scroll-mt-28/);
+  assert.match(legalPageSource, /section\.paragraphs\?\.length \? section\.paragraphs : \[section\.body\]/);
   assert.match(contentsNavSource, /<details className="legal-contents-mobile">/);
   assert.match(contentsNavSource, /aria-current=\{active \? 'location' : undefined\}/);
 });
@@ -69,4 +71,13 @@ test('policy anchor navigation respects reduced motion and tracks active section
   assert.match(contentsNavSource, /prefers-reduced-motion: reduce/);
   assert.match(contentsNavSource, /behavior: reduceMotion \? 'auto' : 'smooth'/);
   assert.match(contentsNavSource, /aria-label="Policy contents"/);
+});
+
+test('the legal summary keeps complete clauses in shorter semantic paragraphs', () => {
+  const legalSummarySource = source.slice(source.indexOf('legalPages.legal ='));
+  for (const title of ['Terms & Conditions', 'Product Information & Disclaimer', 'Customisation & Bespoke', 'Orders & Payments', 'Cancellations', 'International Orders', 'Liability & Indemnity']) {
+    assert.match(legalSummarySource, new RegExp(`title: '${title.replace('&', '\\&')}', body: '', paragraphs:`));
+  }
+  assert.doesNotMatch(legalSummarySource, /\.join\(' '\)/);
+  assert.match(sitemapSource, /'\/legal'/);
 });

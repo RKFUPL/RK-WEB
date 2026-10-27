@@ -119,8 +119,8 @@ export function AakaarPage() {
 
           <div className="mt-12 border-t border-black/10 pt-10 text-center dark:border-white/10 lg:mt-16">
             <p className="text-[0.58rem] uppercase tracking-[0.32em] text-charcoal/55 dark:text-[#f5f2ee]/55">For more information, contact</p>
-            <a href="mailto:contact@rashikapooroffical.com" className="mt-3 inline-block font-display text-xl text-charcoal transition hover:text-gold dark:text-[#f5f2ee] md:text-2xl">
-              contact@rashikapooroffical.com
+            <a href="mailto:contact@rashikapoorofficial.com" className="mt-3 inline-block font-display text-xl text-charcoal transition hover:text-gold dark:text-[#f5f2ee] md:text-2xl">
+              contact@rashikapoorofficial.com
             </a>
           </div>
         </SectionShell>

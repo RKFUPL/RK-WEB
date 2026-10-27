@@ -26,7 +26,9 @@ from .product_variants import (
 
 
 def natural_product_sort_key(product: dict):
-    value = str(product.get("styleCode") or product.get("productCode") or product.get("sku") or product.get("name") or "").strip().casefold()
+    # Shop cards display the product name; sort that canonical display field
+    # before falling back to identifiers for incomplete legacy records.
+    value = str(product.get("name") or product.get("styleCode") or product.get("productCode") or product.get("sku") or "").strip().casefold()
     return tuple((1, int(part)) if part.isdigit() else (0, part) for part in re.split(r"(\d+)", value) if part), str(product.get("_id") or product.get("id") or "")
 from .time_utils import json_value as serialize_json_value
 
