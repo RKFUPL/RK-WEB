@@ -81,3 +81,25 @@ test('the legal summary keeps complete clauses in shorter semantic paragraphs', 
   assert.doesNotMatch(legalSummarySource, /\.join\(' '\)/);
   assert.match(sitemapSource, /'\/legal'/);
 });
+
+test('the readable legal summary retains its material protections and obligations', () => {
+  const legalSummarySource = source.slice(source.indexOf('legalPages.legal ='));
+  for (const clause of [
+    'original payment method',
+    'statutory rights remain unaffected',
+    'not automatically defects',
+    'non-returnable, non-exchangeable and non-cancellable',
+    'Delivery estimates are not absolute guarantees',
+    'customer is responsible for these charges',
+    'Buying a garment does not transfer its design rights',
+    'indirect, incidental, special or consequential losses',
+    'consumer rights that cannot legally be excluded or limited',
+    'infringement of another person’s rights',
+  ]) {
+    assert.match(legalSummarySource, new RegExp(clause.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+  }
+  assert.match(legalSummarySource, /findLegalSection\(termsSections, 'Governing Law'\)/);
+  assert.match(legalSummarySource, /findLegalSection\(termsSections, 'Grievance Redressal'\)/);
+  assert.match(source, /governed by the laws of India/i);
+  assert.match(source, /Grievance Officer/);
+});

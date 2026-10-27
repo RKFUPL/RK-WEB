@@ -5,6 +5,10 @@ import { legalIdentity } from './legal-identity.ts';
 import { storefrontSocialLinks } from './storefront-social.ts';
 
 const footer = readFileSync(new URL('../components/home/footer.tsx', import.meta.url), 'utf8');
+const legalPage = readFileSync(new URL('../components/site/legal-page.tsx', import.meta.url), 'utf8');
+const careersPage = readFileSync(new URL('../app/careers/page.tsx', import.meta.url), 'utf8');
+const aakaarPage = readFileSync(new URL('../components/aakaar-page.tsx', import.meta.url), 'utf8');
+const aakaarCollectionPage = readFileSync(new URL('../components/aakaar-collection-page.tsx', import.meta.url), 'utf8');
 
 test('footer preserves the approved house signature and verified contact identity', () => {
   assert.match(footer, /Beyond what you wear lies the/);
@@ -44,4 +48,14 @@ test('footer exposes only the approved social profiles with accessible labels', 
   assert.deepEqual(Object.keys(storefrontSocialLinks).sort(), ['instagram', 'linkedin']);
   assert.match(footer, /aria-label="Rashi Kapoor on Instagram"/);
   assert.match(footer, /aria-label="Rashi Kapoor on LinkedIn"/);
+});
+
+test('shared contact surfaces emit mailto links and no Cloudflare endpoint', () => {
+  const contactSources = [footer, legalPage, careersPage, aakaarPage, aakaarCollectionPage].join('\n');
+  assert.doesNotMatch(contactSources, /cdn-cgi|email-protection|data-cfemail|__cf_email__/);
+  assert.match(footer, /mailto:\$\{legalIdentity\.customerCareEmail\}/);
+  assert.match(legalPage, /mailto:\$\{legalIdentity\.customerCareEmail\}/);
+  assert.match(careersPage, /mailto:hr@rashikapoorofficial\.com/);
+  assert.match(aakaarPage, /mailto:contact@rashikapoorofficial\.com/);
+  assert.match(aakaarCollectionPage, /mailto:contact@rashikapoorofficial\.com/);
 });
