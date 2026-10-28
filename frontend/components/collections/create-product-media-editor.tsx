@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, ImagePlus, Trash2 } from "lucide-react";
 import type { CatalogMedia, CatalogProductVariant } from "@/lib/catalog";
 import { parseWorkDriveBatch } from "@/lib/workdrive-media";
 import { apiBaseUrl } from "@/lib/rbac";
+import { colourSwatchValue, isHexColour, normalizeColourSwatchName } from "@/lib/colour-swatches";
 
 type Props = {
   variants: CatalogProductVariant[];
@@ -42,8 +43,10 @@ function DraftMediaPreview({ url, label, token }: { url: string; label: string; 
 export function CreateProductMediaEditor({ variants, value, onChange, token, onAddColour, onRenameColour, onRemoveColour }: Props) {
   const [variantId, setVariantId] = useState(variants[0]?.id || "");
   const [newColour, setNewColour] = useState("");
+  const [newColourHex, setNewColourHex] = useState("");
   const [batch, setBatch] = useState("");
   const [error, setError] = useState("");
+  const [addingColour, setAddingColour] = useState(false);
   const [editingColour, setEditingColour] = useState("");
   const selected = variants.find((variant) => variant.id === variantId) || variants[0];
   const gallery = useMemo(
@@ -56,15 +59,32 @@ export function CreateProductMediaEditor({ variants, value, onChange, token, onA
     else if (!variants.some((variant) => variant.id === variantId)) setVariantId(variants[0].id);
   }, [variants, variantId]);
 
-  const addColour = () => {
+  const addColour = async () => {
+    if (addingColour) return;
+    if (newColourHex.trim() && !isHexColour(newColourHex)) { setError("Hex code must use the format #RRGGBB."); return; }
     const addedId = onAddColour(newColour);
     if (!addedId) {
       setError(newColour.trim() ? "That colour already exists or is not valid." : "Enter a colour name first.");
       return;
     }
-    setVariantId(addedId);
-    setNewColour("");
+    setAddingColour(true);
     setError("");
+    setVariantId(addedId);
+    if (newColourHex.trim()) {
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/admin/colour-swatches`, { method: "PUT", headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" }, body: JSON.stringify({ colourSwatches: { [normalizeColourSwatchName(newColour)]: newColourHex.trim().toUpperCase() } }) });
+        if (!response.ok) throw new Error("Unable to save the colour swatch. The new colour was not kept.");
+      } catch (value) {
+        onRemoveColour(addedId);
+        setError(value instanceof Error ? value.message : "Unable to save the colour swatch. The new colour was not kept.");
+        setAddingColour(false);
+        return;
+      }
+    }
+    setNewColour("");
+    setNewColourHex("");
+    setError("");
+    setAddingColour(false);
   };
   const renameColour = () => {
     if (!selected) return;
@@ -80,7 +100,7 @@ export function CreateProductMediaEditor({ variants, value, onChange, token, onA
   };
 
   if (!selected) {
-    return <section className="admin-panel mt-6 p-5" aria-labelledby="create-colour-gallery-title"><p className="text-[10px] font-semibold uppercase tracking-[.2em] text-[var(--admin-gold)]">Media & galleries</p><h3 id="create-colour-gallery-title" className="admin-display mt-1 text-2xl">Colour galleries</h3><p className="mt-2 text-xs text-[var(--admin-muted)]">Add the first colour here, then attach its WorkDrive images immediately.</p><div className="mt-4 flex flex-wrap gap-2"><input aria-label="New colour" value={newColour} onChange={(event) => setNewColour(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addColour(); } }} className="admin-field min-w-52 flex-1" placeholder="e.g. Red"/><button type="button" onClick={addColour} className="admin-button-primary px-4 py-2 text-xs">Add colour</button></div>{error ? <p role="alert" className="mt-3 text-xs text-red-700">{error}</p> : null}</section>;
+    return <section className="admin-panel mt-6 p-5" aria-labelledby="create-colour-gallery-title"><p className="text-[10px] font-semibold uppercase tracking-[.2em] text-[var(--admin-gold)]">Media & galleries</p><h3 id="create-colour-gallery-title" className="admin-display mt-1 text-2xl">Colour galleries</h3><p className="mt-2 text-xs text-[var(--admin-muted)]">Add the first colour here, then attach its WorkDrive images immediately.</p><div className="mt-4 flex flex-wrap items-center gap-2"><input aria-label="New colour" value={newColour} onChange={(event) => setNewColour(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void addColour(); } }} className="admin-field min-w-48 flex-1" placeholder="e.g. Red"/><input aria-label="New colour hex code" value={newColourHex} onChange={(event) => setNewColourHex(event.target.value)} placeholder="#RRGGBB" maxLength={7} className="admin-field w-28"/><span aria-label="New colour swatch" className="h-5 w-5 rounded-full border border-black/15" style={{ backgroundColor: colourSwatchValue(newColour, newColourHex ? { [normalizeColourSwatchName(newColour)]: newColourHex } : {}) || "#b7aa99" }} /><button type="button" onClick={() => void addColour()} disabled={addingColour} className="admin-button-primary px-4 py-2 text-xs disabled:opacity-50">Add colour</button></div>{error ? <p role="alert" className="mt-3 text-xs text-red-700">{error}</p> : null}</section>;
   }
 
   const replaceGallery = (next: CatalogMedia[]) => {
@@ -131,7 +151,7 @@ export function CreateProductMediaEditor({ variants, value, onChange, token, onA
       <p className="text-[10px] font-semibold uppercase tracking-[.2em] text-[var(--admin-gold)]">Media & galleries</p>
       <h3 id="create-colour-gallery-title" className="admin-display mt-1 text-2xl">Colour galleries</h3>
       <p className="mt-1 text-xs text-[var(--admin-muted)]">Draft images are validated now and persisted with the product on first save.</p>
-      <div className="mt-4 flex flex-wrap gap-2"><input aria-label="New colour" value={newColour} onChange={(event) => setNewColour(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addColour(); } }} className="admin-field min-w-48 flex-1" placeholder="Add another colour"/><button type="button" onClick={addColour} className="admin-button-secondary px-4 py-2 text-xs">Add colour</button></div>
+      <div className="mt-4 flex flex-wrap items-center gap-2"><input aria-label="New colour" value={newColour} onChange={(event) => setNewColour(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void addColour(); } }} className="admin-field min-w-40 flex-1" placeholder="Add another colour"/><input aria-label="New colour hex code" value={newColourHex} onChange={(event) => setNewColourHex(event.target.value)} placeholder="#RRGGBB" maxLength={7} className="admin-field w-28"/><span aria-label="New colour swatch" className="h-5 w-5 rounded-full border border-black/15" style={{ backgroundColor: colourSwatchValue(newColour, newColourHex ? { [normalizeColourSwatchName(newColour)]: newColourHex } : {}) || "#b7aa99" }} /><button type="button" onClick={() => void addColour()} disabled={addingColour} className="admin-button-secondary px-4 py-2 text-xs disabled:opacity-50">Add colour</button></div>
       <div className="mt-5 flex gap-2 overflow-x-auto" role="tablist">
         {variants.map((variant) => <button key={variant.id} type="button" role="tab" aria-selected={variant.id === selected.id} onClick={() => { setVariantId(variant.id); setError(""); }} className={`min-w-36 rounded-t-xl border border-b-0 px-4 py-3 text-left ${variant.id === selected.id ? "border-[#c69a62]/55 bg-[#fbf4e9]" : "border-transparent text-[var(--admin-muted)]"}`}><span className="text-sm font-medium capitalize">{variant.colour}</span><span className="mt-1 block text-[10px] uppercase tracking-[.12em]">{value.filter((item) => item.variant_id === variant.id).length} images</span></button>)}
       </div>

@@ -17,6 +17,7 @@ const naturalSort = readFileSync(new URL('./natural-sort.ts', import.meta.url), 
 const adminProducts = readFileSync(new URL('../components/admin/admin-products.tsx', import.meta.url), 'utf8');
 const adminCollectionCard = readFileSync(new URL('../components/collections/collection-management-card.tsx', import.meta.url), 'utf8');
 const rbac = readFileSync(new URL('./rbac.ts', import.meta.url), 'utf8');
+const staffRoutes = readFileSync(new URL('../../backend/app/blueprints/staff/routes.py', import.meta.url), 'utf8');
 
 test('collection request failures remain distinct from genuine empty collections', () => {
   assert.match(detail, /setCollectionError/);
@@ -163,4 +164,14 @@ test('successful collection deletion does not replace detail state with the dele
   assert.match(mutationHelper, /typeof payload === "object" && "collection" in payload/);
   assert.match(management, /method: "DELETE"/);
   assert.match(management, /window\.location\.assign\(basePath\)/);
+});
+
+test('product colour conflicts keep server protection and expose explicit add/open outcomes', () => {
+  assert.match(management, /Open existing colour/);
+  assert.match(management, /Add colour to existing product/);
+  assert.match(management, /onOpenVariant\(duplicate\.product\.id, duplicate\.variantId\)/);
+  assert.doesNotMatch(management, /This colour is already registered on the existing product\. No duplicate variant was created/);
+  assert.match(staffRoutes, /"existingColour"/);
+  assert.match(staffRoutes, /"existingSku"/);
+  assert.match(staffRoutes, /return jsonify\(\{\s*"error": "That colour already exists\."/);
 });

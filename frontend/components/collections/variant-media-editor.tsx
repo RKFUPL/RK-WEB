@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, CheckCircle2, ImagePlus, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { hasUnsavedGalleryChanges, isPersistedMediaRelationshipId, parseWorkDriveBatch, prepareWorkDriveGallerySave, workDriveGalleryMatches, type WorkDriveGalleryDraft } from "@/lib/workdrive-media";
 import type { CatalogProductVariant } from "@/lib/catalog";
@@ -17,9 +17,10 @@ async function readApiResponse(response: Response, endpoint: string): Promise<Re
   return payload;
 }
 
-export function VariantMediaEditor({ productId, variants, token, onSaved }: { productId: string; variants: CatalogProductVariant[]; token: () => string; onSaved?: () => void }) {
-  const [variantId, setVariantId] = useState(variants[0]?.id || "");
-  const selected = variants.find((item) => item.id === variantId) || variants[0];
+export function VariantMediaEditor({ productId, variants, token, onSaved, initialVariantId }: { productId: string; variants: CatalogProductVariant[]; token: () => string; onSaved?: () => void; initialVariantId?: string }) {
+  const visibleVariants = useMemo(() => variants.filter((item) => String(item.status || "").toLowerCase() !== "remove"), [variants]);
+  const [variantId, setVariantId] = useState(initialVariantId && visibleVariants.some((item) => item.id === initialVariantId) ? initialVariantId : (visibleVariants[0]?.id || ""));
+  const selected = visibleVariants.find((item) => item.id === variantId) || visibleVariants[0];
   const [drafts, setDrafts] = useState<WorkDriveGalleryDraft[]>([]);
   const [baseline, setBaseline] = useState<WorkDriveGalleryDraft[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -36,6 +37,7 @@ export function VariantMediaEditor({ productId, variants, token, onSaved }: { pr
   const [editingColour, setEditingColour] = useState("");
   const [editingHex, setEditingHex] = useState("");
   const [addingColour, setAddingColour] = useState(false);
+  const [pendingVariantId, setPendingVariantId] = useState("");
   const base = "/api/staff/products/" + encodeURIComponent(productId) + "/variants/";
 
   const load = async (id: string) => {
@@ -64,6 +66,18 @@ export function VariantMediaEditor({ productId, variants, token, onSaved }: { pr
   useEffect(() => { void load(selected?.id || "").catch((value) => setError(value instanceof Error ? value.message : "Unable to load gallery.")); }, [selected?.id]);
 
   useEffect(() => {
+    if (pendingVariantId && visibleVariants.some((item) => item.id === pendingVariantId)) {
+      setVariantId(pendingVariantId);
+      setPendingVariantId("");
+    }
+  }, [pendingVariantId, visibleVariants]);
+
+  useEffect(() => {
+    if (!visibleVariants.length) setVariantId("");
+    else if (!visibleVariants.some((item) => item.id === variantId)) setVariantId(visibleVariants[0].id);
+  }, [visibleVariants, variantId]);
+
+  useEffect(() => {
     void fetch("/api/admin/colour-swatches", { headers: { Authorization: `Bearer ${token()}` }, cache: "no-store" })
       .then((response) => response.ok ? response.json() : null)
       .then((payload) => { if (payload?.colourSwatches && typeof payload.colourSwatches === "object") setColourSwatches(payload.colourSwatches); })
@@ -71,14 +85,14 @@ export function VariantMediaEditor({ productId, variants, token, onSaved }: { pr
   }, [productId]);
 
   useEffect(() => {
-    variants.forEach((variant) => {
+    visibleVariants.forEach((variant) => {
       if (variant.id === selected?.id) return;
       void fetch(base + encodeURIComponent(variant.id), { headers: { Authorization: `Bearer ${token()}` }, cache: "no-store" })
         .then((response) => response.ok ? response.json() : null)
         .then((payload) => { if (payload) setCounts((current) => ({ ...current, [variant.id]: Array.isArray(payload.images) ? payload.images.length : 0 })); })
         .catch(() => undefined);
     });
-  }, [productId, variants.length]);
+  }, [productId, visibleVariants]);
 
   const addBatch = () => {
     const parsed = parseWorkDriveBatch(batch);
@@ -135,8 +149,12 @@ export function VariantMediaEditor({ productId, variants, token, onSaved }: { pr
       const payload = await readApiResponse(response, endpoint);
       const created = payload.variant as { id?: string } | undefined;
       setNewColour(""); setNewColourHex("");
-      if (created?.id) { setVariantId(created.id); onSaved?.(); }
-      else onSaved?.();
+      if (created?.id) {
+        setPendingVariantId(created.id);
+        await onSaved?.();
+        if (variants.some((item) => item.id === created.id)) setVariantId(created.id);
+      }
+      else await onSaved?.();
     } catch (value) { setError(value instanceof Error ? value.message : "Unable to add colour."); }
     finally { setAddingColour(false); }
   };
@@ -147,8 +165,22 @@ export function VariantMediaEditor({ productId, variants, token, onSaved }: { pr
     catch (value) { setError(value instanceof Error ? value.message : "Unable to save colour swatch."); }
     finally { setAddingColour(false); }
   };
+  const removeColour = async (variant = selected) => {
+    if (!variant || addingColour) return;
+    if (!window.confirm(`Remove the ${variant.colour || "selected"} colour from this product? Its saved gallery media will be preserved.`)) return;
+    setAddingColour(true); setError(""); setMessage("");
+    const endpoint = `${base}${encodeURIComponent(variant.id)}`;
+    try {
+      const response = await fetch(endpoint, { method: "PATCH", headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" }, body: JSON.stringify({ status: "remove" }) });
+      await readApiResponse(response, endpoint);
+      await onSaved?.();
+      setMessage(`${variant.colour || "Colour"} removed.`);
+    } catch (value) {
+      setError(value instanceof Error ? value.message : "Unable to remove colour. Nothing was changed.");
+    } finally { setAddingColour(false); }
+  };
   const unsaved = hasUnsavedGalleryChanges(baseline, drafts, batch);
-  if (!variants.length) return null;
+  if (!visibleVariants.length) return null;
 
   return <section className="admin-panel mt-6 overflow-hidden" aria-labelledby="colour-gallery-title">
     <div className="border-b border-[var(--admin-border)] px-4 pt-5 sm:px-6">
@@ -156,7 +188,7 @@ export function VariantMediaEditor({ productId, variants, token, onSaved }: { pr
       <div className="mt-1 flex flex-wrap items-end justify-between gap-3"><div><h3 id="colour-gallery-title" className="text-2xl">Colour galleries</h3><p className="mt-1 text-xs text-[var(--admin-muted)]">Images are isolated by stable colour variant and verified after every save.</p></div>{message ? <p className="mb-1 inline-flex items-center gap-1.5 text-xs text-emerald-700"><CheckCircle2 size={15} />{message}</p> : null}</div>
       <div className="mt-5 min-w-0">
         <div className="flex min-w-0 gap-2 overflow-x-auto" role="tablist" aria-label="Product colour galleries">
-        {variants.map((variant) => { const active = variant.id === selected.id; const name = normalizeColourSwatchName(variant.colour); return <div key={variant.id} className="flex items-stretch"><button type="button" role="tab" aria-selected={active} onClick={() => switchVariant(variant.id)} className={`min-w-36 rounded-t-xl border border-b-0 px-4 py-3 text-left transition ${active ? "border-[#c69a62]/55 bg-[#fbf4e9] text-[#3b2b1f]" : "border-transparent text-[var(--admin-muted)] hover:bg-black/[.025]"}`}><span className="flex items-center gap-2 text-sm font-medium"><span className="h-2.5 w-2.5 rounded-full border border-black/10" style={{ backgroundColor: colourSwatchValue(name, colourSwatches) || "#b7aa99" }} />{variant.colour || "Variant"}</span><span className="mt-1 block text-[10px] uppercase tracking-[.12em]">{counts[variant.id] ?? (variant.id === selected.id ? drafts.length : 0)} images · {variant.sku}</span></button><button type="button" aria-label={`Edit ${variant.colour} hex code`} onClick={() => { setEditingColour(name); setEditingHex(colourSwatches[name] || ""); }} className="rounded-tr-xl border border-b-0 border-transparent px-2 text-[var(--admin-muted)] hover:text-[#7d582c]"><Pencil size={13} /></button></div>; })}
+        {visibleVariants.map((variant) => { const active = variant.id === selected.id; const name = normalizeColourSwatchName(variant.colour); return <div key={variant.id} className="group flex items-stretch"><button type="button" role="tab" aria-selected={active} onClick={() => switchVariant(variant.id)} className={`min-w-36 rounded-t-xl border border-b-0 px-4 py-3 text-left transition ${active ? "border-[#c69a62]/55 bg-[#fbf4e9] text-[#3b2b1f]" : "border-transparent text-[var(--admin-muted)] hover:bg-black/[.025]"}`}><span className="flex items-center gap-2 text-sm font-medium"><span className="h-2.5 w-2.5 rounded-full border border-black/10" style={{ backgroundColor: colourSwatchValue(name, colourSwatches) || "#b7aa99" }} />{variant.colour || "Variant"}</span><span className="mt-1 block text-[10px] uppercase tracking-[.12em]">{counts[variant.id] ?? (variant.id === selected.id ? drafts.length : 0)} images · {variant.sku}</span></button><span className="ml-1 flex w-14 shrink-0 items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100"><button type="button" aria-label={`Edit ${variant.colour} colour`} title={`Edit ${variant.colour} colour`} onClick={() => { setEditingColour(name); setEditingHex(colourSwatches[name] || ""); }} className="rounded-tr-xl border border-b-0 border-transparent px-2 text-[var(--admin-muted)] hover:text-[#7d582c]"><Pencil size={13} /></button><button type="button" aria-label={`Delete ${variant.colour} colour`} title={`Delete ${variant.colour} colour`} onClick={() => void removeColour(variant)} disabled={addingColour} className="rounded-tr-xl border border-b-0 border-transparent px-2 text-red-600 hover:text-red-800 disabled:opacity-50"><Trash2 size={13} /></button></span></div>; })}
         </div>
         <div className="mt-3 inline-flex w-fit max-w-full flex-wrap items-center gap-2 self-start rounded-t-xl border border-dashed border-[#c69a62]/60 px-3 py-2"><input aria-label="New colour name" value={newColour} onChange={(event) => setNewColour(event.target.value)} placeholder="ADD COLOUR" className="min-w-0 w-24 bg-transparent text-[10px] uppercase tracking-[.12em] outline-none" onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void addColour(); } }} /><input aria-label="New colour hex code" value={newColourHex} onChange={(event) => setNewColourHex(event.target.value)} placeholder="#RRGGBB" maxLength={7} className="min-w-0 w-20 bg-transparent text-[10px] uppercase tracking-[.12em] outline-none" /><span aria-label="New colour swatch" className="h-4 w-4 shrink-0 rounded-full border border-black/15" style={{ backgroundColor: colourSwatchValue(newColour, newColourHex ? { [normalizeColourSwatchName(newColour)]: newColourHex } : colourSwatches) || "#b7aa99" }} /><button type="button" onClick={() => void addColour()} disabled={addingColour} aria-label="Add colour" className="inline-flex shrink-0 items-center gap-1 text-[10px] uppercase tracking-[.12em] text-[#7d582c] disabled:opacity-50"><Plus size={13}/>Add</button></div>
       </div>

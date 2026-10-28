@@ -119,7 +119,7 @@ function colourVariants(value: string): CatalogProduct["variants"] {
   });
 }
 
-type CreateProductResult = { id?: string; product?: CatalogProduct; error?: string; code?: string; existingProduct?: { id: string; name?: string; sku?: string }; newColours?: string[] };
+type CreateProductResult = { id?: string; product?: CatalogProduct; error?: string; code?: string; existingProduct?: { id: string; name?: string; sku?: string }; existingVariant?: { id: string; colour?: string; sku?: string }; newColours?: string[] };
 
 function CreateProductDrawer({
   collection,
@@ -127,12 +127,14 @@ function CreateProductDrawer({
   onClose,
   onCreate,
   onVerify,
+  onOpenVariant,
 }: {
   collection: ManagedCollection;
   busy: boolean;
   onClose: () => void;
   onCreate: (payload: Record<string, unknown>) => Promise<CreateProductResult>;
   onVerify: (id: string) => Promise<CatalogProduct | undefined>;
+  onOpenVariant: (productId: string, variantId?: string) => Promise<void>;
 }) {
   const [activeSection, setActiveSection] = useState<"overview" | "media" | "details" | "pricing">("overview");
   const [draft, setDraft] = useState({ name: "", sku: "", price: "", stock: "0", availability: "in_stock" as ProductAvailability, category: "", description: "", sizes: "", colors: "", fabric: "", occasion: "", gender: "", material: "", customizationInformation: "" });
@@ -141,7 +143,7 @@ function CreateProductDrawer({
   const [message, setMessage] = useState("");
   const [createdId, setCreatedId] = useState("");
   const [saving, setSaving] = useState(false);
-  const [duplicate, setDuplicate] = useState<{ product: { id: string; name?: string; sku?: string }; colour: string } | null>(null);
+  const [duplicate, setDuplicate] = useState<{ product: { id: string; name?: string; sku?: string }; colour: string; variantId?: string; exact: boolean } | null>(null);
   const variants = useMemo(() => colourVariants(draft.colors) || [], [draft.colors]);
   const addDraftColour = (value: string) => {
     const colour = value.trim();
@@ -219,8 +221,7 @@ function CreateProductDrawer({
       if (sizes.length && stock !== 0) throw new Error("Opening stock for size-managed products must be allocated per size after creation. Use 0 for the initial product.");
       const result = await onCreate({ name, sku, styleCode: sku, price, stock, status: "draft", availability: draft.availability, category: draft.category.trim(), description: draft.description.trim(), collectionId: collection.id, attributes: { sizes, colors: variants.map((variant) => variant.colour), fabric: draft.fabric.trim(), occasion: draft.occasion.trim(), gender: draft.gender.trim(), material: draft.material.trim(), customizationInformation: draft.customizationInformation.trim() }, sizeInventoryConfigured: sizes.length > 0, sizeInventory: sizes.map((size) => ({ size, stock: 0, enabled: true })), media: media.map((item) => ({ ...item, id: undefined, media_id: undefined })) });
       if (result.code === "SKU_COLOUR_CONFLICT" && result.existingProduct) {
-        if (!result.newColours?.length) { setError("This colour is already registered on the existing product. No duplicate variant was created."); return; }
-        setDuplicate({ product: result.existingProduct, colour: result.newColours[0] || "COLOUR" });
+        setDuplicate({ product: result.existingProduct, colour: result.newColours?.[0] || "COLOUR", exact: !result.newColours?.length, variantId: result.existingVariant?.id });
         return;
       }
       if (result.id) setCreatedId(result.id);
@@ -237,7 +238,7 @@ function CreateProductDrawer({
     {activeSection === "media" ? <><CreateProductMediaEditor variants={variants || []} value={media} onChange={setMedia} token={() => window.localStorage.getItem("rk_access_token") ?? ""} onAddColour={addDraftColour} onRenameColour={renameDraftColour} onRemoveColour={removeDraftColour}/><CreateProductLevelMediaEditor value={media} onChange={setMedia} token={() => window.localStorage.getItem("rk_access_token") ?? ""}/></> : null}
     {activeSection === "pricing" ? <section className="admin-panel p-5"><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[var(--admin-gold)]">Pricing & inventory</p><div className="mt-4 grid gap-4 sm:grid-cols-3"><label className="text-[10px] uppercase tracking-[.14em] text-[#8a9098]">Base INR price<input type="number" min="0" step="0.01" value={draft.price} onChange={(event) => setDraft((current) => ({...current,price:event.target.value}))} className={inputClass}/></label><label className="text-[10px] uppercase tracking-[.14em] text-[#8a9098]">Availability<select value={draft.availability} onChange={(event) => setDraft((current) => ({...current,availability:event.target.value as ProductAvailability}))} className={inputClass}>{availabilityOptions.map((option) => <option key={option} value={option}>{availabilityLabels[option]}</option>)}</select></label><label className="text-[10px] uppercase tracking-[.14em] text-[#8a9098]">Opening stock<input type="number" min="0" step="1" value={draft.stock} onChange={(event) => setDraft((current) => ({...current,stock:event.target.value}))} className={inputClass}/></label></div><p className="mt-4 text-xs text-[var(--admin-muted)]">Inventory adjustments remain audited after creation. Size-managed products start at zero until quantities are allocated per size.</p></section> : null}
     {message ? <p className="mt-4 text-sm text-emerald-700">{message}</p> : null}{error ? <p role="alert" className="mt-4 text-sm text-red-700">{error}</p> : null}
-  </form></aside>{duplicate ? <div className="fixed inset-0 z-[120] grid place-items-center bg-black/35 p-4"><div role="dialog" aria-modal="true" className="w-full max-w-lg rounded-2xl bg-[#fffdf9] p-6 text-[#20242b] shadow-2xl"><p className="text-[10px] uppercase tracking-[.2em] text-[#9a7a4d]">Catalogue match</p><h3 className="mt-2 font-display text-2xl">Product code already exists</h3><p className="mt-4 text-sm leading-6">An item with SKU <strong>{duplicate.product.sku}</strong> already exists in the product catalogue, but the colour <strong>{duplicate.colour}</strong> is not registered for it.</p><p className="mt-2 text-sm leading-6 text-[#6f675f]">Would you like to add this colour to the existing product, or create a separate product with a unique SKU?</p><div className="mt-6 flex flex-wrap justify-end gap-2"><button type="button" onClick={() => setDuplicate(null)} className="admin-button-secondary px-4 py-2 text-xs">Cancel</button><button type="button" onClick={() => { setDraft((current) => ({ ...current, sku: `${current.sku.trim().toUpperCase()}-${duplicate.colour.replace(/[^A-Z0-9]+/g, "-")}` })); setDuplicate(null); }} className="admin-button-secondary px-4 py-2 text-xs">Create separate product</button><button type="button" onClick={async () => { setSaving(true); try { const endpoint = `/api/staff/products/${encodeURIComponent(duplicate.product.id)}/variants`; const response = await fetch(endpoint, { method: "POST", headers: { Authorization: `Bearer ${window.localStorage.getItem("rk_access_token") || ""}`, "Content-Type": "application/json" }, body: JSON.stringify({ colour: duplicate.colour }) }); const payload = await response.json().catch(() => ({})); if (!response.ok) throw new Error(String(payload.error || `Unable to add colour (HTTP ${response.status}).`)); setDuplicate(null); onClose(); } catch (value) { setError(value instanceof Error ? value.message : "Unable to add colour."); } finally { setSaving(false); } }} className="admin-button-primary px-4 py-2 text-xs">Add colour to existing product</button></div></div></div> : null}</div>;
+  </form></aside>{duplicate ? <div className="fixed inset-0 z-[120] grid place-items-center bg-black/35 p-4"><div role="dialog" aria-modal="true" className="w-full max-w-lg rounded-2xl bg-[#fffdf9] p-6 text-[#20242b] shadow-2xl"><p className="text-[10px] uppercase tracking-[.2em] text-[#9a7a4d]">Catalogue match</p><h3 className="mt-2 font-display text-2xl">{duplicate.exact ? "Colour already exists" : "Add a new colour"}</h3><p className="mt-4 text-sm leading-6">{duplicate.exact ? <>Colour <strong>{duplicate.colour}</strong> is already registered on product <strong>{duplicate.product.name || "Unnamed product"}</strong> ({duplicate.product.sku || "no product code"}).</> : <>Colour <strong>{duplicate.colour}</strong> is new for product <strong>{duplicate.product.name || "Unnamed product"}</strong> ({duplicate.product.sku || "no product code"}). It will be added using that existing product code.</>}</p><p className="mt-2 text-sm leading-6 text-[#6f675f]">{duplicate.exact ? "Open the existing colour to manage its photos, or cancel without changing anything." : "Add this colour to the existing product, then manage its photos from the Media & galleries section."}</p><div className="mt-6 flex flex-wrap justify-end gap-2"><button type="button" onClick={() => setDuplicate(null)} className="admin-button-secondary px-4 py-2 text-xs">Cancel</button>{duplicate.exact ? <button type="button" onClick={() => { setDuplicate(null); onOpenVariant(duplicate.product.id, duplicate.variantId); }} className="admin-button-primary px-4 py-2 text-xs">Open existing colour</button> : <button type="button" onClick={async () => { setSaving(true); try { const endpoint = `/api/staff/products/${encodeURIComponent(duplicate.product.id)}/variants`; const response = await fetch(endpoint, { method: "POST", headers: { Authorization: `Bearer ${window.localStorage.getItem("rk_access_token") || ""}`, "Content-Type": "application/json" }, body: JSON.stringify({ colour: duplicate.colour }) }); const payload = await response.json().catch(() => ({})); if (!response.ok) throw new Error(String(payload.error || `Unable to add colour (HTTP ${response.status}).`)); setDuplicate(null); onOpenVariant(duplicate.product.id, payload.variant?.id); } catch (value) { setError(value instanceof Error ? value.message : "Unable to add colour."); } finally { setSaving(false); } }} className="admin-button-primary px-4 py-2 text-xs">Add colour to existing product</button>}</div></div></div> : null}</div>;
 }
 
 function configuredMediaEntries(product: CatalogProduct) {
@@ -311,6 +312,8 @@ function ProductDrawer({
   onClose,
   onReload,
   onRemove,
+  initialSection,
+  initialVariantId,
 }: {
   product: CatalogProduct;
   collection: ManagedCollection;
@@ -321,10 +324,12 @@ function ProductDrawer({
   onClose: () => void;
   onReload: () => Promise<DetailPayload | undefined>;
   onRemove: () => Promise<void>;
+  initialSection?: "overview" | "media" | "details" | "pricing";
+  initialVariantId?: string;
 }) {
   const attributes = product.attributes ?? {};
   const [editing, setEditing] = useState(false);
-  const [activeSection, setActiveSection] = useState<"overview" | "media" | "details" | "pricing">("overview");
+  const [activeSection, setActiveSection] = useState<"overview" | "media" | "details" | "pricing">(initialSection || "overview");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [adjustment, setAdjustment] = useState("");
@@ -796,7 +801,7 @@ function ProductDrawer({
             </form>
           ) : null}
           {activeSection === "media" && canManageProducts && product.variants?.length ? (
-            <VariantMediaEditor productId={product.id} variants={product.variants} token={token} onSaved={onReload} />
+            <VariantMediaEditor productId={product.id} variants={product.variants} token={token} onSaved={onReload} initialVariantId={initialVariantId} />
           ) : null}
           {activeSection === "pricing" && editing ? <form id="product-edit-form" onSubmit={save} className="admin-panel mb-6 p-5"><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[var(--admin-gold)]">Edit pricing</p><div className="mt-4 grid gap-4 sm:grid-cols-2"><label className="text-[10px] uppercase tracking-[.14em] text-[#8a9098]">Base price<input type="number" min="0" step="0.01" value={form.price} onChange={(event) => setForm((current) => ({ ...current, price: event.target.value }))} className={inputClass} /></label><label className="text-[10px] uppercase tracking-[.14em] text-[#8a9098]">Availability<select value={form.availability} onChange={(event) => setForm((current) => ({ ...current, availability: event.target.value as ProductAvailability }))} className={inputClass}>{availabilityOptions.map((option) => <option key={option} value={option}>{availabilityLabels[option]}</option>)}</select></label><label className="text-[10px] uppercase tracking-[.14em] text-[#8a9098]">Style code / SKU<input value={parentCode(baseline)} readOnly className={`${inputClass} cursor-not-allowed opacity-70`} /></label></div></form> : null}
           {(activeSection === "overview" && canManageProducts) || (activeSection === "media" && canManageProducts && canCleanT1Media) || (activeSection === "pricing" && canManageInventory) ? (
@@ -908,6 +913,7 @@ export function CollectionManagementDetail({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [productOpenTarget, setProductOpenTarget] = useState<{ productId: string; variantId?: string } | null>(null);
   const [editingCollection, setEditingCollection] = useState(false);
   const [heroPreviewFailed, setHeroPreviewFailed] = useState(false);
   const [coverPreviewFailed, setCoverPreviewFailed] = useState(false);
@@ -1182,7 +1188,7 @@ export function CollectionManagementDetail({
         },
       );
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) return { error: payload.error ?? `Unable to create product (HTTP ${response.status}).`, code: payload.code, existingProduct: payload.existingProduct, newColours: payload.newColours };
+      if (!response.ok) return { error: payload.error ?? `Unable to create product (HTTP ${response.status}).`, code: payload.code, existingProduct: payload.existingProduct, existingVariant: payload.variantId ? { id: String(payload.variantId), colour: payload.existingColour, sku: payload.existingSku } : undefined, newColours: payload.newColours };
       const id = String(payload.item?.id || "");
       const refreshed = await load(true);
       const product = refreshed?.collection.products.find((item) => item.id === id);
@@ -1202,6 +1208,14 @@ export function CollectionManagementDetail({
     } finally {
       setBusy(false);
     }
+  };
+
+  const openExistingVariant = async (productId: string, variantId?: string) => {
+    await load(true);
+    setSelectedId(productId);
+    setProductOpenTarget({ productId, variantId });
+    setAdding(false);
+    setMessage(variantId ? "Existing colour opened. Manage its photos below." : "Existing product opened. Select its colour to manage photos.");
   };
 
   const changeCollectionArchiveState = async (archive: boolean) => {
@@ -1268,7 +1282,7 @@ export function CollectionManagementDetail({
           Back to collections
         </Link>
         <div className="mt-5 overflow-hidden rounded-2xl border border-black/[.06] bg-white shadow-[0_4px_20px_rgba(25,31,38,.035)] dark:border-white/[.08] dark:bg-[#191a1f]">
-          <div className="grid lg:grid-cols-[1fr_20rem]">
+          <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)]">
             <div className="p-6 sm:p-8">
               <p className="text-[10px] uppercase tracking-[.2em] text-[#9a7a4d]">
                 Collection management
@@ -1312,14 +1326,14 @@ export function CollectionManagementDetail({
                 {collection.description || "No collection description yet."}
               </p>
             </div>
-            <div className="h-[140px] max-h-[160px] border-t border-black/[.06] bg-[#efece6] p-3 dark:border-white/[.08] dark:bg-white/[.03] sm:h-[180px] sm:max-h-[200px] lg:border-l lg:border-t-0">
+            <div className="h-56 border-t border-black/[.06] bg-[#efece6] p-3 dark:border-white/[.08] dark:bg-white/[.03] sm:h-64 lg:min-h-[280px] lg:h-full lg:border-l lg:border-t-0">
               {collection.hero?.type === "video" && collection.hero.video ? (
                 <video
                   muted
                   playsInline
                   controls
                   poster={collection.hero.poster || collection.hero.image}
-                  className="h-full w-full object-contain"
+                  className="h-full w-full object-cover object-center"
                 >
                   <source src={collection.hero.video} />
                 </video>
@@ -1327,7 +1341,7 @@ export function CollectionManagementDetail({
                 <img
                   src={collection.coverImage || collection.heroImage || collection.hero?.image || ""}
                   alt={`${collection.name} collection`}
-                  className="h-full w-full object-contain"
+                  className="h-full w-full object-cover object-center"
                   onError={() => setHeroPreviewFailed(true)}
                 />
               ) : (
@@ -1835,7 +1849,9 @@ export function CollectionManagementDetail({
           canManageProducts={canManageProducts}
           canManageInventory={canManageInventory}
           busy={busy}
-          onClose={() => setSelectedId(null)}
+          initialSection={productOpenTarget?.productId === selectedProduct.id ? "media" : undefined}
+          initialVariantId={productOpenTarget?.productId === selectedProduct.id ? productOpenTarget.variantId : undefined}
+          onClose={() => { setSelectedId(null); setProductOpenTarget(null); }}
           onReload={() => load(true)}
           onRemove={async () => {
             const payload = await relationRequest(
@@ -1851,7 +1867,7 @@ export function CollectionManagementDetail({
           }}
         />
       ) : null}
-      {adding && canManageProducts ? <CreateProductDrawer collection={collection} busy={busy} onClose={() => setAdding(false)} onCreate={createProduct} onVerify={verifyCreatedProduct} /> : null}
+      {adding && canManageProducts ? <CreateProductDrawer collection={collection} busy={busy} onClose={() => setAdding(false)} onCreate={createProduct} onVerify={verifyCreatedProduct} onOpenVariant={openExistingVariant} /> : null}
     </>
   );
 }

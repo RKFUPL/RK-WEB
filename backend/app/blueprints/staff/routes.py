@@ -1306,7 +1306,12 @@ def create_product_variant(product_id: str):
     variants = [dict(item) for item in product.get("variants", []) if isinstance(item, dict)]
     existing = next((item for item in variants if normalise_colour(item.get("colour") or item.get("color")) == colour), None)
     if existing:
-        return jsonify({"error": "That colour already exists.", "variantId": str(existing.get("id") or "")}), 409
+        return jsonify({
+            "error": "That colour already exists.",
+            "variantId": str(existing.get("id") or ""),
+            "existingColour": str(existing.get("colour") or existing.get("color") or colour).strip(),
+            "existingSku": str(existing.get("sku") or product.get("sku") or "").strip(),
+        }), 409
     attributes = dict(product.get("attributes") or {})
     colours = [normalise_colour(value) for value in (attributes.get("colors") if isinstance(attributes.get("colors"), list) else [attributes.get("color")]) if normalise_colour(value)]
     attributes["colors"] = [*colours, colour]
