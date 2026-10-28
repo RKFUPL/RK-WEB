@@ -62,6 +62,15 @@ test("admin media counts update after one verified relationship removal", () => 
   assert.equal(groups.variants["colour:blue"].length, 0);
 });
 
+test("removed colours leave retained media counted as unassigned, not as active colour counts", () => {
+  const product = t1Product();
+  product.variants[0].status = "remove";
+  const groups = adminMediaGroups(product);
+  assert.equal(groups.variants["colour:red"], undefined);
+  assert.equal(groups.unassigned.length, 6);
+  assert.equal(groups.variants["colour:blue"].length, 0);
+});
+
 test("an empty Blue gallery does not inherit Red or parent-level media", () => {
   const product = t1Product();
   assert.deepEqual(variantMediaSources(product, product.variants[0]), [

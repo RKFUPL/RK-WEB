@@ -31,6 +31,7 @@ import {
   availableGalleryMedia,
   normalizeColour,
   variantMediaSources,
+  variantPrimaryAndHoverSources,
   type CatalogProduct,
   type ManagedCollection,
 } from "@/lib/catalog";
@@ -134,7 +135,6 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
   const [quantity, setQuantity] = useState(1);
   const [inlineZoomed, setInlineZoomed] = useState(false);
   const [zoomOrigin, setZoomOrigin] = useState("50% 50%");
-  const [mainImageAspectRatio, setMainImageAspectRatio] = useState(4 / 5);
   const [openSection, setOpenSection] = useState("");
   const [message, setMessage] = useState("");
   const [notFound, setNotFound] = useState(false);
@@ -148,6 +148,18 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
   const galleryMedia = product
     ? availableGalleryMedia(variantMediaSources(product, selectedVariant), failedMedia)
     : [];
+
+  useEffect(() => {
+    if (!product || !selectedVariant || !galleryMedia.length) {
+      setActiveImage(0);
+      return;
+    }
+    const primary = variantPrimaryAndHoverSources(product, selectedVariant).primary;
+    const primaryIndex = primary ? galleryMedia.indexOf(primary) : -1;
+    setActiveImage(primaryIndex >= 0 ? primaryIndex : 0);
+    setInlineZoomed(false);
+    thumbnailRefs.current = [];
+  }, [product, selectedVariantId]);
 
   useEffect(() => {
     setProduct(null);
@@ -748,8 +760,8 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
             <div
               ref={mainImageFrameRef}
               data-testid="product-image-viewport"
-              className="isolate relative h-auto w-full max-w-[35rem] overflow-hidden rounded-lg bg-transparent"
-              style={{ aspectRatio: mainImageAspectRatio, borderRadius: 8, clipPath: "inset(0 round 8px)" }}
+              className="isolate relative aspect-[3/4] h-auto w-full max-w-[35rem] overflow-hidden rounded-lg bg-sand"
+              style={{ borderRadius: 8, clipPath: "inset(0 round 8px)" }}
             >
               {currentMainImage ? (
                 <div
@@ -789,15 +801,9 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
                     fill
                     priority
                     data-testid="product-image-layer"
-                    className={`h-full w-full rounded-lg object-cover transition-transform duration-300 ease-out ${inlineZoomed ? "scale-[1.7]" : "scale-100"}`}
+                    className={`h-full w-full rounded-lg object-contain transition-transform duration-300 ease-out ${inlineZoomed ? "scale-[1.7]" : "scale-100"}`}
                     style={{ borderRadius: 8, clipPath: "inset(0 round 8px)", transformOrigin: zoomOrigin }}
                     sizes="(max-width: 1024px) 100vw, 58vw"
-                    onLoad={(event) => {
-                      const { naturalWidth, naturalHeight } = event.currentTarget;
-                      if (naturalWidth > 0 && naturalHeight > 0) {
-                        setMainImageAspectRatio(naturalWidth / naturalHeight);
-                      }
-                    }}
                     onError={() => markImageUnavailable(currentImage)}
                   />
                 </div>
@@ -878,7 +884,7 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
                     src={cloudinaryImageUrl(image, 240) || image}
                     alt=""
                     fill
-                    className="object-cover"
+                    className="object-contain object-center"
                     sizes="(max-width: 1023px) 5.5rem, 6.5rem"
                     onError={() => markImageUnavailable(image)}
                   />

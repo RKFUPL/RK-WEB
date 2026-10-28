@@ -259,7 +259,9 @@ function mediaIdentity(item: CatalogMedia, fallback: string) {
 export function adminMediaGroups(product: CatalogProduct) {
   const structured = Array.isArray(product.catalogMedia) ? product.catalogMedia : [];
   const unassigned: AdminMediaEntry[] = [];
-  const variants: Record<string, AdminMediaEntry[]> = Object.fromEntries((product.variants || []).map((variant) => [variant.id, []]));
+  const activeVariants = (product.variants || []).filter((variant) => String(variant.status || "").toLowerCase() !== "remove");
+  const activeVariantIds = new Set(activeVariants.map((variant) => variant.id));
+  const variants: Record<string, AdminMediaEntry[]> = Object.fromEntries(activeVariants.map((variant) => [variant.id, []]));
   const seen = new Set<string>();
   structured.forEach((item, index) => {
     const identity = mediaIdentity(item, `catalog:${index}`);
@@ -271,10 +273,10 @@ export function adminMediaGroups(product: CatalogProduct) {
       label: String(item.alt_text || item.description || item.colour || "").trim(),
       variantId: item.variant_id,
     };
-    if (item.variant_id) (variants[item.variant_id] ||= []).push(entry);
+    if (item.variant_id && activeVariantIds.has(item.variant_id)) (variants[item.variant_id] ||= []).push(entry);
     else unassigned.push(entry);
   });
-  (product.variants || []).forEach((variant) => {
+  activeVariants.forEach((variant) => {
     if ((variants[variant.id] || []).length) return;
     const metadata = variant.imageMeta || [];
     const sources: Array<{ id?: string; permalink?: string; renderUrl?: string }> = metadata.length

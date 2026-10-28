@@ -717,8 +717,8 @@ function ProductDrawer({
               </span>
             </div>
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[10px] uppercase tracking-[.12em] text-[#8a9098]">
-              {(product.variants || []).map((variant) => <span key={variant.id}>{variant.colour || variant.id}: {mediaGroups.variants[variant.id]?.length || 0}</span>)}
-              <span>Unassigned: {mediaGroups.unassigned.length}</span>
+              {(product.variants || []).filter((variant) => String(variant.status || "").toLowerCase() !== "remove").map((variant) => <span key={variant.id}>{variant.colour || variant.id}: {mediaGroups.variants[variant.id]?.length || 0}</span>)}
+              <span>Unassigned / retained: {mediaGroups.unassigned.length}</span>
             </div>
             {mediaEntries.length ? (
               <>
@@ -914,6 +914,7 @@ export function CollectionManagementDetail({
   const [message, setMessage] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [productOpenTarget, setProductOpenTarget] = useState<{ productId: string; variantId?: string } | null>(null);
+  const [productRefreshRevision, setProductRefreshRevision] = useState(0);
   const [editingCollection, setEditingCollection] = useState(false);
   const [heroPreviewFailed, setHeroPreviewFailed] = useState(false);
   const [coverPreviewFailed, setCoverPreviewFailed] = useState(false);
@@ -1842,7 +1843,7 @@ export function CollectionManagementDetail({
       </section>
       {selectedProduct ? (
         <ProductDrawer
-          key={selectedProduct.id}
+          key={`${selectedProduct.id}:${productRefreshRevision}`}
           product={selectedProduct}
           collection={collection}
           collections={data.allCollections}
@@ -1852,7 +1853,11 @@ export function CollectionManagementDetail({
           initialSection={productOpenTarget?.productId === selectedProduct.id ? "media" : undefined}
           initialVariantId={productOpenTarget?.productId === selectedProduct.id ? productOpenTarget.variantId : undefined}
           onClose={() => { setSelectedId(null); setProductOpenTarget(null); }}
-          onReload={() => load(true)}
+          onReload={async () => {
+            const refreshed = await load(true);
+            setProductRefreshRevision((current) => current + 1);
+            return refreshed;
+          }}
           onRemove={async () => {
             const payload = await relationRequest(
               `/api/staff/collections/${encodeURIComponent(slug)}/products/${selectedProduct.id}`,
