@@ -31,6 +31,7 @@ import {
 } from "@/lib/product-editor";
 import { VariantMediaEditor } from "@/components/collections/variant-media-editor";
 import { CreateProductLevelMediaEditor, CreateProductMediaEditor } from "@/components/collections/create-product-media-editor";
+import { adminMediaRelationshipPreview, INITIAL_MEDIA_RELATIONSHIP_COUNT, visibleMediaRelationships } from "@/lib/admin-media-relationships";
 
 type DetailPayload = {
   collection: ManagedCollection & { products: CatalogProduct[] };
@@ -250,6 +251,30 @@ function configuredMediaEntries(product: CatalogProduct) {
   ];
 }
 
+function MediaRelationshipCard({ productId, entry, index, primary, deleting, onRemove }: {
+  productId: string;
+  entry: ReturnType<typeof configuredMediaEntries>[number];
+  index: number;
+  primary: boolean;
+  deleting: boolean;
+  onRemove: () => void;
+}) {
+  const [failed, setFailed] = useState(false);
+  const preview = adminMediaRelationshipPreview(productId, entry);
+  useEffect(() => setFailed(false), [preview]);
+  return <li className="overflow-hidden rounded-xl border border-black/[.07] bg-[#fffdf9] dark:border-white/[.08] dark:bg-white/[.02]">
+    <div className="relative aspect-[4/3] overflow-hidden bg-[#eee8de] dark:bg-white/[.04]">
+      {preview && !failed ? <img src={preview} alt={entry.label || `Product image ${index + 1}`} loading="lazy" decoding="async" className="h-full w-full object-cover object-center" onError={() => setFailed(true)} /> : <div className="grid h-full place-items-center px-4 text-center text-[10px] uppercase tracking-[.14em] text-[#8a9098]">{failed ? 'Preview unavailable' : 'Image preview unavailable'}</div>}
+      <span className="absolute left-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-white/90 text-[10px] text-[#9a7a4d] shadow">{index + 1}</span>
+      {primary ? <span className="absolute right-2 top-2 rounded-full bg-emerald-700 px-2 py-1 text-[8px] uppercase tracking-[.12em] text-white">Primary</span> : null}
+    </div>
+    <div className="flex min-h-24 items-start gap-3 p-3">
+      <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium">{entry.label || `WorkDrive image ${index + 1}`}</p><p className="mt-1 text-[9px] uppercase tracking-[.12em] text-[#8a9098]">{entry.scope}</p></div>
+      <button type="button" aria-label={`Remove ${entry.label || `image ${index + 1}`} from ${entry.scope}`} title={`Remove from ${entry.scope}`} disabled={deleting} onClick={onRemove} className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-red-200 text-red-600 transition hover:border-red-300 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 disabled:cursor-wait disabled:opacity-40"><Trash2 size={14} className={deleting ? "animate-pulse" : ""} /></button>
+    </div>
+  </li>;
+}
+
 function valueOrDash(value: unknown) {
   if (Array.isArray(value)) return value.length ? value.join(", ") : "—";
   return value === null || value === undefined || value === ""
@@ -309,11 +334,14 @@ function ProductDrawer({
   const [deletingMediaId, setDeletingMediaId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [overviewImageFailed, setOverviewImageFailed] = useState(false);
+  const [showAllMediaRelationships, setShowAllMediaRelationships] = useState(false);
   const saveInFlight = useRef(false);
   const [baseline, setBaseline] = useState(product);
   const [form, setForm] = useState<ProductDraft>(() => productDraftFrom(product));
   const token = () => window.localStorage.getItem("rk_access_token") ?? "";
   const mediaGroups = adminMediaGroups(product);
+  const mediaEntries = configuredMediaEntries(product);
+  const visibleMediaEntries = visibleMediaRelationships(mediaEntries, showAllMediaRelationships);
   const overviewImage = adminProductPreview(product);
   const cleanupPlan = guardedMediaCleanupPlan(product, T1_ID, T1_STALE_MEDIA_IDS);
   const canCleanT1Media = cleanupPlan !== null;
@@ -324,6 +352,7 @@ function ProductDrawer({
     onClose();
   };
   useEffect(() => setOverviewImageFailed(false), [overviewImage]);
+  useEffect(() => setShowAllMediaRelationships(false), [product.id]);
   const submitProductForm = () => {
     (document.getElementById("product-edit-form") as HTMLFormElement | null)?.requestSubmit();
   };
@@ -678,45 +707,21 @@ function ProductDrawer({
                 </p>
               </div>
               <span className="text-xs text-[#9a7a4d]">
-                {configuredMediaEntries(product).length} relationship
-                {configuredMediaEntries(product).length === 1 ? "" : "s"}
+                {mediaEntries.length} relationship
+                {mediaEntries.length === 1 ? "" : "s"}
               </span>
             </div>
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[10px] uppercase tracking-[.12em] text-[#8a9098]">
               {(product.variants || []).map((variant) => <span key={variant.id}>{variant.colour || variant.id}: {mediaGroups.variants[variant.id]?.length || 0}</span>)}
               <span>Unassigned: {mediaGroups.unassigned.length}</span>
             </div>
-            {configuredMediaEntries(product).length ? (
-              <ol className="mt-4 space-y-2">
-                {configuredMediaEntries(product).map((entry, index) => (
-                  <li
-                    key={entry.identity}
-                    className="flex items-center gap-3 rounded-lg border border-black/[.06] px-3 py-2 text-xs"
-                  >
-                    <span className="grid h-6 w-6 place-items-center rounded-full bg-[#efece6] text-[10px] text-[#9a7a4d]">
-                      {index + 1}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate">
-                      {entry.label || `WorkDrive image ${index + 1}`} · {entry.scope}
-                    </span>
-                    {index === 0 ? (
-                      <span className="text-[9px] uppercase tracking-[.12em] text-emerald-700">
-                        Primary
-                      </span>
-                    ) : null}
-                    <button
-                      type="button"
-                      aria-label={`Remove ${entry.label || `image ${index + 1}`} from ${entry.scope}`}
-                      title={`Remove from ${entry.scope}`}
-                      disabled={Boolean(deletingMediaId)}
-                      onClick={() => void removeMediaRelationship(entry)}
-                      className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-red-200 text-red-600 transition hover:border-red-300 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 disabled:cursor-wait disabled:opacity-40"
-                    >
-                      <Trash2 size={14} className={deletingMediaId === entry.identity ? "animate-pulse" : ""} />
-                    </button>
-                  </li>
-                ))}
-              </ol>
+            {mediaEntries.length ? (
+              <>
+                <ol className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {visibleMediaEntries.map((entry, index) => <MediaRelationshipCard key={entry.identity} productId={product.id} entry={entry} index={index} primary={index === 0} deleting={Boolean(deletingMediaId)} onRemove={() => void removeMediaRelationship(entry)} />)}
+                </ol>
+                {mediaEntries.length > INITIAL_MEDIA_RELATIONSHIP_COUNT ? <button type="button" aria-expanded={showAllMediaRelationships} onClick={() => setShowAllMediaRelationships((current) => !current)} className="mt-4 rounded-lg border border-black/10 px-4 py-2 text-xs transition hover:border-[#9a7a4d]/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9a7a4d]/40 dark:border-white/10">{showAllMediaRelationships ? 'Show less' : `View all ${mediaEntries.length} relationships`}</button> : null}
+              </>
             ) : (
               <p className="mt-4 text-xs text-[#8a9098]">
                 No media relationships remain. Add WorkDrive links in a colour gallery to configure product images.

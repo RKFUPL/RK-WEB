@@ -1,17 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronRight, LayoutGrid, List } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { LayoutGrid, List } from 'lucide-react';
 import { OperationsSection } from '@/components/staff/operations-section';
+import { CollectionManagementCard } from '@/components/collections/collection-management-card';
 import { apiBaseUrl } from '@/lib/rbac';
 import type { ManagedCollection } from '@/lib/catalog';
 
-const collectionCardImage = (collection: ManagedCollection) =>
-  collection.coverImage || collection.heroImage || collection.hero?.image;
-
 export function AdminProducts() {
-  const router = useRouter();
   const [collections, setCollections] = useState<ManagedCollection[]>([]);
   const [view, setView] = useState<'collections' | 'products'>('collections');
   const [loading, setLoading] = useState(true);
@@ -42,6 +38,6 @@ export function AdminProducts() {
   return <section className="admin-panel mt-8 p-5 sm:p-8">
     <div className="flex flex-wrap items-end justify-between gap-5"><div><p className="text-[10px] uppercase tracking-[.2em] text-[#9a7a4d]">Operations</p><h2 className="mt-2 text-2xl font-semibold">Products</h2><p className="mt-2 text-xs leading-6 text-[#8a9098]">Manage products by collection, or open the complete catalog.</p></div><div className="flex rounded-lg border border-black/10 p-1 dark:border-white/10"><button type="button" onClick={() => setView('collections')} className="inline-flex items-center gap-2 rounded-md bg-[#24211e] px-3 py-2 text-xs text-white"><LayoutGrid size={14} />Collections</button><button type="button" onClick={() => setView('products')} className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs text-[#6e747d]"><List size={14} />All products</button></div></div>
     {error ? <p role="alert" className="mt-5 text-sm text-red-600">{error}</p> : null}
-    {loading ? <p className="mt-8 text-sm text-[#8a9098]">Loading collections…</p> : collections.length ? <div className="mt-8 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">{collections.map((collection) => <button type="button" key={collection.id} onClick={() => router.push(`/admin/products/${encodeURIComponent(collection.slug)}`)} className="group overflow-hidden rounded-xl border border-black/[.08] bg-[#fffdf9] text-left transition hover:-translate-y-0.5 hover:border-[#9a7a4d]/50 hover:shadow-lg dark:border-white/[.08] dark:bg-white/[.02]"><div className="relative aspect-[16/9] overflow-hidden bg-[#eee8de] dark:bg-white/[.04]">{collectionCardImage(collection) ? <img src={collectionCardImage(collection)} alt="" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" /> : <div className="grid h-full place-items-center text-[10px] uppercase tracking-[.2em] text-[#9a7a4d]">Collection</div>}</div><div className="flex items-center justify-between gap-4 p-5"><div className="min-w-0"><h3 className="truncate text-lg font-medium">{collection.name}</h3><p className="mt-1 text-[10px] uppercase tracking-[.16em] text-[#8a9098]">{collection.collectionNumber || collection.slug}</p><p className="mt-3 text-xs text-[#6e747d]">{collection.productCount} {collection.productCount === 1 ? 'product' : 'products'}</p></div><ChevronRight size={18} className="shrink-0 text-[#9a7a4d] transition-transform group-hover:translate-x-1" /></div></button>)}</div> : <div className="mt-8 rounded-xl border border-dashed border-black/10 px-6 py-12 text-center text-sm text-[#8a9098]">No collections available.</div>}
+    {loading ? <p className="mt-8 text-sm text-[#8a9098]">Loading collections…</p> : collections.length ? <div className="mt-8 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">{collections.map((collection) => <CollectionManagementCard key={collection.id} collection={collection} href={`/admin/products/${encodeURIComponent(collection.slug)}`} />)}</div> : <div className="mt-8 rounded-xl border border-dashed border-black/10 px-6 py-12 text-center text-sm text-[#8a9098]">No collections available.</div>}
   </section>;
 }

@@ -15,6 +15,7 @@ const shopCategories = readFileSync(new URL('../components/home/shop-categories.
 const sizeChart = readFileSync(new URL('../components/products/size-chart-popover.tsx', import.meta.url), 'utf8');
 const naturalSort = readFileSync(new URL('./natural-sort.ts', import.meta.url), 'utf8');
 const adminProducts = readFileSync(new URL('../components/admin/admin-products.tsx', import.meta.url), 'utf8');
+const adminCollectionCard = readFileSync(new URL('../components/collections/collection-management-card.tsx', import.meta.url), 'utf8');
 const rbac = readFileSync(new URL('./rbac.ts', import.meta.url), 'utf8');
 
 test('collection request failures remain distinct from genuine empty collections', () => {
@@ -120,7 +121,7 @@ test('Hastakala cards use collection media instead of a missing lookbook cover r
   assert.match(shopCategories, /catalogCollections\[item\.href/);
   assert.match(shopCategories, /collection\.coverImage \|\| collection\.heroImage/);
   assert.doesNotMatch(adminProducts, /lookbooks\/hastakala\/cover/);
-  assert.match(adminProducts, /collection\.coverImage \|\| collection\.heroImage \|\| collection\.hero\?\.image/);
+  assert.match(adminCollectionCard, /collection\.coverImage \|\| collection\.heroImage \|\| collection\.hero\?\.image/);
 });
 
 test('homepage collection cards resolve images and links by catalog slug', () => {
@@ -139,9 +140,10 @@ test('size guide label and natural product sorting are shared', () => {
 
 test('admin collection cards use catalog media for Aakaar instead of a lookbook cover route', () => {
   assert.doesNotMatch(adminProducts, /lookbooks\/aakaar\/cover/);
-  assert.match(adminProducts, /const collectionCardImage = \(collection: ManagedCollection\) =>/);
-  assert.match(adminProducts, /collection\.heroImage \|\| collection\.hero\?\.image/);
-  assert.match(adminProducts, /Campaign|Collection/);
+  assert.match(adminProducts, /CollectionManagementCard/);
+  assert.match(adminCollectionCard, /collectionManagementCardImage/);
+  assert.match(adminCollectionCard, /collection\.heroImage \|\| collection\.hero\?\.image/);
+  assert.match(adminCollectionCard, /Collection image unavailable/);
 });
 
 test('storefront Aakaar prefers saved catalog media and retains editorial media as fallback', () => {

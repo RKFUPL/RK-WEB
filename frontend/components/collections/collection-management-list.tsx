@@ -1,11 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { ChevronRight, Plus, X } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { Plus, X } from 'lucide-react';
 import { apiBaseUrl } from '@/lib/rbac';
 import type { ManagedCollection } from '@/lib/catalog';
 import { formatDate } from '@/lib/date-time';
+import { CollectionManagementCard } from '@/components/collections/collection-management-card';
 
 function displayStatus(status: string) {
   return status === 'collection' || status === 'active' ? 'Collection' : status;
@@ -56,7 +56,6 @@ function CreateCollectionDrawer({ onClose, onCreated }: { onClose: () => void; o
 }
 
 export function CollectionManagementList({ basePath }: { basePath: '/admin/collections' | '/staff/collections' }) {
-  const router = useRouter();
   const [collections, setCollections] = useState<ManagedCollection[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -85,7 +84,7 @@ export function CollectionManagementList({ basePath }: { basePath: '/admin/colle
   return <section className="admin-panel mt-8 p-5 sm:p-8">
     <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-[10px] font-semibold uppercase tracking-[.2em] text-[var(--admin-gold)]">Catalog</p><h2 className="mt-2 text-3xl">Collections</h2><p className="mt-2 text-sm leading-6 text-[var(--admin-muted)]">Select a collection to manage its products, editorial presentation, and display order.</p></div><button type="button" onClick={() => setCreating(true)} className="admin-button-primary inline-flex items-center gap-2 px-4 py-2.5 text-xs"><Plus size={15}/> Add new collection</button></div>
     {error ? <p role="alert" className="mt-5 text-sm text-red-600">{error}</p> : null}
-    {loading ? <p className="mt-8 text-sm text-[#8a9098]">Loading collections…</p> : collections.length ? <div className="mt-8 overflow-hidden rounded-xl border border-black/[.06] dark:border-white/[.08]"><table className="w-full table-fixed text-left text-sm"><thead className="border-b border-black/[.07] text-[9px] uppercase tracking-[.16em] text-[#8a9098]"><tr><th className="w-[44%] px-4 py-3 sm:w-[26%]">Collection</th><th className="hidden w-[28%] px-4 py-3 md:table-cell">Slug</th><th className="hidden w-[14%] px-4 py-3 sm:table-cell">Status</th><th className="hidden w-[16%] px-4 py-3 lg:table-cell">Created</th><th className="w-[20%] px-4 py-3 text-right sm:w-[11%]">Products</th><th className="w-10 px-2 py-3"><span className="sr-only">Open</span></th></tr></thead><tbody>{collections.map((collection) => <tr key={collection.id} role="link" tabIndex={0} aria-label={`Open ${collection.name} collection`} onClick={() => router.push(`${basePath}/${collection.slug}`)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); router.push(`${basePath}/${collection.slug}`); } }} className="group cursor-pointer border-b border-black/[.055] transition last:border-b-0 hover:bg-[#faf8f4] focus:bg-[#faf8f4] focus:outline-none dark:hover:bg-white/[.035] dark:focus:bg-white/[.035]"><td className="px-4 py-4 font-medium text-[#353a42] dark:text-white"><span className="block truncate">{collection.name}</span><span className="mt-1 block truncate text-[10px] font-normal text-[#8a9098] md:hidden">{collection.slug}</span></td><td className="hidden truncate px-4 py-4 text-[#6e747d] md:table-cell">{collection.slug}</td><td className="hidden px-4 py-4 capitalize text-[#6e747d] sm:table-cell">{displayStatus(collection.status)}</td><td className="hidden px-4 py-4 text-[#6e747d] lg:table-cell">{collection.createdAt ? formatDate(collection.createdAt) : '—'}</td><td className="px-4 py-4 text-right tabular-nums text-[#6e747d]">{collection.productCount}</td><td className="px-2 py-4 text-[#9a7a4d]"><ChevronRight size={16} className="transition-transform group-hover:translate-x-0.5" /></td></tr>)}</tbody></table></div> : <div className="mt-8 rounded-xl border border-dashed border-black/10 px-6 py-12 text-center text-sm text-[#8a9098]">No collections available.</div>}
+    {loading ? <p className="mt-8 text-sm text-[#8a9098]">Loading collections…</p> : collections.length ? <div className="mt-8 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">{collections.map((collection) => <CollectionManagementCard key={collection.id} collection={collection} href={`${basePath}/${encodeURIComponent(collection.slug)}`} statusLabel={displayStatus(collection.status)} createdLabel={collection.createdAt ? formatDate(collection.createdAt) : undefined} />)}</div> : <div className="mt-8 rounded-xl border border-dashed border-black/10 px-6 py-12 text-center text-sm text-[#8a9098]">No collections available.</div>}
     {creating ? <CreateCollectionDrawer onClose={() => setCreating(false)} onCreated={(collection) => { setCollections((items) => [collection, ...items.filter((item) => item.id !== collection.id)]); setCreating(false); }} /> : null}
   </section>;
 }
