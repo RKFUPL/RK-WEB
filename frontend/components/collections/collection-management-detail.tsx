@@ -16,6 +16,7 @@ import {
   adminMediaGroups,
   guardedMediaCleanupPlan,
   inr,
+  productColours,
   type CatalogProduct,
   type CollectionHeroConfig,
   type ManagedCollection,
@@ -33,6 +34,7 @@ import {
 import { VariantMediaEditor } from "@/components/collections/variant-media-editor";
 import { CreateProductLevelMediaEditor, CreateProductMediaEditor } from "@/components/collections/create-product-media-editor";
 import { adminMediaRelationshipPreview, INITIAL_MEDIA_RELATIONSHIP_COUNT, visibleMediaRelationships } from "@/lib/admin-media-relationships";
+import { colourSwatchValue, useColourSwatches } from "@/lib/colour-swatches";
 
 type DetailPayload = {
   collection: ManagedCollection & { products: CatalogProduct[] };
@@ -290,6 +292,21 @@ function statusLabel(status: string) {
 
 function parentCode(product: CatalogProduct) {
   return product.styleCode || product.productCode || product.parentSku || product.sku || "";
+}
+
+function CollectionColourWays({ product }: { product: CatalogProduct }) {
+  const colourSwatches = useColourSwatches();
+  const colours = productColours(product);
+  if (!colours.length) return <>—</>;
+  return <div className="flex max-w-32 flex-wrap gap-2" aria-label={`${colours.length} colour${colours.length === 1 ? "" : "s"}`}>
+    {colours.map((colour) => (
+      <span key={colour} tabIndex={0} aria-label={colour} title={colour} className="group relative inline-flex h-4 w-4 shrink-0 cursor-help rounded-full border border-black/15 outline-none focus-visible:ring-2 focus-visible:ring-[#c69a62]/70" style={{ backgroundColor: colourSwatchValue(colour, colourSwatches) || "#b7aa99" }}>
+        <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 -translate-x-1/2 whitespace-nowrap rounded bg-[#20242b] px-2 py-1 text-[9px] font-medium uppercase tracking-[.12em] text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+          {colour}
+        </span>
+      </span>
+    ))}
+  </div>;
 }
 
 function adminProductPreview(product: CatalogProduct) {
@@ -702,6 +719,9 @@ function ProductDrawer({
               ))}
             </div>
           </section> : null}
+          {activeSection === "media" && canManageProducts && product.variants?.length ? (
+            <VariantMediaEditor productId={product.id} variants={product.variants} token={token} onSaved={onReload} initialVariantId={initialVariantId} />
+          ) : null}
           {activeSection === "media" ? <section className="admin-panel p-5">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -800,9 +820,6 @@ function ProductDrawer({
                 Product-detail changes are ready to save. Gallery relationships are saved separately below.
               </p>
             </form>
-          ) : null}
-          {activeSection === "media" && canManageProducts && product.variants?.length ? (
-            <VariantMediaEditor productId={product.id} variants={product.variants} token={token} onSaved={onReload} initialVariantId={initialVariantId} />
           ) : null}
           {activeSection === "pricing" && editing ? <form id="product-edit-form" onSubmit={save} className="admin-panel mb-6 p-5"><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[var(--admin-gold)]">Edit pricing</p><div className="mt-4 grid gap-4 sm:grid-cols-2"><label className="text-[10px] uppercase tracking-[.14em] text-[#8a9098]">Base price<input type="number" min="0" step="0.01" value={form.price} onChange={(event) => setForm((current) => ({ ...current, price: event.target.value }))} className={inputClass} /></label><label className="text-[10px] uppercase tracking-[.14em] text-[#8a9098]">Availability<select value={form.availability} onChange={(event) => setForm((current) => ({ ...current, availability: event.target.value as ProductAvailability }))} className={inputClass}>{availabilityOptions.map((option) => <option key={option} value={option}>{availabilityLabels[option]}</option>)}</select></label><label className="text-[10px] uppercase tracking-[.14em] text-[#8a9098]">Style code / SKU<input value={parentCode(baseline)} readOnly className={`${inputClass} cursor-not-allowed opacity-70`} /></label></div></form> : null}
           {(activeSection === "overview" && canManageProducts) || (activeSection === "media" && canManageProducts && canCleanT1Media) || (activeSection === "pricing" && canManageInventory) ? (
@@ -1717,14 +1734,15 @@ export function CollectionManagementDetail({
           </div>
         ) : null}
         {collection.products.length ? (
-          <div className="mt-7 overflow-hidden rounded-xl border border-black/[.06] dark:border-white/[.08]">
-            <table className="w-full table-fixed text-left text-sm">
+          <div className="mt-7 overflow-x-auto rounded-xl border border-black/[.06] dark:border-white/[.08]">
+            <table className="w-full min-w-[760px] table-fixed text-left text-sm">
               <thead className="border-b border-black/[.07] text-[9px] uppercase tracking-[.16em] text-[#8a9098]">
                 <tr>
-                  <th className="w-[46%] px-4 py-3 sm:w-[30%]">Product</th>
+                  <th className="w-[30%] px-4 py-3">Product</th>
                   <th className="hidden w-[18%] px-4 py-3 md:table-cell">
                     Code
                   </th>
+                  <th className="w-[24%] px-4 py-3 sm:w-[20%]">COLOR-WAYS</th>
                   <th className="w-[28%] px-4 py-3 sm:w-[18%]">Availability</th>
                   <th className="hidden w-[16%] px-4 py-3 text-right sm:table-cell">
                     Price
@@ -1760,6 +1778,7 @@ export function CollectionManagementDetail({
                     <td className="hidden truncate px-4 py-4 text-[#6e747d] md:table-cell">
                       {parentCode(product) || "—"}
                     </td>
+                    <td className="px-4 py-4 align-top"><CollectionColourWays product={product} /></td>
                     <td className="px-4 py-4 text-xs text-[#6e747d]">
                       {availabilityLabels[product.availability]}
                     </td>

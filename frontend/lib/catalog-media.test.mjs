@@ -189,6 +189,28 @@ test("removed variants do not resurrect colours from legacy attributes", () => {
   assert.deepEqual(productColours(product), ["RED"]);
 });
 
+test("collection management maps canonical active API variants to COLOR-WAYS and shows a dash when empty", () => {
+  const productWithColours = t1Product();
+  productWithColours.attributes = { colors: ["stale attribute"] };
+  const productWithoutColours = { ...t1Product(), variants: [], attributes: { colors: [] } };
+  assert.deepEqual(productColours(productWithColours), ["RED", "BLUE"]);
+  assert.deepEqual(productColours(productWithoutColours), []);
+  assert.match(drawer, /CollectionColourWays/);
+  assert.match(drawer, /COLOR-WAYS/);
+  assert.match(drawer, /colourSwatchValue\(colour, colourSwatches\) \|\| "#b7aa99"/);
+  assert.match(drawer, /tabIndex=\{0\}/);
+  assert.match(drawer, /role="tooltip"/);
+  assert.match(drawer, /: "—"/);
+});
+
+test("media and galleries renders before ordered product images", () => {
+  const galleriesIndex = drawer.indexOf("<VariantMediaEditor");
+  const productImagesIndex = drawer.indexOf("Product images");
+  assert.ok(galleriesIndex >= 0);
+  assert.ok(productImagesIndex >= 0);
+  assert.ok(galleriesIndex < productImagesIndex);
+});
+
 test("product detail excludes removed variants from the selector", () => {
   assert.match(productDetail, /const variantOptions = \(product\?\.variants \?\? \[\]\)\.filter/);
   assert.match(productDetail, /variant\.status !== "remove"/);
