@@ -146,6 +146,26 @@ def collection_display_sort_key(collection: dict) -> tuple:
     rank = _NORMAL_COLLECTION_RANK.get(name, len(NORMAL_COLLECTION_ORDER))
     return (rank, int(collection.get("displayOrder", 9999)), str(collection.get("createdAt") or ""), str(collection.get("_id")))
 
+
+def collection_product_ref_order(ref: dict) -> tuple[bool, int]:
+    value = ref.get("displayOrder")
+    try:
+        has_order = value is not None and str(value).strip() != ""
+        return has_order, int(value) if has_order else 0
+    except (TypeError, ValueError):
+        return False, 0
+
+
+def collection_product_ref_sort_key(ref: dict) -> tuple:
+    """Sort collection references by their persisted order without rewriting it.
+
+    Legacy references may omit or contain an invalid display order. Those are
+    placed after explicitly ordered references and use the stable product ID
+    as the deterministic tie-breaker.
+    """
+    has_order, order = collection_product_ref_order(ref)
+    return (0 if has_order else 1, order, str(ref.get("productId")))
+
 _NORMAL_COLLECTIONS = (
     {
         "name": "Anamika",
@@ -1199,11 +1219,11 @@ def collection_product_documents(
     colour: str = "",
 ) -> list[tuple[dict, int]]:
     refs = [ref for ref in (collection.get("productRefs") or []) if isinstance(ref, dict) and isinstance(ref.get("productId"), ObjectId)]
-    refs.sort(key=lambda ref: (int(ref.get("displayOrder", 0)), str(ref["productId"])))
+    refs.sort(key=collection_product_ref_sort_key)
     product_ids = [ref["productId"] for ref in refs]
     products = {product["_id"]: product for product in db.products.find({"_id": {"$in": product_ids}}, projection)} if product_ids else {}
     matched = [
-        (products[ref["productId"]], int(ref.get("displayOrder", 0)))
+        (products[ref["productId"]], collection_product_ref_order(ref)[1])
         for ref in refs
         if ref["productId"] in products and _product_matches_collection_filters(products[ref["productId"]], style=style, colour=colour)
     ]

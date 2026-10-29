@@ -20,6 +20,7 @@ import {
   type CollectionHeroConfig,
   type ManagedCollection,
   type ProductAvailability,
+  sortStorefrontCollectionProducts,
 } from "@/lib/catalog";
 import { formatDate } from "@/lib/date-time";
 import {
@@ -1739,7 +1740,7 @@ export function CollectionManagementDetail({
                 </tr>
               </thead>
               <tbody>
-                {collection.products.map((product) => (
+                {sortStorefrontCollectionProducts(collection.products).map((product) => (
                   <tr
                     key={product.id}
                     onClick={() => setSelectedId(product.id)}

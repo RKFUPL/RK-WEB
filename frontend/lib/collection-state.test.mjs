@@ -14,6 +14,7 @@ const collectionsPage = readFileSync(new URL('../app/collections/page.tsx', impo
 const shopCategories = readFileSync(new URL('../components/home/shop-categories.tsx', import.meta.url), 'utf8');
 const sizeChart = readFileSync(new URL('../components/products/size-chart-popover.tsx', import.meta.url), 'utf8');
 const naturalSort = readFileSync(new URL('./natural-sort.ts', import.meta.url), 'utf8');
+const catalog = readFileSync(new URL('./catalog.ts', import.meta.url), 'utf8');
 const adminProducts = readFileSync(new URL('../components/admin/admin-products.tsx', import.meta.url), 'utf8');
 const adminCollectionCard = readFileSync(new URL('../components/collections/collection-management-card.tsx', import.meta.url), 'utf8');
 const rbac = readFileSync(new URL('./rbac.ts', import.meta.url), 'utf8');
@@ -24,6 +25,36 @@ test('collection request failures remain distinct from genuine empty collections
   assert.match(products, /This collection could not be loaded/);
   assert.match(products, /No products in this collection yet/);
   assert.match(products, /role="alert"/);
+});
+
+test('admin keeps displayOrder while storefront collections use natural canonical product-code order', () => {
+  assert.match(catalog, /export function sortCollectionProducts/);
+  assert.match(catalog, /Number\.isFinite\(left\.displayOrder\)/);
+  assert.match(catalog, /left\.id\.localeCompare\(right\.id\)/);
+  assert.match(catalog, /export function sortStorefrontCollectionProducts/);
+  assert.match(catalog, /new Intl\.Collator\(undefined, \{ numeric: true, sensitivity: 'base' \}\)/);
+  assert.match(management, /sortStorefrontCollectionProducts\(collection\.products\)/);
+  assert.doesNotMatch(management, /sortCollectionProducts\(collection\.products\)/);
+  assert.match(products, /sortStorefrontCollectionProducts\(collection\?\.products \?\? \[\]\)/);
+});
+
+test('admin Aakaar table renders natural product-code order without rewriting displayOrder', () => {
+  const rows = [
+    { id: 'test', name: 'Test', styleCode: 'T1', displayOrder: 1 },
+    { id: 't2', name: 'T2', styleCode: 'T2', displayOrder: 2 },
+    { id: 't0', name: 'T0', styleCode: 'T0', displayOrder: 3 },
+    { id: 'ck05', name: 'CK05', styleCode: 'CK05', displayOrder: 4 },
+    { id: 'ck02', name: 'CK02', styleCode: 'CK02', displayOrder: 5 },
+  ];
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  const ordered = [...rows]
+    .sort((left, right) => collator.compare(left.styleCode, right.styleCode)
+      || left.id.localeCompare(right.id))
+    .map((row) => row.name);
+
+  assert.deepEqual(ordered, ['CK02', 'CK05', 'T0', 'Test', 'T2']);
+  assert.deepEqual(rows.map((row) => row.displayOrder), [1, 2, 3, 4, 5]);
+  assert.match(management, /value=\{product\.displayOrder \?\? 0\}/);
 });
 
 test('every dynamic collection hero can scroll to the shared results section', () => {
@@ -137,6 +168,19 @@ test('size guide label and natural product sorting are shared', () => {
   assert.match(sizeChart, />\s*Size guide\s*</);
   assert.match(naturalSort, /Number\(part\)/);
   assert.match(products, /compareProductCodes/);
+});
+
+test('storefront natural ordering covers mixed numeric codes and deterministic ties', () => {
+  const mixedCodes = ['T0', 'T1', 'T2', 'T10', 'CK02', 'CK05', 'CK10'];
+  assert.deepEqual(
+    [...mixedCodes].sort((left, right) => left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' })),
+    ['CK02', 'CK05', 'CK10', 'T0', 'T1', 'T2', 'T10'],
+  );
+  assert.match(naturalSort, /naturalProductCode/);
+  assert.match(naturalSort, /Number\(part\)/);
+  assert.match(naturalSort, /String\(left\.id \|\| ''\)\.localeCompare\(String\(right\.id/);
+  assert.match(products, /sortStorefrontCollectionProducts/);
+  assert.doesNotMatch(products, /sortCollectionProducts\(collection\?\.products/);
 });
 
 test('admin collection cards use catalog media for Aakaar instead of a lookbook cover route', () => {

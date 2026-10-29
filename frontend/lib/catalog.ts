@@ -148,6 +148,39 @@ export type CatalogProduct = {
   };
 };
 
+export function sortCollectionProducts<T extends { id: string; displayOrder?: number }>(products: T[]): T[] {
+  return [...products].sort((left, right) => {
+    const leftHasOrder = Number.isFinite(left.displayOrder);
+    const rightHasOrder = Number.isFinite(right.displayOrder);
+    if (leftHasOrder !== rightHasOrder) return leftHasOrder ? -1 : 1;
+    if (leftHasOrder && rightHasOrder && left.displayOrder !== right.displayOrder) {
+      return (left.displayOrder as number) - (right.displayOrder as number);
+    }
+    return left.id.localeCompare(right.id);
+  });
+}
+
+/**
+ * Collection storefronts use the canonical product/style code for their
+ * default order. This is intentionally separate from the admin's persisted
+ * displayOrder, which remains a manually editable collection relationship.
+ */
+export function sortStorefrontCollectionProducts<T extends {
+  id: string;
+  styleCode?: string;
+  productCode?: string;
+  parentSku?: string;
+  sku?: string;
+}>(products: T[]): T[] {
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  return [...products].sort((left, right) => {
+    const leftCode = left.styleCode || left.productCode || left.parentSku || left.sku || '';
+    const rightCode = right.styleCode || right.productCode || right.parentSku || right.sku || '';
+    return collator.compare(leftCode, rightCode)
+      || String(left.id).localeCompare(String(right.id), undefined, { sensitivity: 'base' });
+  });
+}
+
 function uniqueMediaSources(values: Array<string | undefined>) {
   const seen = new Set<string>();
   return values.filter((value): value is string => {

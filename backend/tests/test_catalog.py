@@ -5,7 +5,7 @@ from unittest.mock import ANY, MagicMock, patch
 from bson import ObjectId
 from flask import Flask
 
-from app.catalog import AAKAAR_COLLECTION_SEED, AAKAAR_PRODUCT_SEEDS, ANAMIKA_PRODUCT_SEEDS, HASTAKALA_PRODUCT_SEEDS, NORMAL_COLLECTIONS, PRODUCT_SEEDS, _ensure_compatible_index, _product_seed_document, collection_hero, collection_product_count, collection_view, ensure_catalog_seed, is_excluded_collection, is_runway_collection, natural_product_sort_key, product_card_view, product_view
+from app.catalog import AAKAAR_COLLECTION_SEED, AAKAAR_PRODUCT_SEEDS, ANAMIKA_PRODUCT_SEEDS, HASTAKALA_PRODUCT_SEEDS, NORMAL_COLLECTIONS, PRODUCT_SEEDS, _ensure_compatible_index, _product_seed_document, collection_hero, collection_product_count, collection_product_documents, collection_view, ensure_catalog_seed, is_excluded_collection, is_runway_collection, natural_product_sort_key, product_card_view, product_view
 from app.blueprints.catalog.routes import _shop_matches, catalog_bp
 from app.blueprints.staff.routes import _replace_parent_catalog_media, _validated_collection_hero, _variant_gallery_payload
 from app.inventory import DEFAULT_CUSTOM_SIZE_FIELDS, STANDARD_SIZES, custom_size_fields, validate_custom_size
@@ -260,6 +260,28 @@ class CatalogTests(unittest.TestCase):
         payload = collection_view(type("DB", (), {"products": Products()})(), collection)
         self.assertEqual([product["name"] for product in payload["products"]], ["Second", "First"])
         self.assertEqual(payload["products"][0]["media"], ["https://example.com/current-two.jpg"])
+
+    def test_collection_reference_order_is_deterministic_without_rewriting_values(self):
+        first_id = ObjectId("000000000000000000000002")
+        second_id = ObjectId("000000000000000000000001")
+        third_id = ObjectId("000000000000000000000003")
+        products = [{"_id": product_id, "status": "active", "isActive": True} for product_id in (first_id, second_id, third_id)]
+
+        class Products:
+            def find(self, *_args, **_kwargs):
+                return products
+
+        refs = [
+            {"productId": first_id, "displayOrder": 2},
+            {"productId": second_id, "displayOrder": 2},
+            {"productId": third_id},
+        ]
+        collection = {"_id": ObjectId(), "productRefs": refs}
+        result = collection_product_documents(type("DB", (), {"products": Products()})(), collection)
+
+        self.assertEqual([product["_id"] for product, _order in result], [second_id, first_id, third_id])
+        self.assertEqual([order for _product, order in result], [2, 2, 0])
+        self.assertEqual(collection["productRefs"], refs)
 
     def test_product_media_falls_back_from_empty_variant_to_structured_cloudinary(self):
         product = {

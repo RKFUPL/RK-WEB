@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { SlidersHorizontal, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { CollectionProductCard } from '@/components/collections/collection-product-card';
-import { normalizeColour, productColours, productHasColour, type CatalogProduct, type ManagedCollection, type ProductAvailability } from '@/lib/catalog';
+import { normalizeColour, productColours, productHasColour, sortStorefrontCollectionProducts, type CatalogProduct, type ManagedCollection, type ProductAvailability } from '@/lib/catalog';
 import { parseTimestamp } from '@/lib/date-time';
 import { compareProductCodes } from '@/lib/natural-sort';
 
@@ -29,7 +29,7 @@ export function StorefrontCollectionProducts({ collection, loading = false, erro
   const [availability, setAvailability] = useState<ProductAvailability | ''>('');
   const [maxPrice, setMaxPrice] = useState('');
   const [sort, setSort] = useState<SortOption>('featured');
-  const products = useMemo(() => collection?.products ?? [], [collection]);
+  const products = useMemo(() => sortStorefrontCollectionProducts(collection?.products ?? []), [collection]);
   const categories = useMemo(() => unique(products.map((product) => product.category || 'Couture')), [products]);
   const sizes = useMemo(() => unique(products.flatMap((product) => product.sizeInventory?.map((entry) => entry.size) ?? product.attributes?.sizes ?? [])), [products]);
   const colors = useMemo(() => [...new Set(products.flatMap((product) => productColours(product)))].sort(), [products]);
