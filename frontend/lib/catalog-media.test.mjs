@@ -182,6 +182,18 @@ test("collection colour matching uses canonical variants and ignores stale attri
   assert.equal(productHasColour(product, ""), true);
 });
 
+test("removed variants do not resurrect colours from legacy attributes", () => {
+  const product = t1Product();
+  product.attributes = { colors: ["RED", "BLUE"] };
+  product.variants[1].status = "remove";
+  assert.deepEqual(productColours(product), ["RED"]);
+});
+
+test("product detail excludes removed variants from the selector", () => {
+  assert.match(productDetail, /const variantOptions = \(product\?\.variants \?\? \[\]\)\.filter/);
+  assert.match(productDetail, /variant\.status !== "remove"/);
+});
+
 test("filter changes select the matching card variant without leaving cards hidden", () => {
   assert.match(collectionProducts, /selectedColour=\{color\}/);
   assert.match(card, /normalizeColour\(variant\.colour\) === normalizeColour\(selectedColour\)/);

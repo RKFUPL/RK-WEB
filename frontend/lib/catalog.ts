@@ -6,11 +6,14 @@ export function normalizeColour(value: unknown): string {
 }
 
 export function productColours(product: Pick<CatalogProduct, 'attributes' | 'variants'>): string[] {
-  const variantValues = (product.variants || [])
+  const variants = product.variants || [];
+  const variantValues = variants
     .filter((variant) => variant.status === 'active')
     .map((variant) => variant.colour)
     .filter(Boolean);
-  const values = variantValues.length
+  // Once variant records exist, their status is authoritative. Falling back
+  // to attributes here would resurrect a colour whose variant was removed.
+  const values = variants.length
     ? variantValues
     : product.attributes?.colors ?? (product.attributes?.color ? [String(product.attributes.color)] : []);
   return [...new Set(values.map(normalizeColour).filter(Boolean))];

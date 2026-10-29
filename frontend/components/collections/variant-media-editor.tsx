@@ -152,7 +152,9 @@ export function VariantMediaEditor({ productId, variants, token, onSaved, initia
       if (created?.id) {
         setPendingVariantId(created.id);
         await onSaved?.();
-        if (variants.some((item) => item.id === created.id)) setVariantId(created.id);
+        // The parent reload supplies the new canonical variant list. Do not
+        // consult the stale `variants` prop captured before the POST.
+        setVariantId(created.id);
       }
       else await onSaved?.();
     } catch (value) { setError(value instanceof Error ? value.message : "Unable to add colour."); }

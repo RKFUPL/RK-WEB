@@ -79,6 +79,7 @@ class ProductDatabase:
         self.products = MutableCollection(document)
         self.collections = SimpleNamespace(find=MagicMock(return_value=[]))
         self.inventory_adjustments = SimpleNamespace(insert_one=MagicMock())
+        self.variant_status_history = SimpleNamespace(insert_one=MagicMock())
         self.settings = SimpleNamespace(find_one=MagicMock(return_value={}), update_one=MagicMock())
 
     def __getitem__(self, name):
@@ -187,6 +188,46 @@ class EndpointAuthorizationTests(unittest.TestCase):
         with patch("app.rbac.current_user", return_value=staff), patch("app.blueprints.staff.routes.current_user", return_value=staff):
             response = self.client.get("/api/staff/resources/orders", headers=self.headers)
         self.assertEqual(response.status_code, 403)
+
+    def test_removed_colour_is_cleaned_and_reactivated_without_duplicate(self):
+        product_id = ObjectId()
+        document = {
+            "_id": product_id,
+            "name": "CK 173",
+            "sku": "HK-CK173",
+            "price": 100,
+            "status": "active",
+            "attributes": {"colors": ["IVORY", "ROYAL BLUE"]},
+            "media": [],
+            "catalogMedia": [],
+            "variants": [
+                {"id": "colour:ivory", "colour": "IVORY", "status": "active", "images": [], "imageMeta": []},
+                {"id": "colour:royal-blue", "colour": "ROYAL BLUE", "status": "active", "images": ["https://workdrive.zoho.in/file/blue"], "imageMeta": []},
+            ],
+        }
+        database = ProductDatabase(document)
+        admin = {"_id": ObjectId(), "role": "admin", "isActive": True, "permissions": ["*"]}
+        with patch("app.rbac.current_user", return_value=admin), \
+             patch("app.blueprints.staff.routes.current_user", return_value=admin), \
+             patch("app.blueprints.staff.routes.database", return_value=database):
+            removed = self.client.patch(
+                f"/api/staff/products/{product_id}/variants/colour:royal-blue",
+                json={"status": "remove"}, headers=self.headers,
+            )
+            self.assertEqual(removed.status_code, 200)
+            self.assertEqual(document["attributes"]["colors"], ["IVORY"])
+            restored = self.client.post(
+                f"/api/staff/products/{product_id}/variants",
+                json={"colour": " royal   blue "}, headers=self.headers,
+            )
+
+        self.assertEqual(restored.status_code, 200)
+        self.assertTrue(restored.get_json()["reactivated"])
+        royal = [item for item in document["variants"] if item["id"] == "colour:royal-blue"]
+        self.assertEqual(len(royal), 1)
+        self.assertEqual(royal[0]["status"], "active")
+        self.assertEqual(royal[0]["images"], ["https://workdrive.zoho.in/file/blue"])
+        self.assertEqual(document["attributes"]["colors"].count("ROYAL BLUE"), 1)
 
     def test_staff_without_product_or_inventory_capability_cannot_list_collections(self):
         staff = {"_id": ObjectId(), "role": "staff", "isActive": True, "permissions": []}

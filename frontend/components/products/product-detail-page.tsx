@@ -138,7 +138,9 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
   const [openSection, setOpenSection] = useState("");
   const [message, setMessage] = useState("");
   const [notFound, setNotFound] = useState(false);
-  const variantOptions = product?.variants ?? [];
+  const variantOptions = (product?.variants ?? []).filter(
+    (variant) => variant.status !== "remove",
+  );
   const selectedVariant =
     variantOptions.find((variant) => variant.id === selectedVariantId) ??
     variantOptions.find((variant) => variant.status === "active") ??
@@ -187,9 +189,9 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
         const nextProduct = payload.product as CatalogProduct;
         const initialVariant =
           nextProduct.variants?.find((variant) => variant.id === initialVariantId && variant.status !== "remove") ??
-          nextProduct.variants?.find(
+          nextProduct.variants?.filter((variant) => variant.status !== "remove").find(
             (variant) => variant.status === "active",
-          ) ?? nextProduct.variants?.[0];
+          ) ?? nextProduct.variants?.find((variant) => variant.status !== "remove");
         setProduct(nextProduct);
         setSelectedVariantId(initialVariant?.id ?? "");
         setCollections(payload.collections || []);

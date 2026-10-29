@@ -1306,6 +1306,27 @@ def create_product_variant(product_id: str):
     variants = [dict(item) for item in product.get("variants", []) if isinstance(item, dict)]
     existing = next((item for item in variants if normalise_colour(item.get("colour") or item.get("color")) == colour), None)
     if existing:
+        if str(existing.get("status") or "").strip().lower() == "remove":
+            # Reuse the product-specific variant instead of creating a second
+            # record. Its existing gallery remains attached to that variant.
+            reactivated = [dict(item) for item in variants]
+            existing_id = str(existing.get("id") or "")
+            existing_index = next(
+                index for index, item in enumerate(reactivated)
+                if str(item.get("id") or "") == existing_id
+            )
+            reactivated[existing_index]["status"] = "active"
+            attributes = dict(product.get("attributes") or {})
+            raw_colours = attributes.get("colors") if isinstance(attributes.get("colors"), list) else [attributes.get("color")]
+            colours = [normalise_colour(value) for value in raw_colours if normalise_colour(value)]
+            if colour.casefold() not in {value.casefold() for value in colours}:
+                colours.append(colour)
+            attributes["colors"] = colours
+            actor = current_user()
+            db.products.update_one({"_id": object_id}, {"$set": {"attributes": attributes, "variants": reactivated, "updatedAt": datetime.now(timezone.utc), "updatedBy": actor["_id"]}})
+            updated = sync_product_variants(db, db.products.find_one({"_id": object_id}), force=True)
+            restored = next((item for item in updated.get("variants", []) if normalise_colour(item.get("colour")) == colour), None)
+            return jsonify({"item": _document_view(updated, "products"), "variant": restored, "reactivated": True}), 200
         return jsonify({
             "error": "That colour already exists.",
             "variantId": str(existing.get("id") or ""),
@@ -1408,9 +1429,27 @@ def update_product_variant(product_id: str, variant_id: str):
     actor = current_user()
     after_product = dict(product)
     after_product["variants"] = variants
+    attributes = dict(product.get("attributes") or {})
+    removed_colour = normalise_colour(updated_variant.get("colour") or updated_variant.get("color"))
+    if updated_variant.get("status") == "remove" and not any(
+        normalise_colour(item.get("colour") or item.get("color")) == removed_colour
+        and str(item.get("status") or "active").strip().lower() != "remove"
+        for item in variants
+    ):
+        raw_colours = attributes.get("colors") if isinstance(attributes.get("colors"), list) else [attributes.get("color")]
+        attributes["colors"] = [
+            normalise_colour(value)
+            for value in raw_colours
+            if normalise_colour(value) and normalise_colour(value).casefold() != removed_colour.casefold()
+        ]
+        if normalise_colour(attributes.get("color")).casefold() == removed_colour.casefold():
+            attributes.pop("color", None)
     before_product["catalogMedia"] = list(product.get("catalogMedia") or [])
     after_product["catalogMedia"] = _sync_variant_media_catalog(product, variants)
-    db.products.update_one({"_id": object_id}, {"$set": {"variants": variants, "catalogMedia": after_product["catalogMedia"], "updatedAt": now, "updatedBy": actor["_id"]}})
+    update = {"variants": variants, "catalogMedia": after_product["catalogMedia"], "updatedAt": now, "updatedBy": actor["_id"]}
+    if updated_variant.get("status") == "remove":
+        update["attributes"] = attributes
+    db.products.update_one({"_id": object_id}, {"$set": update})
     if updated_variant.get("status") != selected.get("status"):
         db.variant_status_history.insert_one({
             "productId": object_id,
