@@ -522,6 +522,20 @@ class CatalogTests(unittest.TestCase):
         self.assertTrue(red["imageMeta"][2]["is_primary"])
         self.assertFalse(red["imageMeta"][0]["is_primary"])
 
+    def test_card_projection_preserves_media_for_colours_after_first_twelve_relationships(self):
+        from app.catalog import STOREFRONT_PRODUCT_PROJECTION
+        media = [{"media_id": f"old-{i}", "provider": "zoho_workdrive", "variant_id": "colour:ivory", "permalink": f"https://workdrive.zoho.in/file/old{i}", "position": i} for i in range(13)]
+        media.append({"media_id": "new-primary", "provider": "zoho_workdrive", "variant_id": "colour:hot-pink", "permalink": "https://workdrive.zoho.in/file/new", "position": 0, "is_primary": True})
+        projection = STOREFRONT_PRODUCT_PROJECTION["catalogMedia"]
+        projected = media if projection == 1 else media[:projection["$slice"]]
+        product = {"_id": ObjectId(), "name": "CK 173", "sku": "HK-CK173", "status": "active", "catalogMedia": projected, "variants": [{"id": f"colour:{colour}", "colour": colour, "status": "active", "images": []} for colour in ["ivory", "hot-pink", "empty"]]}
+        card = product_card_view(product)
+        detail = product_view(product)
+        pink = next(v for v in card["variants"] if v["id"] == "colour:hot-pink")
+        self.assertEqual(pink["images"], next(v for v in detail["variants"] if v["id"] == pink["id"])["images"])
+        self.assertTrue(pink["images"])
+        self.assertEqual(next(v for v in card["variants"] if v["id"] == "colour:empty")["images"], [])
+
     def test_empty_selected_colour_does_not_inherit_parent_or_other_variant_media(self):
         product_id = ObjectId()
         view = product_view({

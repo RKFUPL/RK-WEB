@@ -122,7 +122,9 @@ STOREFRONT_PRODUCT_PROJECTION = {
     "unallocatedStock": 1,
     "category": 1,
     "media": {"$slice": 2},
-    "catalogMedia": {"$slice": 12},
+    # Card serialization selects media per variant; a product-wide slice can
+    # omit every relationship belonging to colours added later.
+    "catalogMedia": 1,
     "attributes.sizes": 1,
     "attributes.colors": 1,
     "attributes.color": 1,
