@@ -552,48 +552,6 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
               </div>
 
               <div className="mt-8 space-y-5">
-                <div className="flex items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em]">
-                  <Link href="/collections" onClick={handleNavigation} className="flex-1">
-                    Collections
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => setCollectionsOpen((current) => !current)}
-                    aria-label="Toggle collections"
-                  >
-                    <ChevronDown
-                      className={cn(
-                        'h-4 w-4 transition',
-                        collectionsOpen ? 'rotate-180' : '-rotate-90'
-                      )}
-                    />
-                  </button>
-                </div>
-                <AnimatePresence>
-                  {collectionsOpen ? (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="overflow-hidden"
-                      >
-                      <div className="space-y-3 pl-4 pt-2">
-                        {collectionLinks.map((collection) => (
-                          <Link
-                            key={collection.id}
-                            href={collection.route}
-                            onClick={handleNavigation}
-                            className="flex items-center justify-between border-b border-black/6 pb-3 text-sm uppercase tracking-[0.22em] text-charcoal transition hover:text-gold"
-                          >
-                            <span>{collection.name}</span>
-                            <ChevronDown className="h-4 w-4 -rotate-90" />
-                          </Link>
-                        ))}
-                      </div>
-                    </motion.div>
-                  ) : null}
-                </AnimatePresence>
-
                 <button
                   type="button"
                   onClick={scrollToHome}
@@ -602,14 +560,49 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
                   <span>Home</span>
                   <ChevronDown className="h-4 w-4 -rotate-90" />
                 </button>
-                <Link
-                  href="/collections"
-                  onClick={handleNavigation}
-                  className="flex items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em]"
-                >
-                  <span>Collections</span>
-                  <ChevronDown className="h-4 w-4 -rotate-90" />
-                </Link>
+                <div>
+                  <div className="flex items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em]">
+                    <Link href="/collections" onClick={handleNavigation} className="flex-1">
+                      Collections
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => { loadCollectionLinks(); setCollectionsOpen((current) => !current); }}
+                      aria-label="Toggle collections"
+                    >
+                      <ChevronDown
+                        className={cn(
+                          'h-4 w-4 transition',
+                          collectionsOpen ? 'rotate-180' : '-rotate-90'
+                        )}
+                      />
+                    </button>
+                  </div>
+                  <AnimatePresence>
+                    {collectionsOpen ? (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="space-y-3 pl-4 pt-2">
+                          {collectionLinks.map((collection) => (
+                            <Link
+                              key={collection.id}
+                              href={collection.route}
+                              onClick={handleNavigation}
+                              className="flex items-center justify-between border-b border-black/6 pb-3 text-sm uppercase tracking-[0.22em] text-charcoal transition hover:text-gold"
+                            >
+                              <span>{collection.name}</span>
+                              <ChevronDown className="h-4 w-4 -rotate-90" />
+                            </Link>
+                          ))}
+                        </div>
+                      </motion.div>
+                    ) : null}
+                  </AnimatePresence>
+                </div>
                 <Link href="/shop" onClick={handleNavigation} aria-current={pathname === '/shop' ? 'page' : undefined} className={`flex items-center justify-between border-b border-black/6 pb-4 text-lg tracking-[0.08em] ${pathname === '/shop' ? 'text-gold' : ''}`}>
                   <span>Shop</span><ChevronDown className="h-4 w-4 -rotate-90" />
                 </Link>
