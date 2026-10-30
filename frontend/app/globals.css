@@ -1186,38 +1186,20 @@ body {
   opacity: 0.5;
 }
 
-.homepage-featured-collection__viewport,
-.home-video-banner,
 .runway-hero-banner {
   height: clamp(36rem, 100svh, 64rem);
   min-height: 36rem;
 }
 
-.homepage-featured-collection__viewport {
-  background: #8a3d38;
-}
-
-.homepage-featured-collection__frame {
-  object-fit: cover;
-  object-position: center center;
-}
-
-.home-video-banner__media,
 .runway-hero-banner__media {
   object-fit: cover;
   object-position: center center;
 }
 
 @media (min-width: 768px) and (max-width: 1023px) {
-  .homepage-featured-collection__viewport,
-  .home-video-banner,
   .runway-hero-banner {
     height: clamp(36rem, 74svh, 48rem);
     min-height: 36rem;
-  }
-
-  .homepage-featured-collection__frame {
-    object-position: var(--hero-mobile-position, center center);
   }
 
   .homepage-featured-collection__scrim {
@@ -1295,24 +1277,62 @@ body {
     max-width: 15rem;
   }
 
-  .homepage-featured-collection__viewport,
-  .home-video-banner,
   .runway-hero-banner {
     height: clamp(30rem, 62svh, 36rem);
     min-height: 30rem;
   }
 
-  .home-video-banner__media,
   .runway-hero-banner__media {
     object-position: center center;
   }
 
-  .homepage-featured-collection__frame {
-    object-position: var(--hero-mobile-position, center center);
-  }
-
   .homepage-featured-collection__scrim {
     background: linear-gradient(180deg, rgba(12, 9, 8, 0.24), transparent 30%, rgba(12, 9, 8, 0.12) 52%, rgba(12, 9, 8, 0.58));
+  }
+
+  .homepage-featured-collection__eyebrow {
+    top: 3.5rem;
+    inset-inline: 1rem;
+    font-size: 0.48rem;
+    letter-spacing: 0.2em;
+  }
+
+  .homepage-featured-collection__title h1 {
+    font-size: 2.8rem;
+  }
+
+  .homepage-featured-collection__copy {
+    right: 1rem;
+    bottom: 1.9rem;
+    left: 1rem;
+  }
+
+  .homepage-featured-collection__copy > div > p {
+    font-size: 0.72rem;
+    line-height: 1.05;
+  }
+
+  .homepage-featured-collection__copy-actions {
+    gap: 0.35rem;
+    margin-top: 0.35rem;
+  }
+
+  .homepage-featured-collection__copy-actions > p {
+    font-size: 0.43rem;
+    letter-spacing: 0.14em;
+  }
+
+  .homepage-featured-collection__copy .collection-featured-button {
+    width: auto;
+    max-width: none;
+    min-height: 1.7rem;
+    padding: 0.32rem 0.48rem;
+    font-size: 0.42rem;
+    letter-spacing: 0.12em;
+  }
+
+  .homepage-featured-collection__viewport > div[aria-label="Aakaar image navigation"] {
+    bottom: 0.35rem;
   }
 
   .collection-campaign-hero--left.collection-campaign-hero--light .collection-campaign-hero__scrim,

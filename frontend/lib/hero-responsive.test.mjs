@@ -10,14 +10,19 @@ const collectionHero = readFileSync(new URL("../components/collections/collectio
 const careersPage = readFileSync(new URL("../app/careers/page.tsx", import.meta.url), "utf8");
 const crewSection = readFileSync(new URL("../components/home/newsletter.tsx", import.meta.url), "utf8");
 
-test("shared homepage and runway banners use responsive media containers", () => {
-  assert.match(featuredCollection, /homepage-featured-collection__viewport/);
-  assert.match(featuredCollection, /homepage-featured-collection__frame object-cover/);
+test("homepage image and video media use their intrinsic aspect ratio at full width", () => {
+  assert.match(featuredCollection, /homepage-featured-collection__viewport relative grid w-full overflow-hidden/);
+  assert.match(featuredCollection, /className="col-start-1 row-start-1 relative w-full overflow-hidden"/);
+  assert.match(featuredCollection, /width=\{1920\}[\s\S]*?height=\{1080\}[\s\S]*?className="homepage-featured-collection__frame block h-auto w-full"/);
   assert.match(featuredLooks, /home-video-banner__media/);
+  assert.match(featuredLooks, /width=\{1920\}[\s\S]*?height=\{1080\}[\s\S]*?className="home-video-banner__media block h-auto w-full"/);
+  assert.doesNotMatch(featuredLooks, /object-cover|object-contain|absolute inset-0 h-full w-full/);
+  assert.doesNotMatch(css, /\.homepage-featured-collection__viewport,[\s\S]*?height: clamp/);
+  assert.doesNotMatch(css, /\.homepage-featured-collection__frame[\s\S]*?object-fit/);
+  assert.doesNotMatch(css, /\.home-video-banner,[\s\S]*?height: clamp/);
+  assert.doesNotMatch(css, /\.home-video-banner__media[\s\S]*?object-fit/);
   assert.match(runwayHero, /runway-hero-banner__media/);
-  assert.match(css, /\.homepage-featured-collection__viewport,[\s\S]*?height: clamp\(36rem, 100svh, 64rem\)/);
-  assert.match(css, /\.homepage-featured-collection__frame \{[\s\S]*?object-fit: cover/);
-  assert.match(css, /\.home-video-banner__media,[\s\S]*?object-fit: cover/);
+  assert.match(css, /\.runway-hero-banner \{[\s\S]*?height: clamp\(36rem, 100svh, 64rem\)/);
   assert.match(css, /\.runway-hero-banner__media \{[\s\S]*?object-position: center center/);
   assert.match(css, /\.runway-hero-banner__media[\s\S]*?object-fit: cover/);
 });
@@ -25,11 +30,12 @@ test("shared homepage and runway banners use responsive media containers", () =>
 test("banner sizing has deliberate mobile and tablet compositions", () => {
   assert.match(css, /@media \(min-width: 768px\) and \(max-width: 1023px\)/);
   assert.match(css, /\.collection-campaign-hero \{[\s\S]*?height: clamp\(38rem, 72svh, 48rem\)/);
-  assert.match(css, /@media \(max-width: 767px\)[\s\S]*?\.homepage-featured-collection__viewport,[\s\S]*?height: clamp\(30rem, 62svh, 36rem\)/);
-  assert.match(featuredCollection, /mobilePosition: '85% center'/);
-  assert.match(featuredCollection, /--hero-mobile-position': activeFrame\.mobilePosition/);
-  assert.match(css, /object-position: var\(--hero-mobile-position, center center\)/);
-  assert.match(crewSection, /aspect-\[16\/10\].*lg:aspect-\[3\/2\]/);
+  assert.match(featuredCollection, /window\.matchMedia\('\(max-width: 767px\)'\)/);
+  assert.match(css, /\.homepage-featured-collection__copy \{[\s\S]*?bottom: 1\.9rem/);
+  assert.match(crewSection, /grid grid-cols-\[minmax\(0,1fr\)_minmax\(0,1fr\)\] items-center/);
+  assert.match(crewSection, /width=\{1920\} height=\{1080\} sizes=/);
+  assert.match(crewSection, /className="block h-auto w-full"/);
+  assert.doesNotMatch(crewSection, /aspect-\[16\/10\]|object-cover/);
   assert.match(css, /\.collection-campaign-media \{[\s\S]*?object-fit: cover/);
   assert.match(css, /\.careers-page-hero \{[\s\S]*?background-size: 100% 100%, cover/);
   assert.match(careersPage, /className="careers-page-hero"/);

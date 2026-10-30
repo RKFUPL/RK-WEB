@@ -22,6 +22,8 @@ export function FeaturedLooks() {
       <video
         ref={videoRef}
         src={homepageHeroVideoUrl}
+        width={1920}
+        height={1080}
         autoPlay
         loop
         muted={muted}
@@ -31,7 +33,7 @@ export function FeaturedLooks() {
         controls={false}
         onContextMenu={(event) => event.preventDefault()}
         onCanPlay={(event) => void event.currentTarget.play().catch(() => undefined)}
-        className="home-video-banner__media absolute inset-0 h-full w-full object-cover object-center"
+        className="home-video-banner__media block h-auto w-full"
         aria-label="Rashi Kapoor fashion film"
       />
       <div className="pointer-events-none absolute inset-0 z-10 flex items-end bg-gradient-to-t from-black/80 via-black/15 to-transparent px-6 pb-10 lg:px-12 lg:pb-16">

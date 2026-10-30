@@ -3,15 +3,15 @@
 import Image from 'next/image';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUpRight } from 'lucide-react';
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useState } from 'react';
 import { aakarBannerBackgroundUrl } from '@/lib/home-content';
 
 const bannerFrames = [
-  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg', label: 'Aakaar', mobilePosition: '85% center' },
-  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488013/Rashi_Kapoor306_compressed_8000kb_vnw8a0.jpg', label: 'Aakaar', mobilePosition: '45% center' },
-  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487994/Rashi_Kapoor2418_compressed_8000kb_qkke56.jpg', label: 'Aakaar', mobilePosition: '50% center' },
-  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487943/Rashi_Kapoor187_compressed_8000kb_e5k7xn.jpg', label: 'Aakaar', mobilePosition: '50% center' },
-  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg', label: 'Aakaar', mobilePosition: '60% center' },
+  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg', label: 'Aakaar' },
+  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488013/Rashi_Kapoor306_compressed_8000kb_vnw8a0.jpg', label: 'Aakaar' },
+  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487994/Rashi_Kapoor2418_compressed_8000kb_qkke56.jpg', label: 'Aakaar' },
+  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487943/Rashi_Kapoor187_compressed_8000kb_e5k7xn.jpg', label: 'Aakaar' },
+  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg', label: 'Aakaar' },
 ] as const;
 
 const lineRevealStart = 'polygon(100% 0%, 100% 100%, 100% 100%, 100% 0%)';
@@ -47,8 +47,11 @@ export function FeaturedCollection({
   const [rotationReset, setRotationReset] = useState(0);
   const [isVisible, setIsVisible] = useState(true);
   const [phase, setPhase] = useState<HeroPhase>(0);
+  const [isCompactViewport, setIsCompactViewport] = useState(false);
   const activeFrame = bannerFrames[currentIndex];
-  const titlePosition = introAboveTitle
+  const titlePosition = isCompactViewport
+    ? { ...titlePositions[phase], left: '5%', top: phase === 0 ? '52%' : '39%', x: '0%', y: '0%', scale: 0.55 }
+    : introAboveTitle
     ? { ...titlePositions[phase], top: phase === 0 ? '58%' : titlePositions[phase].top }
     : titlePositions[phase];
 
@@ -76,6 +79,14 @@ export function FeaturedCollection({
   }, []);
 
   useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 767px)');
+    const updateViewport = () => setIsCompactViewport(mediaQuery.matches);
+    updateViewport();
+    mediaQuery.addEventListener('change', updateViewport);
+    return () => mediaQuery.removeEventListener('change', updateViewport);
+  }, []);
+
+  useEffect(() => {
     if (!isVisible || phase === 0) return;
 
     const timer = window.setInterval(() => {
@@ -87,7 +98,7 @@ export function FeaturedCollection({
 
   return (
     <section id="collections" className="homepage-featured-collection relative overflow-hidden border-y border-black/6 bg-[#8a3d38] text-white">
-      <div className="homepage-featured-collection__viewport relative overflow-hidden">
+      <div className="homepage-featured-collection__viewport relative grid w-full overflow-hidden">
         <Image
           src={aakarBannerBackgroundUrl}
           alt="Aakaar textured banner background"
@@ -98,32 +109,30 @@ export function FeaturedCollection({
         />
 
         <AnimatePresence mode="sync" initial={false}>
-          {phase > 0 ? (
-            <motion.div
-              key={activeFrame.src}
-              className="absolute inset-0 overflow-hidden"
-              initial={{ opacity: 1, clipPath: lineRevealStart }}
-              animate={{
-                opacity: 1,
-                clipPath: [lineRevealStart, lineRevealEnd],
-              }}
-              exit={{ opacity: 0 }}
-              transition={{
-                opacity: { duration: 1.6, ease: [0.4, 0, 0.2, 1] },
-                clipPath: { duration: 1.8, ease: [0.22, 1, 0.36, 1] },
-              }}
-            >
+          <motion.div
+            key={activeFrame.src}
+            className="col-start-1 row-start-1 relative w-full overflow-hidden"
+            initial={{ opacity: 1, clipPath: lineRevealStart }}
+            animate={{
+              opacity: 1,
+              clipPath: lineRevealEnd,
+            }}
+            exit={{ opacity: 0 }}
+            transition={{
+              opacity: { duration: 1.6, ease: [0.4, 0, 0.2, 1] },
+              clipPath: { duration: 1.8, ease: [0.22, 1, 0.36, 1] },
+            }}
+          >
               <Image
                 src={activeFrame.src}
                 alt={`Rashi Kapoor ${activeFrame.label} campaign`}
-                fill
+                width={1920}
+                height={1080}
                 priority={currentIndex === 0}
                 sizes="100vw"
-                className="homepage-featured-collection__frame object-cover object-center"
-                style={{ '--hero-mobile-position': activeFrame.mobilePosition } as CSSProperties}
+                className="homepage-featured-collection__frame block h-auto w-full"
               />
-            </motion.div>
-          ) : null}
+          </motion.div>
         </AnimatePresence>
 
         <div className="homepage-featured-collection__scrim pointer-events-none absolute inset-0 z-10" aria-hidden="true" />
@@ -136,12 +145,12 @@ export function FeaturedCollection({
           <button type="button" aria-label="Next Aakaar image" onClick={() => changeFrame(1)} className="pointer-events-auto absolute right-5 top-1/2 z-40 flex h-12 w-12 -translate-y-1/2 items-center justify-center border border-[#fff1df]/55 bg-black/10 text-[#fff1df] backdrop-blur-sm transition hover:border-gold hover:bg-gold hover:text-ink lg:right-8"><ArrowRight className="h-5 w-5" /></button>
         </> : null}
 
-        <div className="pointer-events-none absolute inset-x-6 top-28 z-20 flex items-start text-[0.58rem] uppercase tracking-[0.34em] text-[#fff1df]/75 lg:inset-x-12 lg:top-36">
+        <div className="homepage-featured-collection__eyebrow pointer-events-none absolute inset-x-6 top-28 z-20 flex items-start text-[0.58rem] uppercase tracking-[0.34em] text-[#fff1df]/75 lg:inset-x-12 lg:top-36">
           <span>Rashi Kapoor / 2026</span>
         </div>
 
         <motion.div
-          className="pointer-events-none absolute z-30 whitespace-nowrap"
+          className="homepage-featured-collection__title pointer-events-none absolute z-30 whitespace-nowrap"
           initial={titlePositions[0]}
           animate={titlePosition}
           transition={{
@@ -169,7 +178,7 @@ export function FeaturedCollection({
           ) : (
             <motion.div
               key="settled-copy"
-              className="pointer-events-none absolute inset-x-6 bottom-12 z-20 flex items-end justify-between gap-8 lg:inset-x-12 lg:bottom-20"
+              className="homepage-featured-collection__copy pointer-events-none absolute inset-x-6 bottom-12 z-20 flex items-end justify-between gap-8 lg:inset-x-12 lg:bottom-20"
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.35, ease: [0.22, 1, 0.36, 1] }}
@@ -178,7 +187,7 @@ export function FeaturedCollection({
                 <p className="max-w-xs font-display text-xl leading-[1.05] text-[#fff1df]/90 md:text-2xl">
                   Timeless elegance.<br /><em className="text-gold">Modern luxury.</em>
                 </p>
-                <div className="mt-7 flex flex-wrap items-center gap-5">
+                <div className="homepage-featured-collection__copy-actions mt-7 flex flex-wrap items-center gap-5">
                   <p className="text-[clamp(0.6rem,1.2vw,0.78rem)] uppercase tracking-[0.42em] text-[#fff1df]/85">{eyebrow}</p>
                   {onCtaClick ? <button type="button" onClick={onCtaClick} className="collection-featured-button collection-featured-button--secondary">
                     {ctaLabel} <ArrowDown aria-hidden="true" size={14} strokeWidth={1.5} />

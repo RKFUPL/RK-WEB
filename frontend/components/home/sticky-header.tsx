@@ -324,7 +324,8 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
     <header
       ref={headerRef}
       className={cn(
-        'fixed inset-x-0 top-0 z-[200] border-b backdrop-blur-[2px] transition-[background-color,border-color,box-shadow,backdrop-filter,transform] duration-500 ease-out',
+        'fixed inset-x-0 top-0 z-[200] border-b transition-[background-color,border-color,box-shadow,backdrop-filter,transform] duration-500 ease-out',
+        !isTransparent && 'backdrop-blur-[2px]',
         isTransparent
           ? cn('border-transparent bg-transparent shadow-none', activeTransparentTheme === 'dark' ? 'text-[#1e1b18]' : 'text-white')
           : 'border-black/6 bg-white text-charcoal shadow-[0_1px_0_rgba(0,0,0,0.04)]',
