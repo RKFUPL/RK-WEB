@@ -25,14 +25,14 @@ function editorialFor(collection: ManagedCollection) {
 function CollectionCampaignCard({ collection }: { collection: CollectionCard }) {
   return <Link href={`/collections/${collection.slug}`} className="collections-gallery-card group block">
     <motion.article initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, amount: 0.12 }} transition={{ duration: 0.75, ease: [0.22, 1, 0.36, 1] }}>
-      <div className="collections-campaign-image relative aspect-[3/4] overflow-hidden rounded-[14px] bg-sand">
-        {collection.image ? <img src={cloudinaryImageUrl(collection.image, 1000) || collection.image} alt={`${collection.name} collection campaign`} draggable={false} loading="lazy" decoding="async" className="collection-card-image block h-full w-full object-cover" /> : <div className="grid h-full place-items-center text-charcoal/35"><span className="text-center"><ImageIcon className="mx-auto h-7 w-7" strokeWidth={1.2} /><span className="mt-3 block text-[0.56rem] uppercase tracking-[0.28em]">Campaign image coming soon</span></span></div>}
-        <div className="collections-campaign-shade absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-90 transition-opacity duration-300 group-hover:opacity-100" />
-        <div className="collections-campaign-overlay absolute inset-x-0 bottom-0 w-full box-border p-5 text-white md:p-7">
+      <div className="collections-campaign-image relative aspect-[4/5] overflow-hidden rounded-[14px] bg-sand sm:aspect-[3/4]">
+        {collection.image ? <img src={cloudinaryImageUrl(collection.image, 1000) || collection.image} alt={`${collection.name} collection campaign`} draggable={false} loading="lazy" decoding="async" className="collection-card-image block h-full w-full object-cover object-center" /> : <div className="grid h-full place-items-center text-charcoal/35"><span className="text-center"><ImageIcon className="mx-auto h-7 w-7" strokeWidth={1.2} /><span className="mt-3 block text-[0.56rem] uppercase tracking-[0.28em]">Campaign image coming soon</span></span></div>}
+        <div className="collections-campaign-shade absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black/90 via-black/55 to-transparent opacity-90 transition-opacity duration-300 group-hover:opacity-100 sm:h-2/5 sm:from-black/80 sm:via-black/20 sm:to-transparent" />
+        <div className="collections-campaign-overlay absolute inset-x-0 bottom-0 w-full box-border p-3 text-white sm:p-4 md:p-7">
           <p className="text-[0.58rem] uppercase tracking-[0.32em] text-white/75">{collection.productCount} {collection.productCount === 1 ? 'piece' : 'pieces'}</p>
           <div className="mt-2 flex min-w-0 flex-wrap items-end justify-between gap-x-5 gap-y-2">
-            <h2 style={{ fontFamily: collection.fontFamily ? `${collection.fontFamily}, var(--font-display), serif` : undefined }} className="collections-landing-card-title min-w-0 max-w-[85%] break-words font-display text-4xl leading-[0.86] tracking-[0.025em] transition-colors duration-300 group-hover:text-white md:text-5xl">{collection.name}</h2>
-            <span className="collections-landing-card-cta flex min-w-0 max-w-full shrink items-center gap-2 break-words pb-1 text-[0.58rem] uppercase tracking-[0.24em] text-white/85">View collection <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-2" /></span>
+            <h2 style={{ fontFamily: collection.fontFamily ? `${collection.fontFamily}, var(--font-display), serif` : undefined }} className="collections-landing-card-title min-w-0 max-w-[85%] break-words font-display text-2xl leading-[0.95] tracking-[0.025em] transition-colors duration-300 group-hover:text-white sm:text-3xl lg:text-2xl xl:text-4xl 2xl:text-5xl">{collection.name}</h2>
+            <span className="collections-landing-card-cta flex min-w-0 max-w-full shrink items-center gap-1.5 break-words pb-1 text-[0.48rem] uppercase tracking-[0.14em] text-white/85 sm:gap-2 sm:text-[0.52rem] sm:tracking-[0.2em] md:text-[0.58rem] md:tracking-[0.24em]">View collection <ArrowRight className="h-3.5 w-3.5 shrink-0 transition-transform duration-300 group-hover:translate-x-2 md:h-4 md:w-4" /></span>
           </div>
           {collection.summary ? <p className="mt-3 line-clamp-2 max-w-xl text-xs leading-5 text-white/72">{collection.summary}</p> : null}
         </div>
@@ -79,17 +79,19 @@ export default function CollectionsPage() {
       <div className="relative z-10">
         <SectionShell className="collections-landing-shell pb-20 pt-20 lg:pb-28 lg:pt-24">
           <div className="grid gap-12 lg:grid-cols-[0.32fr_0.68fr] lg:gap-16">
-            <header className="space-y-6 lg:sticky lg:top-28 lg:self-start">
+            <div className="contents lg:sticky lg:top-28 lg:block lg:self-start">
+            <header className="space-y-6">
               <p className="text-[0.65rem] uppercase tracking-[0.3em] text-charcoal/60">Shop by collection</p>
-              <h1 className="max-w-sm font-display text-6xl leading-[0.88] md:text-8xl">Where the art of draping meets timeless <span className="whitespace-nowrap"> luxury.</span></h1>
+              <h1 className="max-w-sm font-display text-5xl leading-[0.88] md:text-6xl xl:text-8xl">Where the art of draping meets timeless <span className="whitespace-nowrap"> luxury.</span></h1>
               <span className="block h-px w-14 bg-gold" />
               <p className="max-w-sm text-sm leading-7 text-charcoal/65 md:text-base md:leading-8">An expression of our design philosophy, where exquisite fabrics, rich textures and meticulous craftsmanship come together in a timeless narrative of elegance and artistry.</p>
-              <ExclusiveRunway />
             </header>
-            <section aria-label="Available collections" className="min-w-0">
-              {loading ? <div className="grid gap-6 md:grid-cols-2"><div className="aspect-[3/4] animate-pulse rounded-[14px] bg-sand" /><div className="aspect-[3/4] animate-pulse rounded-[14px] bg-sand md:mt-20" /></div> : error ? <div className="border border-black/10 p-10 text-center"><p className="font-display text-3xl">Collections are temporarily unavailable.</p><p className="mt-3 text-sm text-charcoal/60">{error}</p></div> : cards.length ? <>
+            <div className="order-3 lg:mt-6"><ExclusiveRunway /></div>
+            </div>
+            <section aria-label="Available collections" className="order-2 min-w-0 lg:order-none">
+              {loading ? <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:gap-5 md:grid-cols-2"><div className="aspect-[4/5] animate-pulse rounded-[14px] bg-sand sm:aspect-[3/4]" /><div className="aspect-[4/5] animate-pulse rounded-[14px] bg-sand sm:aspect-[3/4] md:mt-20" /></div> : error ? <div className="border border-black/10 p-10 text-center"><p className="font-display text-3xl">Collections are temporarily unavailable.</p><p className="mt-3 text-sm text-charcoal/60">{error}</p></div> : cards.length ? <>
                 <div className="collections-gallery-grid hidden items-start md:grid md:grid-cols-2"><div className="collections-gallery-column collections-gallery-column--left">{leftColumn.map((collection) => <CollectionCampaignCard key={collection.id} collection={collection} />)}</div><div className="collections-gallery-column collections-gallery-column--staggered">{rightColumn.map((collection) => <CollectionCampaignCard key={collection.id} collection={collection} />)}</div></div>
-                <div className="collections-gallery-column md:hidden">{cards.map((collection) => <CollectionCampaignCard key={collection.id} collection={collection} />)}</div>
+                <div className="collections-gallery-grid collections-gallery-grid--mobile grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:gap-5 md:hidden">{cards.map((collection) => <CollectionCampaignCard key={collection.id} collection={collection} />)}</div>
               </> : <div className="border border-black/10 p-10 text-center"><p className="font-display text-3xl">No collections are available yet.</p></div>}
             </section>
           </div>

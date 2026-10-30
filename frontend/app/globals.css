@@ -163,10 +163,6 @@ html.dark {
   opacity: 0;
 }
 
-.collections-campaign-image {
-  aspect-ratio: 3 / 4;
-}
-
 .collections-campaign-overlay {
   width: 100%;
   box-sizing: border-box;
@@ -1184,6 +1180,44 @@ body {
 .collection-featured-button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+/* The intro covers an already-rendered hero and expires without JavaScript. */
+.homepage-featured-collection__viewport {
+  isolation: isolate;
+}
+
+.homepage-hero-intro {
+  opacity: 0;
+  visibility: hidden;
+  animation: homepage-hero-intro-out 1.1s cubic-bezier(0.4, 0, 0.2, 1) 1.9s both;
+}
+
+/* Branding is above the texture, then crossfades into the moving hero title. */
+.homepage-hero-intro-branding {
+  opacity: 0;
+  visibility: hidden;
+  animation: homepage-hero-intro-out 0.55s ease 1.9s both;
+}
+
+.homepage-featured-collection__title {
+  animation: homepage-hero-title-in 0.8s ease 2.1s both;
+}
+
+@keyframes homepage-hero-intro-out {
+  from { opacity: 1; visibility: visible; }
+  to { opacity: 0; visibility: hidden; }
+}
+
+@keyframes homepage-hero-title-in {
+  from { opacity: 0; }
+  to { opacity: 0.96; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .homepage-hero-intro,
+  .homepage-hero-intro-branding,
+  .homepage-featured-collection__title { animation: none; }
 }
 
 .runway-hero-banner {

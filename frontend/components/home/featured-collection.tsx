@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUpRight } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { aakarBannerBackgroundUrl } from '@/lib/home-content';
@@ -43,6 +43,7 @@ export function FeaturedCollection({
   secondaryLabel = 'View lookbook',
   introAboveTitle = false,
 }: FeaturedCollectionProps) {
+  const reducedMotion = useReducedMotion();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [rotationReset, setRotationReset] = useState(0);
   const [isVisible, setIsVisible] = useState(true);
@@ -66,10 +67,9 @@ export function FeaturedCollection({
   };
 
   useEffect(() => {
-    const settleTimer = window.setTimeout(() => setPhase(1), 1900);
-
+    const settleTimer = window.setTimeout(() => setPhase(1), reducedMotion ? 0 : 1900);
     return () => window.clearTimeout(settleTimer);
-  }, []);
+  }, [reducedMotion]);
 
   useEffect(() => {
     const handleVisibility = () => setIsVisible(!document.hidden);
@@ -97,53 +97,44 @@ export function FeaturedCollection({
   }, [isVisible, phase, rotationReset]);
 
   return (
-    <section id="collections" className="homepage-featured-collection relative overflow-hidden border-y border-black/6 bg-[#8a3d38] text-white">
+    <section id="collections" className="homepage-featured-collection relative overflow-hidden border-y border-black/6 text-white">
       <div className="homepage-featured-collection__viewport relative grid w-full overflow-hidden">
-        <Image
-          src={aakarBannerBackgroundUrl}
-          alt="Aakaar textured banner background"
-          fill
-          priority
-          sizes="100vw"
-          className="object-cover object-center"
-        />
-
-        <AnimatePresence mode="sync" initial={false}>
-          <motion.div
-            key={activeFrame.src}
-            className="col-start-1 row-start-1 relative w-full overflow-hidden"
-            initial={{ opacity: 1, clipPath: lineRevealStart }}
-            animate={{
-              opacity: 1,
-              clipPath: lineRevealEnd,
-            }}
-            exit={{ opacity: 0 }}
-            transition={{
-              opacity: { duration: 1.6, ease: [0.4, 0, 0.2, 1] },
-              clipPath: { duration: 1.8, ease: [0.22, 1, 0.36, 1] },
-            }}
-          >
-              <Image
-                src={activeFrame.src}
-                alt={`Rashi Kapoor ${activeFrame.label} campaign`}
-                width={1920}
-                height={1080}
-                priority={currentIndex === 0}
-                sizes="100vw"
-                className="homepage-featured-collection__frame block h-auto w-full"
-              />
-          </motion.div>
-        </AnimatePresence>
+        <div className="col-start-1 row-start-1 relative grid w-full" data-hero-media>
+          <AnimatePresence mode="sync" initial={false}>
+            <motion.div
+              key={activeFrame.src}
+              className="col-start-1 row-start-1 relative w-full overflow-hidden"
+              initial={{ opacity: reducedMotion ? 1 : 0, clipPath: reducedMotion ? lineRevealEnd : lineRevealStart }}
+              animate={{
+                opacity: 1,
+                clipPath: lineRevealEnd,
+              }}
+              exit={{ opacity: 0 }}
+              transition={{
+                opacity: { duration: reducedMotion ? 0 : 1.6, ease: [0.4, 0, 0.2, 1] },
+                clipPath: { duration: reducedMotion ? 0 : 1.8, ease: [0.22, 1, 0.36, 1] },
+              }}
+            >
+                <Image
+                  src={activeFrame.src}
+                  alt={`Rashi Kapoor ${activeFrame.label} campaign`}
+                  width={1920}
+                  height={1080}
+                  priority={currentIndex === 0}
+                  sizes="100vw"
+                  className="homepage-featured-collection__frame block h-auto w-full"
+                />
+            </motion.div>
+          </AnimatePresence>
+        </div>
 
         <div className="homepage-featured-collection__scrim pointer-events-none absolute inset-0 z-10" aria-hidden="true" />
 
-        {phase > 0 ? <>
-          <button type="button" aria-label="Previous Aakaar image" onClick={() => changeFrame(-1)} className="pointer-events-auto absolute left-5 top-1/2 z-40 flex h-12 w-12 -translate-y-1/2 items-center justify-center border border-[#fff1df]/55 bg-black/10 text-[#fff1df] backdrop-blur-sm transition hover:border-gold hover:bg-gold hover:text-ink lg:left-8"><ArrowLeft className="h-5 w-5" /></button>
-          <div className="pointer-events-auto absolute bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 lg:bottom-8" aria-label="Aakaar image navigation">
-            {bannerFrames.map((frame, index) => <button key={frame.src} type="button" aria-label={`Show Aakaar image ${index + 1}`} aria-current={index === currentIndex} onClick={() => selectFrame(index)} className={`h-3 w-3 rounded-full border-2 border-[#fff1df]/90 transition ${index === currentIndex ? 'scale-125 bg-[#fff1df]' : 'bg-transparent hover:bg-[#fff1df]/70'}`} />)}
-          </div>
-          <button type="button" aria-label="Next Aakaar image" onClick={() => changeFrame(1)} className="pointer-events-auto absolute right-5 top-1/2 z-40 flex h-12 w-12 -translate-y-1/2 items-center justify-center border border-[#fff1df]/55 bg-black/10 text-[#fff1df] backdrop-blur-sm transition hover:border-gold hover:bg-gold hover:text-ink lg:right-8"><ArrowRight className="h-5 w-5" /></button>
-        </> : null}
+        <button type="button" aria-label="Previous Aakaar image" onClick={() => changeFrame(-1)} className="pointer-events-auto absolute left-5 top-1/2 z-40 flex h-12 w-12 -translate-y-1/2 items-center justify-center border border-[#fff1df]/55 bg-black/10 text-[#fff1df] backdrop-blur-sm transition hover:border-gold hover:bg-gold hover:text-ink lg:left-8"><ArrowLeft className="h-5 w-5" /></button>
+        <div className="pointer-events-auto absolute bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 lg:bottom-8" aria-label="Aakaar image navigation">
+          {bannerFrames.map((frame, index) => <button key={frame.src} type="button" aria-label={`Show Aakaar image ${index + 1}`} aria-current={index === currentIndex} onClick={() => selectFrame(index)} className={`h-3 w-3 rounded-full border-2 border-[#fff1df]/90 transition ${index === currentIndex ? 'scale-125 bg-[#fff1df]' : 'bg-transparent hover:bg-[#fff1df]/70'}`} />)}
+        </div>
+        <button type="button" aria-label="Next Aakaar image" onClick={() => changeFrame(1)} className="pointer-events-auto absolute right-5 top-1/2 z-40 flex h-12 w-12 -translate-y-1/2 items-center justify-center border border-[#fff1df]/55 bg-black/10 text-[#fff1df] backdrop-blur-sm transition hover:border-gold hover:bg-gold hover:text-ink lg:right-8"><ArrowRight className="h-5 w-5" /></button>
 
         <div className="homepage-featured-collection__eyebrow pointer-events-none absolute inset-x-6 top-28 z-20 flex items-start text-[0.58rem] uppercase tracking-[0.34em] text-[#fff1df]/75 lg:inset-x-12 lg:top-36">
           <span>Rashi Kapoor / 2026</span>
@@ -151,10 +142,10 @@ export function FeaturedCollection({
 
         <motion.div
           className="homepage-featured-collection__title pointer-events-none absolute z-30 whitespace-nowrap"
-          initial={titlePositions[0]}
+          initial={false}
           animate={titlePosition}
           transition={{
-            duration: 1.8,
+            duration: reducedMotion ? 0 : 1.8,
             ease: [0.22, 1, 0.36, 1],
           }}
         >
@@ -163,46 +154,39 @@ export function FeaturedCollection({
           </h1>
         </motion.div>
 
-        <AnimatePresence mode="wait">
-          {phase === 0 ? (
-            <motion.p
-              key="intro-copy"
-              className={`pointer-events-none absolute inset-x-0 z-30 text-center text-[0.68rem] uppercase tracking-[0.46em] text-[#fff1df]/80 ${introAboveTitle ? 'top-[38%]' : 'top-[58%]'}`}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.5, delay: 0.35 }}
-            >
-              {eyebrow}
-            </motion.p>
-          ) : (
-            <motion.div
-              key="settled-copy"
-              className="homepage-featured-collection__copy pointer-events-none absolute inset-x-6 bottom-12 z-20 flex items-end justify-between gap-8 lg:inset-x-12 lg:bottom-20"
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.35, ease: [0.22, 1, 0.36, 1] }}
-            >
-              <div>
-                <p className="max-w-xs font-display text-xl leading-[1.05] text-[#fff1df]/90 md:text-2xl">
-                  Timeless elegance.<br /><em className="text-gold">Modern luxury.</em>
-                </p>
-                <div className="homepage-featured-collection__copy-actions mt-7 flex flex-wrap items-center gap-5">
-                  <p className="text-[clamp(0.6rem,1.2vw,0.78rem)] uppercase tracking-[0.42em] text-[#fff1df]/85">{eyebrow}</p>
-                  {onCtaClick ? <button type="button" onClick={onCtaClick} className="collection-featured-button collection-featured-button--secondary">
-                    {ctaLabel} <ArrowDown aria-hidden="true" size={14} strokeWidth={1.5} />
-                  </button> : <a href="/collections/aakaar" className="collection-featured-button collection-featured-button--secondary">
-                    {ctaLabel} <ArrowDown aria-hidden="true" size={14} strokeWidth={1.5} />
-                  </a>}
-                  {secondaryHref ? <a href={secondaryHref} target="_blank" rel="noopener noreferrer" className="collection-featured-button collection-featured-button--primary">
-                    {secondaryLabel} <ArrowUpRight aria-hidden="true" size={14} strokeWidth={1.5} />
-                  </a> : null}
-                </div>
-              </div>
+        <div className="homepage-featured-collection__copy pointer-events-none absolute inset-x-6 bottom-12 z-20 flex items-end justify-between gap-8 lg:inset-x-12 lg:bottom-20">
+          <div>
+            <p className="max-w-xs font-display text-xl leading-[1.05] text-[#fff1df]/90 md:text-2xl">
+              Timeless elegance.<br /><em className="text-gold">Modern luxury.</em>
+            </p>
+            <div className="homepage-featured-collection__copy-actions mt-7 flex flex-wrap items-center gap-5">
+              <p className="text-[clamp(0.6rem,1.2vw,0.78rem)] uppercase tracking-[0.42em] text-[#fff1df]/85">{eyebrow}</p>
+              {onCtaClick ? <button type="button" onClick={onCtaClick} className="collection-featured-button collection-featured-button--secondary">
+                {ctaLabel} <ArrowDown aria-hidden="true" size={14} strokeWidth={1.5} />
+              </button> : <a href="/collections/aakaar" className="collection-featured-button collection-featured-button--secondary">
+                {ctaLabel} <ArrowDown aria-hidden="true" size={14} strokeWidth={1.5} />
+              </a>}
+              {secondaryHref ? <a href={secondaryHref} target="_blank" rel="noopener noreferrer" className="collection-featured-button collection-featured-button--primary">
+                {secondaryLabel} <ArrowUpRight aria-hidden="true" size={14} strokeWidth={1.5} />
+              </a> : null}
+            </div>
+          </div>
+        </div>
 
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <div className="homepage-hero-intro pointer-events-none absolute inset-0 z-50 bg-[#8a3d38]" data-hero-intro aria-hidden="true">
+          <Image
+            src={aakarBannerBackgroundUrl}
+            alt=""
+            fill
+            priority
+            sizes="100vw"
+            className="object-cover object-center"
+          />
+        </div>
+        <div className="homepage-hero-intro-branding pointer-events-none absolute inset-0 z-[60] flex flex-col items-center justify-center px-6 text-center text-[#fff1df]" data-hero-intro-branding aria-hidden="true">
+          <span className="font-aakaar text-[clamp(3rem,13vw,11rem)] leading-[0.78] tracking-[0.04em]">{title}</span>
+          <span className="mt-4 text-[clamp(0.5rem,1vw,0.68rem)] uppercase tracking-[0.46em] md:mt-8">{eyebrow}</span>
+        </div>
       </div>
     </section>
   );
