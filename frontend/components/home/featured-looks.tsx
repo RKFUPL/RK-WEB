@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { ArrowRight, Volume2, VolumeX } from 'lucide-react';
 import { useRef, useState } from 'react';
-import { homepageHeroVideoUrl } from '@/lib/home-content';
+import { featuredLooks, homepageHeroVideoUrl } from '@/lib/home-content';
 
 export function FeaturedLooks() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -18,7 +18,7 @@ export function FeaturedLooks() {
   };
 
   return (
-    <section id="lookbook" aria-label="Rashi Kapoor fashion film" className="relative isolate h-[100svh] min-h-[38rem] overflow-hidden bg-black">
+    <section id="lookbook" aria-label="Rashi Kapoor fashion film" className="home-video-banner relative isolate overflow-hidden bg-black">
       <video
         ref={videoRef}
         src={homepageHeroVideoUrl}
@@ -27,10 +27,11 @@ export function FeaturedLooks() {
         muted={muted}
         playsInline
         preload="metadata"
+        poster={featuredLooks[0]?.image}
         controls={false}
         onContextMenu={(event) => event.preventDefault()}
         onCanPlay={(event) => void event.currentTarget.play().catch(() => undefined)}
-        className="absolute inset-0 h-full w-full object-cover object-center"
+        className="home-video-banner__media absolute inset-0 h-full w-full object-cover object-center"
         aria-label="Rashi Kapoor fashion film"
       />
       <div className="pointer-events-none absolute inset-0 z-10 flex items-end bg-gradient-to-t from-black/80 via-black/15 to-transparent px-6 pb-10 lg:px-12 lg:pb-16">

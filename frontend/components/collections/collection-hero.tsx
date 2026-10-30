@@ -20,6 +20,7 @@ function HeroMedia({ hero }: { hero: CollectionHeroConfig }) {
   const slides = hero.type === 'image' ? (hero.images || []).filter((slide) => slide.image) : [];
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(true);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const activeSlide = slides[currentIndex];
   const fallbackImage = hero.image || hero.poster;
   const desktopImage = cloudinaryImageUrl(activeSlide?.image || fallbackImage, 1920);
@@ -27,6 +28,13 @@ function HeroMedia({ hero }: { hero: CollectionHeroConfig }) {
   const [mediaFailed, setMediaFailed] = useState(false);
   useEffect(() => { setCurrentIndex(0); setMediaFailed(false); }, [hero.type, hero.video, hero.image, slides.map((slide) => slide.id).join('|')]);
   useEffect(() => { setMediaFailed(false); }, [currentIndex, desktopImage, mobileImage]);
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 767px)');
+    const updateViewport = () => setIsMobileViewport(mediaQuery.matches);
+    updateViewport();
+    mediaQuery.addEventListener('change', updateViewport);
+    return () => mediaQuery.removeEventListener('change', updateViewport);
+  }, []);
   useEffect(() => {
     const updateVisibility = () => setIsVisible(!document.hidden);
     document.addEventListener('visibilitychange', updateVisibility);
@@ -42,16 +50,15 @@ function HeroMedia({ hero }: { hero: CollectionHeroConfig }) {
     '--collection-hero-desktop-position': activeSlide?.desktopObjectPosition || hero.desktopObjectPosition || 'center center',
     '--collection-hero-mobile-position': activeSlide?.mobileObjectPosition || activeSlide?.desktopObjectPosition || hero.mobileObjectPosition || hero.desktopObjectPosition || 'center center',
   } as CSSProperties;
+  const videoSource = isMobileViewport && hero.mobileVideo ? hero.mobileVideo : hero.video;
+  const videoPoster = isMobileViewport ? mobileImage || desktopImage : desktopImage;
 
   if (mediaFailed || (!desktopImage && !(hero.type === 'video' && hero.video))) {
     return <div className="grid h-full w-full place-items-center bg-sand text-center text-[0.65rem] uppercase tracking-[0.22em] text-charcoal/45" role="img" aria-label="Collection image not configured">Collection image not configured</div>;
   }
 
-  if (hero.type === 'video' && hero.video && !reduceMotion) {
-    return <video autoPlay muted loop playsInline preload="metadata" poster={desktopImage || undefined} aria-label="Collection campaign film" className="collection-campaign-media" style={mediaStyle} onError={() => setMediaFailed(true)}>
-      {hero.mobileVideo ? <source media="(max-width: 767px)" src={hero.mobileVideo} /> : null}
-      <source src={hero.video} />
-    </video>;
+  if (hero.type === 'video' && videoSource && !reduceMotion) {
+    return <video key={videoSource} autoPlay muted loop playsInline preload="metadata" poster={videoPoster || undefined} aria-label="Collection campaign film" className="collection-campaign-media" style={mediaStyle} onLoadedMetadata={(event) => void event.currentTarget.play().catch(() => undefined)} onError={() => setMediaFailed(true)} src={videoSource} />;
   }
 
   if (!desktopImage) return <div className="h-full w-full bg-sand" aria-hidden="true" />;

@@ -3,15 +3,15 @@
 import Image from 'next/image';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUpRight } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { aakarBannerBackgroundUrl } from '@/lib/home-content';
 
 const bannerFrames = [
-  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg', label: 'Aakaar' },
-  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488013/Rashi_Kapoor306_compressed_8000kb_vnw8a0.jpg', label: 'Aakaar' },
-  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487994/Rashi_Kapoor2418_compressed_8000kb_qkke56.jpg', label: 'Aakaar' },
-  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487943/Rashi_Kapoor187_compressed_8000kb_e5k7xn.jpg', label: 'Aakaar' },
-  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg', label: 'Aakaar' },
+  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg', label: 'Aakaar', mobilePosition: '85% center' },
+  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488013/Rashi_Kapoor306_compressed_8000kb_vnw8a0.jpg', label: 'Aakaar', mobilePosition: '45% center' },
+  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487994/Rashi_Kapoor2418_compressed_8000kb_qkke56.jpg', label: 'Aakaar', mobilePosition: '50% center' },
+  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487943/Rashi_Kapoor187_compressed_8000kb_e5k7xn.jpg', label: 'Aakaar', mobilePosition: '50% center' },
+  { src: 'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487885/Rashi_Kapoor1358_compressed_8000kb_1_iblkxd.jpg', label: 'Aakaar', mobilePosition: '60% center' },
 ] as const;
 
 const lineRevealStart = 'polygon(100% 0%, 100% 100%, 100% 100%, 100% 0%)';
@@ -86,8 +86,8 @@ export function FeaturedCollection({
   }, [isVisible, phase, rotationReset]);
 
   return (
-    <section id="collections" className="relative overflow-hidden border-y border-black/6 bg-[#8a3d38] text-white">
-      <div className="relative min-h-[34rem] overflow-hidden lg:min-h-[calc(100svh-1.5rem)]">
+    <section id="collections" className="homepage-featured-collection relative overflow-hidden border-y border-black/6 bg-[#8a3d38] text-white">
+      <div className="homepage-featured-collection__viewport relative overflow-hidden">
         <Image
           src={aakarBannerBackgroundUrl}
           alt="Aakaar textured banner background"
@@ -102,16 +102,14 @@ export function FeaturedCollection({
             <motion.div
               key={activeFrame.src}
               className="absolute inset-0 overflow-hidden"
-              initial={{ opacity: 1, scale: 1.02, clipPath: lineRevealStart }}
+              initial={{ opacity: 1, clipPath: lineRevealStart }}
               animate={{
                 opacity: 1,
-                scale: 1,
                 clipPath: [lineRevealStart, lineRevealEnd],
               }}
-              exit={{ opacity: 0, scale: 1.02 }}
+              exit={{ opacity: 0 }}
               transition={{
                 opacity: { duration: 1.6, ease: [0.4, 0, 0.2, 1] },
-                scale: { duration: 1.8, ease: [0.22, 1, 0.36, 1] },
                 clipPath: { duration: 1.8, ease: [0.22, 1, 0.36, 1] },
               }}
             >
@@ -121,11 +119,14 @@ export function FeaturedCollection({
                 fill
                 priority={currentIndex === 0}
                 sizes="100vw"
-                className="object-cover object-center"
+                className="homepage-featured-collection__frame object-cover object-center"
+                style={{ '--hero-mobile-position': activeFrame.mobilePosition } as CSSProperties}
               />
             </motion.div>
           ) : null}
         </AnimatePresence>
+
+        <div className="homepage-featured-collection__scrim pointer-events-none absolute inset-0 z-10" aria-hidden="true" />
 
         {phase > 0 ? <>
           <button type="button" aria-label="Previous Aakaar image" onClick={() => changeFrame(-1)} className="pointer-events-auto absolute left-5 top-1/2 z-40 flex h-12 w-12 -translate-y-1/2 items-center justify-center border border-[#fff1df]/55 bg-black/10 text-[#fff1df] backdrop-blur-sm transition hover:border-gold hover:bg-gold hover:text-ink lg:left-8"><ArrowLeft className="h-5 w-5" /></button>

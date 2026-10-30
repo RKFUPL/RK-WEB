@@ -2,7 +2,7 @@
 
 import { Pause, Play, Volume2, VolumeX } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { runwayHeroVideoUrl } from '@/lib/home-content';
+import { espirituLibreImageUrl, runwayHeroVideoUrl } from '@/lib/home-content';
 
 type RunwayHeroProps = {
   title: string;
@@ -46,7 +46,7 @@ export function RunwayHero({ title }: RunwayHeroProps) {
   };
 
   return (
-    <section id="runway-hero" aria-label={`${title} runway film`} onClick={togglePlayback} className="relative isolate flex min-h-[100svh] cursor-pointer items-end overflow-hidden bg-black text-white">
+    <section id="runway-hero" aria-label={`${title} runway film`} onClick={togglePlayback} className="runway-hero-banner relative isolate flex cursor-pointer items-end overflow-hidden bg-black text-white">
       <video
         ref={videoRef}
         src={runwayHeroVideoUrl}
@@ -55,11 +55,12 @@ export function RunwayHero({ title }: RunwayHeroProps) {
         muted={muted}
         playsInline
         preload="metadata"
+        poster={espirituLibreImageUrl}
         controls={false}
         onPlay={() => setPaused(false)}
         onPause={() => setPaused(true)}
         onCanPlay={(event) => void event.currentTarget.play().catch(() => undefined)}
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
+        className="runway-hero-banner__media pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
         aria-label="Espiritu Libre at LFW runway film"
       />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/65" />

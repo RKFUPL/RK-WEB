@@ -39,7 +39,7 @@
   max-width: none;
   height: 0.84em;
   flex: none;
-  object-fit: contain;
+  object-fit: cover;
   overflow: visible;
   vertical-align: -0.08em;
 }
@@ -988,7 +988,7 @@ body {
 .collection-campaign-hero {
   position: relative;
   isolation: isolate;
-  height: clamp(34rem, min(72svh, 50vw), 52rem);
+  height: clamp(36rem, 72svh, 52rem);
   min-height: 34rem;
   overflow: hidden;
   background: #121212;
@@ -998,7 +998,7 @@ body {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   object-position: var(--collection-hero-desktop-position, center center);
 }
 
@@ -1186,6 +1186,62 @@ body {
   opacity: 0.5;
 }
 
+.homepage-featured-collection__viewport,
+.home-video-banner,
+.runway-hero-banner {
+  height: clamp(36rem, 100svh, 64rem);
+  min-height: 36rem;
+}
+
+.homepage-featured-collection__viewport {
+  background: #8a3d38;
+}
+
+.homepage-featured-collection__frame {
+  object-fit: cover;
+  object-position: center center;
+}
+
+.home-video-banner__media,
+.runway-hero-banner__media {
+  object-fit: cover;
+  object-position: center center;
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .homepage-featured-collection__viewport,
+  .home-video-banner,
+  .runway-hero-banner {
+    height: clamp(36rem, 74svh, 48rem);
+    min-height: 36rem;
+  }
+
+  .homepage-featured-collection__frame {
+    object-position: var(--hero-mobile-position, center center);
+  }
+
+  .homepage-featured-collection__scrim {
+    background: linear-gradient(180deg, rgba(12, 9, 8, 0.24), transparent 30%, rgba(12, 9, 8, 0.12) 52%, rgba(12, 9, 8, 0.58));
+  }
+
+  .collection-campaign-hero {
+    height: clamp(38rem, 72svh, 48rem);
+  }
+
+  .collection-campaign-hero__content {
+    padding: calc(var(--rk-header-height, 5rem) + 2rem) 2.5rem 3rem;
+  }
+
+  .collection-campaign-copy {
+    width: min(100%, 38rem);
+  }
+
+  .collection-campaign-title {
+    font-size: clamp(3.5rem, 8vw, 6rem);
+    white-space: normal;
+  }
+}
+
 @media (max-width: 767px) {
   .collection-campaign-hero {
     height: min(78svh, 44rem);
@@ -1237,6 +1293,26 @@ body {
   .collection-featured-button {
     width: 100%;
     max-width: 15rem;
+  }
+
+  .homepage-featured-collection__viewport,
+  .home-video-banner,
+  .runway-hero-banner {
+    height: clamp(30rem, 62svh, 36rem);
+    min-height: 30rem;
+  }
+
+  .home-video-banner__media,
+  .runway-hero-banner__media {
+    object-position: center center;
+  }
+
+  .homepage-featured-collection__frame {
+    object-position: var(--hero-mobile-position, center center);
+  }
+
+  .homepage-featured-collection__scrim {
+    background: linear-gradient(180deg, rgba(12, 9, 8, 0.24), transparent 30%, rgba(12, 9, 8, 0.12) 52%, rgba(12, 9, 8, 0.58));
   }
 
   .collection-campaign-hero--left.collection-campaign-hero--light .collection-campaign-hero__scrim,
@@ -1595,7 +1671,11 @@ body {
   align-items: center;
   overflow: hidden;
   padding: 8rem max(1.5rem, calc((100vw - 78rem) / 2)) 5rem;
-  background: linear-gradient(90deg, rgba(20, 9, 8, 0.88), rgba(20, 9, 8, 0.28)), url('https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487994/Rashi_Kapoor2418_compressed_8000kb_qkke56.jpg') center 34% / cover;
+  background-color: #24150e;
+  background-image: linear-gradient(90deg, rgba(20, 9, 8, 0.88), rgba(20, 9, 8, 0.28)), url('https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487994/Rashi_Kapoor2418_compressed_8000kb_qkke56.jpg');
+  background-position: center, center 34%;
+  background-repeat: no-repeat;
+  background-size: 100% 100%, cover;
 }
 
 .careers-page-intro {
@@ -1654,6 +1734,7 @@ body {
   .careers-page-hero {
     min-height: 42rem;
     padding-top: 8rem;
+    background-position: center, center 27%;
   }
 
   .careers-opportunities {
