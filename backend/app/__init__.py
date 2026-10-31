@@ -57,9 +57,8 @@ def create_app() -> Flask:
     # Keep the production allowlist explicit because authentication uses
     # credentials. Local origins remain available for development.
     allowed_origins = {
-        "https://rkfupl.onrender.com",
-        "https://physihome.shop",
-        "https://www.physihome.shop",
+        "https://rashikapoor.co.in",
+        "https://www.rashikapoor.co.in",
         "http://localhost:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3000",
