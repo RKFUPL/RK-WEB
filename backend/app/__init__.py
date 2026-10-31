@@ -24,8 +24,7 @@ def _load_environment(backend_env: Path) -> None:
 
 _load_environment(_backend_env)
 
-# The local development environment can expose a dead placeholder proxy. It
-# prevents Resend from reaching its API even though the backend is healthy.
+# The local development environment can expose a dead placeholder proxy.
 for _proxy_name in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy'):
     if os.getenv(_proxy_name, '').lower() == 'http://127.0.0.1:9':
         os.environ.pop(_proxy_name, None)

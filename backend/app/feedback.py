@@ -5,11 +5,11 @@ import hashlib
 import html
 import secrets
 
-import resend
 from bson import ObjectId
 from flask import Blueprint, current_app, jsonify, request
 
 from .rbac import database
+from .mail import SENDERS, send_html_email
 from .time_utils import as_utc_datetime, isoformat_utc
 
 
@@ -76,19 +76,15 @@ def _rating(payload: dict, key: str) -> int | None:
 
 
 def _send_feedback_email(record: dict, feedback: dict) -> None:
-    api_key = current_app.config.get("RESEND_API_KEY")
-    if not api_key:
-        return
     ratings = "<br>".join(f"{html.escape(key)}: {value}/5" for key, value in feedback.get("ratings", {}).items() if value is not None)
     answers = "<br>".join(f"{html.escape(key)}: {html.escape(str(value))}" for key, value in feedback.get("answers", {}).items() if value not in (None, ""))
     products = ", ".join(html.escape(str(item.get("name") or item.get("sku") or "Product")) for item in record.get("items", []))
-    resend.api_key = api_key
-    resend.Emails.send({
-        "from": f'{current_app.config["EMAIL_FROM_NAME"]} <{current_app.config["EMAIL_FROM"]}>',
-        "to": ["operations@chemo.in"],
-        "subject": f"RK customer feedback — {html.escape(str(record.get('orderNumber') or 'Order'))}",
-        "html": f"<div style='font-family:Arial,sans-serif;background:#f8f5ef;padding:28px'><h1 style='font-family:Georgia,serif;font-weight:400'>Customer feedback</h1><p><strong>Order:</strong> {html.escape(str(record.get('orderNumber') or ''))}<br><strong>Customer:</strong> {html.escape(str(feedback.get('customerName') or 'Customer'))}<br><strong>Email:</strong> {html.escape(str(feedback.get('email') or ''))}<br><strong>Products:</strong> {products}</p><p><strong>Ratings</strong><br>{ratings}</p><p><strong>Answers</strong><br>{answers}</p></div>",
-    })
+    send_html_email(
+        sender=SENDERS["logistics"],
+        recipients=["operations@chemo.in"],
+        subject=f"RK customer feedback — {html.escape(str(record.get('orderNumber') or 'Order'))}",
+        html=f"<div style='font-family:Arial,sans-serif;background:#f8f5ef;padding:28px'><h1 style='font-family:Georgia,serif;font-weight:400'>Customer feedback</h1><p><strong>Order:</strong> {html.escape(str(record.get('orderNumber') or ''))}<br><strong>Customer:</strong> {html.escape(str(feedback.get('customerName') or 'Customer'))}<br><strong>Email:</strong> {html.escape(str(feedback.get('email') or ''))}<br><strong>Products:</strong> {products}</p><p><strong>Ratings</strong><br>{ratings}</p><p><strong>Answers</strong><br>{answers}</p></div>",
+    )
 
 
 @feedback_bp.get("/<token>")

@@ -83,11 +83,6 @@ def _iso(value):
     return value.isoformat() if isinstance(value, datetime) else value
 
 
-def _require_zoho_provider() -> None:
-    if str(current_app.config.get("MAIL_PROVIDER") or "").strip().lower() != "zoho":
-        raise RuntimeError("Zoho Mail is not the selected mail provider")
-
-
 def _smtp_diagnostic(stage: str, outcome: str, config: dict, error=None) -> None:
     """Emit only non-secret SMTP troubleshooting metadata."""
     smtp_code = getattr(error, "smtp_code", None) if error else None
@@ -108,7 +103,6 @@ def _smtp_diagnostic(stage: str, outcome: str, config: dict, error=None) -> None
 
 
 def test_smtp_connection() -> dict:
-    _require_zoho_provider()
     config = _configured()
     host, port = config["smtpHost"], config["smtpPort"]
     username = current_app.config.get("SMTP_USERNAME") or current_app.config.get("ZOHO_SMTP_USERNAME")
@@ -162,7 +156,6 @@ def _smtp_connection():
 def send_test_email(recipient: str, sender_key: str) -> dict:
     if sender_key not in SENDERS:
         raise ValueError("Unapproved sender identity")
-    _require_zoho_provider()
     recipient = validate_recipient(recipient)
     message = EmailMessage()
     message["From"] = SENDERS[sender_key]
@@ -192,30 +185,62 @@ def send_test_email(recipient: str, sender_key: str) -> dict:
     return {"provider": "Zoho Mail", "sender": SENDERS[sender_key], "sentAt": datetime.now(timezone.utc).isoformat()}
 
 
-def send_otp(recipient: str, otp: str, purpose: str = "verification") -> None:
-    """Send OTP through the selected provider; Resend remains explicit fallback."""
-    if current_app.config.get("MAIL_PROVIDER", "resend").lower() != "zoho":
-        import resend
-        api_key = current_app.config.get("RESEND_API_KEY")
-        if not api_key:
-            raise RuntimeError("Configured mail provider is unavailable")
-        resend.api_key = api_key
-        resend.Emails.send({"from": f'{current_app.config["EMAIL_FROM_NAME"]} <{current_app.config["EMAIL_FROM"]}>', "to": [recipient], "subject": f"Your Rashi Kapoor {purpose} code", "html": f"<p>Your one-time verification code is <strong>{otp}</strong>.</p><p>This code expires in 10 minutes.</p>"})
-        return
+def send_html_email(
+    *,
+    sender: str,
+    recipients: list[str] | tuple[str, ...],
+    subject: str,
+    html: str,
+    bcc: list[str] | tuple[str, ...] | None = None,
+    reply_to: list[str] | tuple[str, ...] | None = None,
+    text: str | None = None,
+    attachments: list[tuple[str, bytes, str]] | None = None,
+) -> dict:
+    """Send an application email through the configured Zoho SMTP mailbox."""
+    to = [validate_recipient(value) for value in recipients if str(value or "").strip()]
+    if not to:
+        raise ValueError("At least one recipient email is required.")
     message = EmailMessage()
-    message["From"] = SENDERS["otp"]
-    message["To"] = recipient
-    message["Subject"] = f"Your Rashi Kapoor {purpose} code"
-    message.set_content(f"Your one-time verification code is {otp}. This code expires in 10 minutes.")
+    message["From"] = sender
+    message["To"] = ", ".join(to)
+    if bcc:
+        message["Bcc"] = ", ".join(validate_recipient(value) for value in bcc if str(value or "").strip())
+    if reply_to:
+        message["Reply-To"] = ", ".join(validate_recipient(value) for value in reply_to if str(value or "").strip())
+    message["Subject"] = subject
+    message.set_content(text or "This message contains HTML content.")
+    message.add_alternative(html, subtype="html")
+    for filename, content, content_type in attachments or []:
+        maintype, subtype = content_type.split("/", 1)
+        message.add_attachment(content, maintype=maintype, subtype=subtype, filename=filename)
     connection = None
     try:
         connection = _smtp_connection()
         connection.send_message(message)
-    except (OSError, smtplib.SMTPException) as error:
-        raise RuntimeError("OTP email delivery failed") from error
+    except smtplib.SMTPSenderRefused as error:
+        raise RuntimeError("SMTP sender address rejected") from error
+    except smtplib.SMTPRecipientsRefused as error:
+        raise RuntimeError("SMTP recipient address rejected") from error
+    except smtplib.SMTPAuthenticationError as error:
+        raise RuntimeError("Zoho Mail SMTP authentication failed") from error
+    except smtplib.SMTPException as error:
+        raise RuntimeError("Zoho Mail message delivery failed") from error
+    except OSError as error:
+        raise RuntimeError("Unable to reach the Zoho Mail SMTP server") from error
     finally:
         if connection:
             try:
                 connection.quit()
             except smtplib.SMTPException:
                 pass
+    return {"provider": "Zoho Mail", "id": message.get("Message-ID", "")}
+
+
+def send_otp(recipient: str, otp: str, purpose: str = "verification") -> None:
+    send_html_email(
+        sender=SENDERS["otp"],
+        recipients=[recipient],
+        subject=f"Your Rashi Kapoor {purpose} code",
+        html=f"<p>Your one-time verification code is <strong>{otp}</strong>.</p><p>This code expires in 10 minutes.</p>",
+        text=f"Your one-time verification code is {otp}. This code expires in 10 minutes.",
+    )

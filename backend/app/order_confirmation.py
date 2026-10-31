@@ -6,8 +6,7 @@ from datetime import datetime, timezone
 import html
 import re
 
-import resend
-
+from .mail import SENDERS, send_html_email
 from .rbac import effective_permissions
 
 
@@ -177,20 +176,14 @@ def send_order_confirmation(database, order: dict, config, logger, *, force: boo
     if claimed.modified_count != 1:
         current = database.orders.find_one({"_id": order_id}, {"confirmationEmail": 1}) or {}
         return (current.get("confirmationEmail") or {}).get("status") == "sent"
-    api_key = _text(config.get("RESEND_API_KEY"), 300)
-    if not api_key:
-        database.orders.update_one({"_id": order_id}, {"$set": {"confirmationEmail.status": "failed", "confirmationEmail.error": "Email service is not configured."}})
-        logger.warning("Order confirmation email is pending because RESEND_API_KEY is not configured")
-        return False
     try:
-        resend.api_key = api_key
-        response = resend.Emails.send({
-            "from": f'{config["EMAIL_FROM_NAME"]} <{config["EMAIL_FROM"]}>',
-            "to": [recipient],
-            "bcc": confirmation_bcc_recipients(database, config.get("ORDER_CONFIRMATION_BCC", "")),
-            "subject": f"Rashi Kapoor order confirmed — {_text(order.get('orderNumber'), 100)}",
-            "html": render_order_confirmation(order),
-        })
+        response = send_html_email(
+            sender=SENDERS["orders"],
+            recipients=[recipient],
+            bcc=confirmation_bcc_recipients(database, config.get("ORDER_CONFIRMATION_BCC", "")),
+            subject=f"Rashi Kapoor order confirmed — {_text(order.get('orderNumber'), 100)}",
+            html=render_order_confirmation(order),
+        )
         provider_id = _text((response or {}).get("id") if isinstance(response, dict) else "", 180)
         database.orders.update_one({"_id": order_id}, {
             "$set": {"confirmationEmail.status": "sent", "confirmationEmail.sentAt": datetime.now(timezone.utc), "confirmationEmail.providerId": provider_id, "confirmationEmail.error": None},

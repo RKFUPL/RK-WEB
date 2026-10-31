@@ -14,11 +14,12 @@ import secrets
 from typing import Any
 from urllib.parse import urlparse
 
-import resend
 from bson import ObjectId
 from flask import current_app
 from pymongo import ReturnDocument
 from pymongo.errors import OperationFailure
+
+from .mail import SENDERS, send_html_email
 
 from .time_utils import as_utc_datetime, isoformat_utc, json_value as serialize_json_value
 
@@ -391,9 +392,8 @@ def _notification_copy(status: str) -> tuple[str, str] | None:
 
 def _legacy_send_status_notification(database, order: dict, status: str) -> None:
     copy = _notification_copy(status)
-    api_key = current_app.config.get("RESEND_API_KEY")
     email = safe_text(order.get("email"), 160).lower()
-    if not copy or not api_key or not email:
+    if not copy or not email:
         return
     key = f"fulfillment:{status}"
     claimed = database.orders.update_one(
@@ -414,13 +414,10 @@ def _legacy_send_status_notification(database, order: dict, status: str) -> None
         if tracking_url:
             tracking = f'{tracking}<p><a href="{html.escape(tracking_url, quote=True)}">Track shipment</a></p>'
     try:
-        resend.api_key = api_key
-        response = resend.Emails.send({
-            "from": f'{current_app.config["EMAIL_FROM_NAME"]} <{current_app.config["EMAIL_FROM"]}>',
-            "to": [email],
-            "subject": f"{subject} — {number}",
-            "html": f"<p>Dear {html.escape(safe_text(order.get('customerName'), 120) or 'Customer')},</p><p>{html.escape(message)}</p>{tracking}",
-        })
+        response = send_html_email(
+            sender=SENDERS["orders"], recipients=[email], subject=f"{subject} — {number}",
+            html=f"<p>Dear {html.escape(safe_text(order.get('customerName'), 120) or 'Customer')},</p><p>{html.escape(message)}</p>{tracking}",
+        )
         database.orders.update_one({"_id": order["_id"]}, {"$push": {"notificationLog": {"key": key, "status": "sent", "timestamp": datetime.now(timezone.utc), "providerId": safe_text((response or {}).get("id") if isinstance(response, dict) else "", 160)}}})
     except Exception as error:
         database.orders.update_one({"_id": order["_id"]}, {"$push": {"notificationLog": {"key": key, "status": "failed", "timestamp": datetime.now(timezone.utc), "error": safe_text(error, 240)}}})
@@ -448,7 +445,6 @@ def send_status_notification(database, order: dict, status: str, customer_note: 
     )
     if claimed.modified_count != 1:
         return
-    api_key = current_app.config.get("RESEND_API_KEY")
     subject, message = copy
     number = html.escape(safe_text(order.get("orderNumber"), 80))
     customer_name = html.escape(safe_text(order.get("customerName"), 120) or "Customer")
@@ -475,20 +471,15 @@ def send_status_notification(database, order: dict, status: str, customer_note: 
             feedback_link = feedback_url(token)
         except Exception:
             current_app.logger.exception("Unable to create delivery feedback link")
-    if not api_key:
-        return
     if feedback_link:
         tracking += f'<p><a href="{html.escape(feedback_link, quote=True)}">Share your experience</a></p>'
     note = html.escape(safe_text(customer_note, 500))
     note_html = f"<div style='border-left:2px solid #c09355;padding:12px 16px;margin:24px 0'>{note}</div>" if note else ""
     try:
-        resend.api_key = api_key
-        response = resend.Emails.send({
-            "from": f'{current_app.config["EMAIL_FROM_NAME"]} <{current_app.config["EMAIL_FROM"]}>',
-            "to": [email],
-            "subject": f"{subject} — {number}",
-            "html": f"<div style='background:#f8f5ef;padding:32px;color:#27221d;font-family:Arial,sans-serif'><p style='letter-spacing:.28em;text-transform:uppercase;font-size:11px'>RASHI KAPOOR</p><h1 style='font-family:Georgia,serif;font-weight:400'>{html.escape(subject)}</h1><p>Dear {customer_name},</p><p>{html.escape(message)}</p>{note_html}{tracking}<p>We will keep you updated as your order progresses.</p><p>Yours sincerely,<br>The Rashi Kapoor Team</p></div>",
-        })
+        response = send_html_email(
+            sender=SENDERS["orders"], recipients=[email], subject=f"{subject} — {number}",
+            html=f"<div style='background:#f8f5ef;padding:32px;color:#27221d;font-family:Arial,sans-serif'><p style='letter-spacing:.28em;text-transform:uppercase;font-size:11px'>RASHI KAPOOR</p><h1 style='font-family:Georgia,serif;font-weight:400'>{html.escape(subject)}</h1><p>Dear {customer_name},</p><p>{html.escape(message)}</p>{note_html}{tracking}<p>We will keep you updated as your order progresses.</p><p>Yours sincerely,<br>The Rashi Kapoor Team</p></div>",
+        )
         database.orders.update_one({"_id": order["_id"]}, {"$push": {"notificationLog": {"key": key, "status": "sent", "timestamp": datetime.now(timezone.utc), "providerId": safe_text((response or {}).get("id") if isinstance(response, dict) else "", 160)}}})
     except Exception as error:
         database.orders.update_one({"_id": order["_id"]}, {"$push": {"notificationLog": {"key": key, "status": "failed", "timestamp": datetime.now(timezone.utc), "error": safe_text(error, 240)}}})

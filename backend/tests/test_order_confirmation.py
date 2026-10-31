@@ -84,16 +84,13 @@ class OrderConfirmationTests(unittest.TestCase):
         users = SimpleNamespace(find=MagicMock(return_value=[{"email": "admin@example.com", "role": "admin", "isActive": True}]))
         database = SimpleNamespace(orders=orders, users=users)
         config = {
-            "RESEND_API_KEY": "re_test",
-            "EMAIL_FROM_NAME": "Rashi Kapoor",
-            "EMAIL_FROM": "orders@example.com",
             "ORDER_CONFIRMATION_BCC": "",
         }
         logger = MagicMock()
-        with patch("app.order_confirmation.resend.Emails.send", return_value={"id": "email_123"}) as send:
+        with patch("app.order_confirmation.send_html_email", return_value={"id": "email_123"}) as send:
             self.assertTrue(send_order_confirmation(database, order, config, logger))
-        payload = send.call_args.args[0]
-        self.assertEqual(payload["to"], ["customer@example.com"])
+        payload = send.call_args.kwargs
+        self.assertEqual(payload["recipients"], ["customer@example.com"])
         self.assertEqual(payload["bcc"], ["operations@chemo.in", "admin@example.com"])
         self.assertNotIn("customer@example.com", payload["bcc"])
         self.assertIn("AK-CK45-IVORY", payload["html"])
@@ -107,9 +104,9 @@ class OrderConfirmationTests(unittest.TestCase):
         )
         database = SimpleNamespace(orders=orders, users=SimpleNamespace(find=MagicMock(return_value=[])))
         logger = MagicMock()
-        with patch("app.order_confirmation.resend.Emails.send", side_effect=RuntimeError("temporary outage")):
+        with patch("app.order_confirmation.send_html_email", side_effect=RuntimeError("temporary outage")):
             sent = send_order_confirmation(database, order, {
-                "RESEND_API_KEY": "re_test", "EMAIL_FROM_NAME": "Rashi Kapoor", "EMAIL_FROM": "orders@example.com", "ORDER_CONFIRMATION_BCC": "",
+                "ORDER_CONFIRMATION_BCC": "",
             }, logger)
         self.assertFalse(sent)
         failure_update = orders.update_one.call_args_list[-1].args[1]

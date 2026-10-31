@@ -5,11 +5,11 @@ import hashlib
 import html
 import secrets
 
-import resend
 from flask import Blueprint, current_app, jsonify, request
 from pymongo import ReturnDocument
 
 from .rbac import database
+from .mail import SENDERS, send_html_email
 from .time_utils import isoformat_utc
 
 
@@ -51,36 +51,28 @@ def _record(db, token: str) -> dict | None:
 
 
 def _send_return_submission(record: dict, shipment: dict) -> None:
-    api_key = current_app.config.get("RESEND_API_KEY")
-    if not api_key:
-        return
-    resend.api_key = api_key
-    resend.Emails.send({
-        "from": f'{current_app.config["EMAIL_FROM_NAME"]} <{current_app.config["EMAIL_FROM"]}>',
-        "to": ["operations@chemo.in"],
-        "subject": f"RK return shipment submitted — {html.escape(str(record.get('orderNumber') or 'Order'))}",
-        "html": f"<div style='font-family:Arial,sans-serif;background:#f8f5ef;padding:28px'><h1 style='font-family:Georgia,serif;font-weight:400'>Return shipment details</h1><p>Order: <strong>{html.escape(str(record.get('orderNumber') or ''))}</strong></p><p>Courier: {html.escape(shipment['courier'])}<br>LR number: {html.escape(shipment['lrNumber'])}<br>Dispatch date: {html.escape(shipment.get('dispatchDate') or '—')}<br>Note: {html.escape(shipment.get('note') or '—')}</p></div>",
-    })
+    send_html_email(
+        sender=SENDERS["logistics"], recipients=["operations@chemo.in"],
+        subject=f"RK return shipment submitted — {html.escape(str(record.get('orderNumber') or 'Order'))}",
+        html=f"<div style='font-family:Arial,sans-serif;background:#f8f5ef;padding:28px'><h1 style='font-family:Georgia,serif;font-weight:400'>Return shipment details</h1><p>Order: <strong>{html.escape(str(record.get('orderNumber') or ''))}</strong></p><p>Courier: {html.escape(shipment['courier'])}<br>LR number: {html.escape(shipment['lrNumber'])}<br>Dispatch date: {html.escape(shipment.get('dispatchDate') or '—')}<br>Note: {html.escape(shipment.get('note') or '—')}</p></div>",
+    )
 
 
 def send_return_accepted(db, order: dict, token: str, customer_note: str = "") -> None:
-    api_key = current_app.config.get("RESEND_API_KEY")
     email = str(order.get("email") or "").strip().lower()
-    if not api_key or not email:
+    if not email:
         return
-    resend.api_key = api_key
     link = return_url(token)
     note = f"<p>{html.escape(customer_note)}</p>" if customer_note else ""
     key = "return:accepted"
     claimed = db.orders.update_one({"_id": order["_id"], "notificationKeys": {"$ne": key}}, {"$addToSet": {"notificationKeys": key}})
     if claimed.modified_count != 1:
         return
-    resend.Emails.send({
-        "from": f'{current_app.config["EMAIL_FROM_NAME"]} <{current_app.config["EMAIL_FROM"]}>',
-        "to": [email],
-        "subject": f"Your RK return request has been accepted — {order.get('orderNumber', '')}",
-        "html": f"<div style='font-family:Arial,sans-serif;background:#f8f5ef;padding:32px;color:#27221d'><p style='letter-spacing:.28em;text-transform:uppercase;font-size:11px'>RASHI KAPOOR</p><h1 style='font-family:Georgia,serif;font-weight:400'>Your return request has been accepted.</h1><p>Dear {html.escape(str(order.get('customerName') or 'Customer'))},</p><p>Please use the secure link below to provide the courier name and LR number for your return shipment.</p>{note}<p><a href='{html.escape(link, quote=True)}'>Submit return shipment details</a></p><p>Yours sincerely,<br>The Rashi Kapoor Team</p></div>",
-    })
+    send_html_email(
+        sender=SENDERS["logistics"], recipients=[email],
+        subject=f"Your RK return request has been accepted — {order.get('orderNumber', '')}",
+        html=f"<div style='font-family:Arial,sans-serif;background:#f8f5ef;padding:32px;color:#27221d'><p style='letter-spacing:.28em;text-transform:uppercase;font-size:11px'>RASHI KAPOOR</p><h1 style='font-family:Georgia,serif;font-weight:400'>Your return request has been accepted.</h1><p>Dear {html.escape(str(order.get('customerName') or 'Customer'))},</p><p>Please use the secure link below to provide the courier name and LR number for your return shipment.</p>{note}<p><a href='{html.escape(link, quote=True)}'>Submit return shipment details</a></p><p>Yours sincerely,<br>The Rashi Kapoor Team</p></div>",
+    )
 
 
 @returns_bp.get("/<token>")

@@ -29,7 +29,6 @@ class EmailIntegrationEndpointTests(unittest.TestCase):
         app.config.update(
             TESTING=True,
             JWT_SECRET_KEY="test-secret-key-that-is-at-least-32-bytes",
-            MAIL_PROVIDER="zoho",
             ZOHO_MAILBOX="rk@rashikapoorofficial.com",
             ZOHO_SMTP_HOST="smtp.zoho.com",
             ZOHO_SMTP_PORT=587,

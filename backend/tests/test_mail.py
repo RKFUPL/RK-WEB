@@ -6,11 +6,10 @@ from flask import Flask
 from app.mail import SENDERS, _security_mode, safe_status, send_otp, send_test_email, test_smtp_connection as check_smtp_connection
 
 
-class MailProviderSelectionTests(unittest.TestCase):
+class ZohoMailTests(unittest.TestCase):
     def setUp(self):
         self.app = Flask(__name__)
         self.app.config.update(
-            MAIL_PROVIDER="zoho",
             ZOHO_SMTP_HOST="smtp.test.invalid",
             ZOHO_SMTP_PORT=587,
             ZOHO_SMTP_SECURITY="starttls",
@@ -18,7 +17,6 @@ class MailProviderSelectionTests(unittest.TestCase):
             ZOHO_SMTP_PASSWORD="configured-password",
             EMAIL_FROM_NAME="Rashi Kapoor",
             EMAIL_FROM="legacy@example.invalid",
-            RESEND_API_KEY="configured-resend-key",
         )
 
     @patch("app.mail._smtp_connection")
@@ -31,20 +29,10 @@ class MailProviderSelectionTests(unittest.TestCase):
         self.assertEqual(message["From"], SENDERS["otp"])
         self.assertEqual(message["From"], "otp@rashikapoorofficial.com")
 
-    @patch("resend.Emails.send")
-    def test_resend_is_used_only_when_explicitly_selected(self, resend_send):
-        self.app.config["MAIL_PROVIDER"] = "resend"
-        with self.app.app_context():
-            send_otp("recipient@example.invalid", "000000")
-        payload = resend_send.call_args.args[0]
-        self.assertIn("legacy@example.invalid", payload["from"])
-
-    @patch("resend.Emails.send")
-    def test_zoho_failure_does_not_fall_back_to_resend(self, resend_send):
+    def test_zoho_failure_is_reported_without_fallback(self):
         with patch("app.mail._smtp_connection", side_effect=RuntimeError("unavailable")):
             with self.app.app_context(), self.assertRaises(RuntimeError):
                 send_otp("recipient@example.invalid", "000000")
-        resend_send.assert_not_called()
 
     def test_missing_zoho_configuration_is_safe(self):
         self.app.config["ZOHO_SMTP_PASSWORD"] = ""
@@ -132,6 +120,29 @@ class MailProviderSelectionTests(unittest.TestCase):
         connection_factory.return_value = connection
         with self.app.app_context(), self.assertRaisesRegex(RuntimeError, "sender address rejected"):
             send_test_email("recipient@example.invalid", "otp")
+
+    @patch("app.mail._smtp_connection")
+    def test_html_helper_preserves_bcc_reply_to_and_attachments(self, connection_factory):
+        connection = MagicMock()
+        connection_factory.return_value = connection
+        from app.mail import send_html_email
+
+        with self.app.app_context():
+            send_html_email(
+                sender=SENDERS["orders"],
+                recipients=["customer@example.invalid"],
+                bcc=["operations@example.invalid"],
+                reply_to=["customer@example.invalid"],
+                subject="Order update",
+                html="<p>Updated</p>",
+                text="Updated",
+                attachments=[("receipt.pdf", b"pdf", "application/pdf")],
+            )
+        message = connection.send_message.call_args.args[0]
+        self.assertEqual(message["Bcc"], "operations@example.invalid")
+        self.assertEqual(message["Reply-To"], "customer@example.invalid")
+        self.assertEqual(message.get_body("html").get_content().strip(), "<p>Updated</p>")
+        self.assertEqual(next(message.iter_attachments()).get_filename(), "receipt.pdf")
 
 
 if __name__ == "__main__":

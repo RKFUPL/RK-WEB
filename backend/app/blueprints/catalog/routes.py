@@ -3,7 +3,6 @@ from time import perf_counter
 import html
 import re
 
-import resend
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 
 from ...catalog import (
@@ -23,6 +22,7 @@ from ...catalog import (
     product_view,
     natural_product_sort_key,
 )
+from ...mail import SENDERS, send_html_email
 from ...extensions import limiter
 from ...fx_rates import public_currency_context as build_currency_context
 from ...product_variants import find_variant, product_has_visible_variants, product_with_computed_variants, sync_product_variants
@@ -273,10 +273,6 @@ def _runway_collection(db):
 
 
 def _send_custom_order_emails(record: dict) -> None:
-    api_key = current_app.config.get("RESEND_API_KEY")
-    if not api_key:
-        return
-
     product_name = html.escape(record["productName"])
     customer_name = html.escape(record["customerName"] or "Customer")
     email = html.escape(record["email"], quote=True)
@@ -287,17 +283,13 @@ def _send_custom_order_emails(record: dict) -> None:
         f"{html.escape(key)}: {html.escape(value)}"
         for key, value in record["measurements"].items()
     ) or "Not provided"
-    sender = f'{current_app.config["EMAIL_FROM_NAME"]} <{current_app.config["EMAIL_FROM"]}>'
     operations_email = current_app.config.get("CUSTOM_ORDER_TO", "operations@chemo.in")
 
-    resend.api_key = api_key
     try:
-        resend.Emails.send({
-            "from": sender,
-            "to": [operations_email],
-            "reply_to": [record["email"]],
-            "subject": f"RK custom order request - {record['productName']}",
-            "html": (
+        send_html_email(
+            sender=SENDERS["orders"], recipients=[operations_email], reply_to=[record["email"]],
+            subject=f"RK custom order request - {record['productName']}",
+            html=(
                 "<div style='font-family:Arial,sans-serif;background:#f8f5ef;padding:28px'>"
                 "<p style='letter-spacing:.24em;text-transform:uppercase;font-size:11px'>RASHI KAPOOR / CUSTOM ORDER</p>"
                 f"<h1 style='font-family:Georgia,serif;font-weight:400'>{product_name}</h1>"
@@ -306,16 +298,15 @@ def _send_custom_order_emails(record: dict) -> None:
                 f"<p><strong>Measurements</strong><br>{measurements}</p>"
                 f"<p><strong>Request</strong><br>{message}</p></div>"
             ),
-        })
+        )
     except Exception:
         current_app.logger.exception("Unable to send custom order request to operations")
 
     try:
-        resend.Emails.send({
-            "from": sender,
-            "to": [record["email"]],
-            "subject": "We received your RK custom order request",
-            "html": (
+        send_html_email(
+            sender=SENDERS["orders"], recipients=[record["email"]],
+            subject="We received your RK custom order request",
+            html=(
                 "<div style='font-family:Arial,sans-serif;background:#f8f5ef;padding:32px;color:#27221d'>"
                 "<p style='letter-spacing:.28em;text-transform:uppercase;font-size:11px'>RASHI KAPOOR</p>"
                 "<h1 style='font-family:Georgia,serif;font-weight:400'>Your request is with the house.</h1>"
@@ -324,7 +315,7 @@ def _send_custom_order_emails(record: dict) -> None:
                 "The RK team will review the request and get back to you by email.</p>"
                 "<p>Yours sincerely,<br>The Rashi Kapoor Team</p></div>"
             ),
-        })
+        )
     except Exception:
         current_app.logger.exception("Unable to send custom order acknowledgement")
 
