@@ -74,6 +74,14 @@ test("availability updates do not include inventory quantities", () => {
   assert.deepEqual(buildProductUpdate(product, draft).payload, { availability: "custom_order" });
 });
 
+test("product editor persists Try-On eligibility without changing legacy products by default", () => {
+  const draft = productDraftFrom(product);
+  assert.equal(draft.aiTryonEnabled, false);
+  draft.aiTryonEnabled = true;
+  assert.deepEqual(buildProductUpdate(product, draft).payload, { aiTryonEnabled: true });
+  assert.equal(productDraftFrom({ ...product, aiTryonEnabled: true }).aiTryonEnabled, true);
+});
+
 test("fresh read-back mismatch identifies the field that was not persisted", () => {
   const stale = { ...product };
   assert.equal(productUpdateMismatch(stale, { name: "T1 Revised" }), "product name");

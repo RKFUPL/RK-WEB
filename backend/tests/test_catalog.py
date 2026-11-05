@@ -428,6 +428,11 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(view["pricing"]["baseCurrency"], "INR")
         self.assertEqual(view["pricing"]["fxBufferPercent"], 5)
 
+    def test_product_view_exposes_tryon_eligibility_and_defaults_legacy_products_off(self):
+        product_id = ObjectId()
+        self.assertFalse(product_view({"_id": product_id, "availability": "in_stock"})["aiTryonEnabled"])
+        self.assertTrue(product_view({"_id": product_id, "availability": "in_stock", "aiTryonEnabled": True})["aiTryonEnabled"])
+
     def test_product_view_separates_parent_style_from_selected_colour_sku(self):
         view = product_view({
             "_id": ObjectId(), "name": "T1", "styleCode": "T1", "productCode": "T1", "sku": "T1",

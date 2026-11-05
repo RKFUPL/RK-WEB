@@ -602,6 +602,31 @@ class EndpointAuthorizationTests(unittest.TestCase):
         self.assertEqual(view["attributes"]["occasion"], "Evening")
         self.assertEqual(view["attributes"]["customizationInformation"], "Available")
 
+    def test_product_update_persists_tryon_eligibility_and_returns_it(self):
+        admin = {"_id": ObjectId(), "role": "admin", "isActive": True, "permissions": ["*"]}
+        product_id = ObjectId()
+        document = {
+            "_id": product_id, "name": "T1", "sku": "T1", "price": 101,
+            "stock": 0, "status": "active", "availability": "in_stock",
+            "attributes": {}, "media": [], "catalogMedia": [], "variants": [],
+            "aiTryonEnabled": False,
+        }
+        database = ProductDatabase(document)
+        with (
+            patch("app.rbac.current_user", return_value=admin),
+            patch("app.blueprints.staff.routes.current_user", return_value=admin),
+            patch("app.blueprints.staff.routes.database", return_value=database),
+            patch("app.blueprints.staff.routes.sync_product_variants", side_effect=lambda _db, item, force=False: item),
+        ):
+            response = self.client.patch(
+                f"/api/staff/resources/products/{product_id}",
+                json={"aiTryonEnabled": True},
+                headers=self.headers,
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(document["aiTryonEnabled"])
+        self.assertTrue(response.get_json()["item"]["aiTryonEnabled"])
+
     def test_zero_quantity_size_options_do_not_require_an_inventory_reason(self):
         admin = {"_id": ObjectId(), "role": "admin", "isActive": True}
         product_id = ObjectId()

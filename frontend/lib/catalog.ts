@@ -105,6 +105,7 @@ export type CatalogProduct = {
   slug?: string;
   status?: string;
   availability: ProductAvailability;
+  aiTryonEnabled?: boolean;
   price?: number;
   currency: "INR";
   stock?: number;

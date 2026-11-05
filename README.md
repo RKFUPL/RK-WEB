@@ -5,6 +5,32 @@ Luxury womenswear ecommerce platform scaffold for the `Rashi Kapoor` brand.
 RK-WEB is an independent application. It uses its own backend, authentication,
 database configuration, and catalog; it does not call or require RK-STOCK.
 
+## AI Virtual Try-On (local-only, disabled by default)
+
+The optional AI Try-On service is implemented in `backend/app/ai_tryon.py` and
+uses Google's official Gemini Interactions API with the currently documented
+Nano Banana models. Its admin `enabled` setting defaults to `false`, so the
+feature cannot call Google until it is deliberately configured and enabled.
+
+Configure these backend-only values in the existing environment file or secret
+manager before controlled testing:
+
+```env
+GEMINI_API_KEY=<Google Gemini API key>
+AI_TRYON_ENABLED=false
+```
+
+The admin page is `Admin Dashboard -> AI Virtual Try-On`. The page shows only
+whether `GEMINI_API_KEY` is configured and identifies its source as the backend
+environment. The key is never accepted from, returned to, or displayed in the
+browser. Change it only in local backend environment files or deployment
+secrets. Customer uploads and generated previews stay under the backend private
+instance directory, are owner-scoped and quota limited, and are removed by the
+`cleanup_expired()` maintenance hook after the configured retention period.
+Keep `AI_TRYON_ENABLED=false` through automated validation; change it to `true`
+only after credentials, model, privacy, retention, and one controlled test
+generation have been reviewed.
+
 ## Forex provider
 
 Storefront prices are converted from INR through the existing backend-cached

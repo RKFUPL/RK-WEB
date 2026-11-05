@@ -107,6 +107,10 @@ export function CollectionDetailPage({ collection }: { collection: CollectionPag
       ctaLabel="VIEW PRODUCTS"
       onCtaClick={scrollToProducts}
       secondaryHref={lookbookHref || undefined}
+      backHref="/collections"
+      actionsOnly
+      description={collection.summary}
+      collectionDetailMode
     /> : <CollectionHero collection={displayCollection} hero={hero} titleStyle={{ fontFamily: 'RK Anamika, var(--font-display), serif' }} ctaHref={lookbookHref || undefined} onProductsClick={scrollToProducts} />}
     <StorefrontCollectionProducts collection={displayCollection} loading={loading} error={collectionError} />
     <Footer />

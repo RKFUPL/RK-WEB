@@ -383,6 +383,7 @@ def _document_view(document: dict, resource: str | None = None) -> dict:
             "stock": _json_value(document.get("stock")),
             "status": _json_value(document.get("status")),
             "availability": _json_value(document.get("availability")),
+            "aiTryonEnabled": bool(document.get("aiTryonEnabled", False)),
             "category": _json_value(document.get("category")),
             "description": _json_value(document.get("description")),
             "sizeInventory": _json_value(document.get("sizeInventory") or []),
@@ -909,7 +910,7 @@ def create_resource(resource: str):
             return jsonify({"error": str(error)}), 400
         attributes = payload.get("attributes") if isinstance(payload.get("attributes"), dict) else {}
         tax_inclusive = bool(payload.get("taxInclusive") or payload.get("mrpIncludesGst"))
-        document = {**common, "name": name, "styleCode": str(payload.get("styleCode") or "").strip().upper(), "style": str(payload.get("style") or "").strip(), "sku": sku, "price": price, "taxInclusive": tax_inclusive, "mrpIncludesGst": tax_inclusive, "stock": total_stock, "unallocatedStock": unallocated_stock, "sizeInventoryConfigured": size_enabled, "sizeSystemEnabled": size_enabled, "sizeInventory": size_inventory, "status": status, "availability": availability, "currency": "INR", "category": str(payload.get("category") or "").strip(), "description": str(payload.get("description") or "").strip(), "media": media[:12], "catalogMedia": catalog_media[:12], "attributes": attributes, "isActive": status != "archived"}
+        document = {**common, "name": name, "styleCode": str(payload.get("styleCode") or "").strip().upper(), "style": str(payload.get("style") or "").strip(), "sku": sku, "price": price, "taxInclusive": tax_inclusive, "mrpIncludesGst": tax_inclusive, "stock": total_stock, "unallocatedStock": unallocated_stock, "sizeInventoryConfigured": size_enabled, "sizeSystemEnabled": size_enabled, "sizeInventory": size_inventory, "status": status, "availability": availability, "currency": "INR", "category": str(payload.get("category") or "").strip(), "description": str(payload.get("description") or "").strip(), "media": media[:12], "catalogMedia": catalog_media[:12], "attributes": attributes, "aiTryonEnabled": bool(payload.get("aiTryonEnabled", False)), "isActive": status != "archived"}
         if isinstance(payload.get("customSizeConfig"), dict):
             document["customSizeConfig"] = payload["customSizeConfig"]
         collection = db.products
@@ -1042,6 +1043,8 @@ def update_resource(resource: str, resource_id: str):
             if availability not in PRODUCT_AVAILABILITY:
                 return jsonify({"error": "Choose In Stock, Custom Order, or Sold Out availability."}), 400
             updates["availability"] = availability
+        if "aiTryonEnabled" in payload:
+            updates["aiTryonEnabled"] = bool(payload.get("aiTryonEnabled"))
         stock_changed = False
         size_inventory_changed = False
         before_stock = _integer(current.get("stock"), 0)

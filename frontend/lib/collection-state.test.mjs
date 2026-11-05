@@ -68,7 +68,9 @@ test('every dynamic collection hero can scroll to the shared results section', (
 
 test('collection heroes use consistent accessible lookbook and products actions', () => {
   assert.match(hero, /collection-campaign-button--primary/);
+  assert.match(hero, /href="\/collections"[\s\S]*?TO COLLECTION/);
   assert.match(hero, /VIEW PRODUCTS/);
+  assert.match(detail, /backHref="\/collections"/);
   assert.match(styles, /\.collection-campaign-button:focus-visible/);
   assert.match(featured, /collection-featured-button--primary/);
   assert.match(featured, /ArrowUpRight/);

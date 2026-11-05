@@ -47,7 +47,7 @@ export function ShopCategories() {
               <span className="h-px w-12 bg-gold/65" />
             </div>
             <h2 className="font-display text-[clamp(3.25rem,5vw,5.25rem)] leading-[0.92] tracking-[-0.04em] text-charcoal">
-              Where the art of<br /> draping meets<br /><span className="whitespace-nowrap">timeless luxury.</span>
+              Where the <br /> art of draping meets<br /><span className="whitespace-nowrap">timeless<br/> luxury.</span>
             </h2>
             <div className="flex items-center gap-3 text-gold" aria-hidden="true">
               <span className="h-px w-5 bg-gold/70" /><span className="text-base">✦</span><span className="h-px w-5 bg-gold/70" />

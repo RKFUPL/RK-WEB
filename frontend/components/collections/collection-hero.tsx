@@ -119,6 +119,9 @@ function HeroCopy({ collection, hero, titleStyle, ctaHref, ctaLabel = 'VIEW LOOK
     {collection.designerNote ? <p className={`mt-3 max-w-lg font-display text-lg italic leading-6 ${inverse ? 'text-white/72' : 'text-[#211d19]/65'}`}>{collection.designerNote}</p> : null}
     <Metadata collection={collection} inverse={inverse} />
     <div className="collection-campaign-actions">
+      <a href="/collections" className={`collection-campaign-button collection-campaign-button--secondary ${inverse ? 'collection-campaign-button--light' : 'collection-campaign-button--dark'}`}>
+        TO COLLECTION <ArrowLeft aria-hidden="true" size={14} strokeWidth={1.5} />
+      </a>
       {ctaHref ? <a href={ctaHref} target={ctaHref.startsWith('http') ? '_blank' : undefined} rel={ctaHref.startsWith('http') ? 'noopener noreferrer' : undefined} className="collection-campaign-button collection-campaign-button--primary">
         {ctaLabel} <ArrowUpRight aria-hidden="true" size={14} strokeWidth={1.5} />
       </a> : null}

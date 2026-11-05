@@ -13,6 +13,7 @@ export type ProductDraft = {
   gender: string;
   material: string;
   customizationInformation: string;
+  aiTryonEnabled: boolean;
 };
 
 const canonicalSizes = ["XS", "S", "M", "L", "XL"];
@@ -55,6 +56,7 @@ export function productDraftFrom(product: CatalogProduct): ProductDraft {
     gender: text(attributes.gender),
     material: text(attributes.material),
     customizationInformation: text(attributes.customizationInformation),
+    aiTryonEnabled: product.aiTryonEnabled === true,
   };
 }
 
@@ -94,6 +96,7 @@ export function buildProductUpdate(
   if (next.name !== current.name) payload.name = next.name;
   if (price !== (baseline.price ?? null)) payload.price = price;
   if (draft.availability !== baseline.availability) payload.availability = draft.availability;
+  if (draft.aiTryonEnabled !== (baseline.aiTryonEnabled === true)) payload.aiTryonEnabled = draft.aiTryonEnabled;
   if (next.category !== current.category) payload.category = next.category;
   if (next.description !== current.description) payload.description = next.description;
 
@@ -138,6 +141,7 @@ export function productUpdateMismatch(
   if ("name" in payload && text(persisted.name) !== payload.name) return "product name";
   if ("price" in payload && (persisted.price ?? null) !== payload.price) return "base price";
   if ("availability" in payload && persisted.availability !== payload.availability) return "availability";
+  if ("aiTryonEnabled" in payload && persisted.aiTryonEnabled !== payload.aiTryonEnabled) return "AI Try-On eligibility";
   if ("category" in payload && text(persisted.category) !== payload.category) return "category";
   if ("description" in payload && text(persisted.description) !== payload.description) return "description";
   if ("attributes" in payload) {

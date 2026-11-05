@@ -44,3 +44,8 @@ test("banner sizing has deliberate mobile and tablet compositions", () => {
   assert.match(collectionHero, /key=\{videoSource\}/);
   assert.match(collectionHero, /onLoadedMetadata=\{\(event\) => void event\.currentTarget\.play\(\)\.catch/);
 });
+
+test("landing hero actions remain clickable inside the overlay", () => {
+  assert.match(featuredCollection, /homepage-featured-collection__copy-actions pointer-events-auto/);
+  assert.match(featuredCollection, /href="\/collections\/aakaar"/);
+});

@@ -45,6 +45,7 @@ import {
 } from "@/lib/storefront-wishlist";
 import { cloudinaryImageUrl } from "@/lib/utils";
 import { PriceCurrencyRow } from "@/components/commerce/price-currency-row";
+import { AiTryon } from "@/components/products/ai-tryon";
 
 function textValue(value: unknown) {
   if (Array.isArray(value)) return value.filter(Boolean).join(", ");
@@ -1089,6 +1090,7 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
                 />
               </button>
             </div>
+            <AiTryon product={product} variantId={selectedVariant?.id} productImage={currentMainImage || media[0] || ""} />
             {message ? (
               <p className="mt-4 text-xs text-gold">{message}</p>
             ) : null}

@@ -31,6 +31,11 @@ type FeaturedCollectionProps = {
   onCtaClick?: () => void;
   secondaryHref?: string;
   secondaryLabel?: string;
+  backHref?: string;
+  backLabel?: string;
+  actionsOnly?: boolean;
+  description?: string;
+  collectionDetailMode?: boolean;
   introAboveTitle?: boolean;
 };
 
@@ -41,6 +46,11 @@ export function FeaturedCollection({
   onCtaClick,
   secondaryHref,
   secondaryLabel = 'View lookbook',
+  backHref,
+  backLabel = 'TO COLLECTION',
+  actionsOnly = false,
+  description,
+  collectionDetailMode = false,
   introAboveTitle = false,
 }: FeaturedCollectionProps) {
   const reducedMotion = useReducedMotion();
@@ -149,18 +159,22 @@ export function FeaturedCollection({
             ease: [0.22, 1, 0.36, 1],
           }}
         >
-          <h1 className="font-aakaar text-[clamp(4rem,13vw,11rem)] leading-[0.78] tracking-[0.04em] text-[#fff1df] drop-shadow-[0_1px_22px_rgba(0,0,0,0.2)]">
+        <h1 className={collectionDetailMode ? 'font-display text-[clamp(3.25rem,6.1vw,6.3rem)] leading-[0.94] tracking-[0.025em] text-[#fff1df] drop-shadow-[0_1px_22px_rgba(0,0,0,0.2)]' : 'font-aakaar text-[clamp(4rem,13vw,11rem)] leading-[0.78] tracking-[0.04em] text-[#fff1df] drop-shadow-[0_1px_22px_rgba(0,0,0,0.2)]'}>
             {title}
           </h1>
         </motion.div>
 
         <div className="homepage-featured-collection__copy pointer-events-none absolute inset-x-6 bottom-12 z-20 flex items-end justify-between gap-8 lg:inset-x-12 lg:bottom-20">
           <div>
-            <p className="max-w-xs font-display text-xl leading-[1.05] text-[#fff1df]/90 md:text-2xl">
+            {!actionsOnly ? <p className="max-w-xs font-display text-xl leading-[1.05] text-[#fff1df]/90 md:text-2xl">
               Timeless elegance.<br /><em className="text-gold">Modern luxury.</em>
-            </p>
-            <div className="homepage-featured-collection__copy-actions mt-7 flex flex-wrap items-center gap-5">
-              <p className="text-[clamp(0.6rem,1.2vw,0.78rem)] uppercase tracking-[0.42em] text-[#fff1df]/85">{eyebrow}</p>
+            </p> : null}
+            {description ? <p className="mt-5 max-w-xl text-[clamp(0.8rem,1.05vw,0.98rem)] leading-[1.75] text-[#fff1df]/82">{description}</p> : null}
+            <div className="homepage-featured-collection__copy-actions pointer-events-auto mt-7 flex flex-wrap items-center gap-5">
+              {!actionsOnly ? <p className="text-[clamp(0.6rem,1.2vw,0.78rem)] uppercase tracking-[0.42em] text-[#fff1df]/85">{eyebrow}</p> : null}
+              {backHref ? <a href={backHref} className="collection-featured-button collection-featured-button--secondary">
+                {backLabel} <ArrowLeft aria-hidden="true" size={14} strokeWidth={1.5} />
+              </a> : null}
               {onCtaClick ? <button type="button" onClick={onCtaClick} className="collection-featured-button collection-featured-button--secondary">
                 {ctaLabel} <ArrowDown aria-hidden="true" size={14} strokeWidth={1.5} />
               </button> : <a href="/collections/aakaar" className="collection-featured-button collection-featured-button--secondary">

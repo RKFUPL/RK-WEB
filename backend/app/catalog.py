@@ -1407,6 +1407,7 @@ def product_view(product: dict, *, display_order: int | None = None, media_limit
         "sku": selected_variant.get("sku") if selected_variant else product.get("sku"),
         "slug": product.get("slug") or str(product["_id"]),
         "status": product.get("status", "draft"),
+        "aiTryonEnabled": bool(product.get("aiTryonEnabled", False)),
         "availability": public_availability,
         "price": selected_price,
         "taxInclusive": tax_inclusive,

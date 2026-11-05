@@ -37,3 +37,4 @@ Thumbs.db
 *.swo
 .env.local
 backend/.env.local
+backend/instance/private/
