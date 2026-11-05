@@ -666,7 +666,7 @@ def quick_create(kind: str):
             return jsonify({"error": "Price and stock must be zero or greater."}), 400
         # Inventory is operational data; it must not decide customer-facing
         # purchaseability. New products start explicitly ACTIVE/in stock.
-        document = {**common, "name": name, "sku": sku, "price": price, "stock": stock, "lowStockThreshold": _integer(payload.get("lowStockThreshold"), _settings(db)["lowStockThreshold"]), "status": status, "availability": "in_stock", "currency": "INR", "category": "", "description": "", "media": [], "attributes": {}, "isActive": True}
+        document = {**common, "name": name, "sku": sku, "price": price, "stock": stock, "lowStockThreshold": _integer(payload.get("lowStockThreshold"), _settings(db)["lowStockThreshold"]), "status": status, "availability": "in_stock", "currency": "INR", "category": "", "shortDescription": str(payload.get("shortDescription") or "").strip(), "description": "", "media": [], "attributes": {}, "isActive": True}
         result = db.products.insert_one(document)
         resource = "products"
     elif kind == "order":

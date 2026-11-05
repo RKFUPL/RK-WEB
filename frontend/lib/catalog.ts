@@ -122,6 +122,7 @@ export type CatalogProduct = {
   taxInclusive?: boolean;
   mrpIncludesGst?: boolean;
   category?: string;
+  shortDescription?: string;
   description?: string;
   media: string[];
   catalogMedia?: CatalogMedia[];

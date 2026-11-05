@@ -17,7 +17,7 @@ const actions: Action[] = [
 
 const eligiblePaths = new Set(['/admin/collections', '/admin/marketing']);
 const emptyForms: Record<Kind, Record<string, string>> = {
-  product: { name: '', sku: '', price: '', stock: '', status: 'draft' },
+  product: { name: '', sku: '', shortDescription: '', price: '', stock: '', status: 'draft' },
   order: { orderNumber: '', customerName: '', email: '', total: '', status: 'pending' },
   customer: { fullName: '', email: '', phone: '' },
   collection: { name: '', slug: '', status: 'draft' },
@@ -33,7 +33,7 @@ function SelectField({ label, name, value, values, onChange }: { label: string; 
 }
 
 function CreateFields({ kind, form, change }: { kind: Kind; form: Record<string, string>; change: (name: string, value: string) => void }) {
-  if (kind === 'product') return <div className="grid gap-4 sm:grid-cols-2"><Field label="Product name" name="name" value={form.name} onChange={change} /><Field label="SKU" name="sku" value={form.sku} onChange={change} /><Field label="Price" name="price" type="number" value={form.price} onChange={change} /><Field label="Opening stock" name="stock" type="number" value={form.stock} onChange={change} /><SelectField label="Status" name="status" value={form.status} values={['draft', 'active', 'archived']} onChange={change} /></div>;
+  if (kind === 'product') return <div className="grid gap-4 sm:grid-cols-2"><Field label="Product name" name="name" value={form.name} onChange={change} /><Field label="SKU" name="sku" value={form.sku} onChange={change} /><Field label="Short description" name="shortDescription" value={form.shortDescription} required={false} onChange={change} /><Field label="Price" name="price" type="number" value={form.price} onChange={change} /><Field label="Opening stock" name="stock" type="number" value={form.stock} onChange={change} /><SelectField label="Status" name="status" value={form.status} values={['draft', 'active', 'archived']} onChange={change} /></div>;
   if (kind === 'order') return <div className="grid gap-4 sm:grid-cols-2"><Field label="Order number · optional" name="orderNumber" value={form.orderNumber} required={false} placeholder="Generated automatically" onChange={change} /><Field label="Customer name" name="customerName" value={form.customerName} onChange={change} /><Field label="Customer email" name="email" type="email" value={form.email} onChange={change} /><Field label="Order total" name="total" type="number" value={form.total} onChange={change} /><SelectField label="Status" name="status" value={form.status} values={['pending', 'confirmed', 'processing', 'fulfilled']} onChange={change} /></div>;
   if (kind === 'customer') return <div className="grid gap-4 sm:grid-cols-2"><Field label="Full name" name="fullName" value={form.fullName} onChange={change} /><Field label="Email" name="email" type="email" value={form.email} onChange={change} /><Field label="Phone number" name="phone" value={form.phone} placeholder="+91 00000 00000" onChange={change} /></div>;
   if (kind === 'collection') return <div className="grid gap-4 sm:grid-cols-2"><Field label="Collection name" name="name" value={form.name} onChange={change} /><Field label="Slug · optional" name="slug" value={form.slug} required={false} placeholder="Generated from name" onChange={change} /><SelectField label="Status" name="status" value={form.status} values={['draft', 'active', 'archived']} onChange={change} /></div>;

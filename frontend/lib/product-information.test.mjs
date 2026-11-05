@@ -8,8 +8,11 @@ test('product detail renders optional information only from persisted attributes
   assert.match(detail, /Fabric & Contents/);
   assert.match(detail, /Fit & Measurements/);
   assert.match(detail, /Made to Order & Assistance/);
+  assert.match(detail, /shortDescription/);
+  assert.match(detail, /Material/);
+  assert.match(detail, /Construction/);
   assert.match(detail, /attributes\[key\]/);
-  assert.match(detail, /fabric \|\| setContents/);
+  assert.match(detail, /setContents/);
   assert.match(detail, /fit \|\| garmentMeasurements/);
 });
 

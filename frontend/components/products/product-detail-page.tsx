@@ -680,48 +680,23 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
   };
   const attributes = product.attributes || {};
   const attributeText = (...keys: string[]) => keys.map((key) => textValue(attributes[key])).find(Boolean) || '';
+  const shortDescription = textValue(product.shortDescription);
   const productDescription = textValue(product.description);
-  const summaryDescription =
-    productDescription || "Product description coming soon.";
   const detailedDescription = textValue(
     attributes.detailedDescription ||
       attributes.descriptionDetails ||
       attributes.longDescription,
   );
-  const fabric = attributeText('fabric', 'material', 'composition', 'fabricComposition');
+  const fabric = attributeText('fabric', 'composition', 'fabricComposition');
+  const material = attributeText('material');
+  const construction = attributeText('customizationInformation');
   const setContents = attributeText('setContents', 'includes', 'productIncludes', 'components');
   const fit = attributeText('fit', 'fitDetails', 'silhouette');
   const garmentMeasurements = attributeText('garmentMeasurements', 'measurements', 'measurementNotes');
   const care = attributeText('care', 'careInstructions');
-  const assistance = attributeText('madeToOrder', 'madeToOrderInformation', 'clientService', 'customizationInformation');
+  const assistance = attributeText('madeToOrder', 'madeToOrderInformation', 'clientService');
   const informationSections = [
-    {
-      id: "details",
-      label: "Product Details",
-      content: (
-        <div className="space-y-4 text-sm leading-7 text-charcoal/65">
-          <p>
-            {productDescription ||
-              detailedDescription ||
-              textValue(
-                attributes.productDetails ||
-                  attributes.details ||
-                  attributes.customizationInformation,
-              ) ||
-              "Contact the RK team for additional product details."}
-          </p>
-          {selectedColour ? (
-            <p>
-              <span className="mr-2 text-[0.62rem] uppercase tracking-[0.2em] text-charcoal/45">
-                Colour
-              </span>
-              {selectedColour}
-            </p>
-          ) : null}
-        </div>
-      ),
-    },
-    ...(fabric || setContents ? [{
+    ...(setContents ? [{
       id: 'composition',
       label: 'Fabric & Contents',
       content: <div className="space-y-4 text-sm leading-7 text-charcoal/65">{fabric ? <p><span className="mr-2 text-[0.62rem] uppercase tracking-[0.2em] text-charcoal/45">Fabric</span>{fabric}</p> : null}{setContents ? <p><span className="mr-2 text-[0.62rem] uppercase tracking-[0.2em] text-charcoal/45">Set includes</span>{setContents}</p> : null}</div>,
@@ -906,15 +881,20 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
               {product.category || "Couture"}
             </p>
             {backCollection ? (
-              <p className="mt-4 font-display text-[clamp(1.75rem,2.2vw,2.125rem)] leading-none text-charcoal/85">
+              <p className="mt-4 font-display text-[clamp(1.35rem,1.6vw,1.7rem)] leading-none text-charcoal/85">
                 {backCollection.name}
               </p>
             ) : null}
             <h1 className="mt-4 font-display text-[clamp(2.625rem,4vw,3.25rem)] leading-[0.95]">
               {product.name || "Untitled piece"}
             </h1>
+            {shortDescription ? (
+              <p className="mt-5 max-w-[34rem] text-base font-semibold leading-7 text-charcoal">
+                {shortDescription}
+              </p>
+            ) : null}
             {selectedSku ? (
-              <p className="mt-4 text-xs uppercase tracking-[0.24em] text-charcoal/45">
+              <p className="mt-5 text-xs uppercase tracking-[0.24em] text-charcoal/45">
                 SKU: {selectedSku}
               </p>
             ) : null}
@@ -922,6 +902,17 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
               <p className="mt-2 text-xs uppercase tracking-[0.24em] text-charcoal/45">
                 Style Code: {product.styleCode}
               </p>
+            ) : null}
+            {productDescription || detailedDescription ? (
+              <p className="mt-6 max-w-[34rem] text-[0.95rem] leading-7 text-charcoal/68">
+                {productDescription || detailedDescription}
+              </p>
+            ) : null}
+            {material || construction ? (
+              <div className="mt-6 space-y-3 border-t border-black/10 pt-5 text-sm leading-7 text-charcoal/68">
+                {material ? <p><span className="mr-2 text-[0.62rem] uppercase tracking-[0.2em] text-charcoal/45">Material</span>{material}</p> : null}
+                {construction ? <p><span className="mr-2 text-[0.62rem] uppercase tracking-[0.2em] text-charcoal/45">Construction</span>{construction}</p> : null}
+              </div>
             ) : null}
             {variantOptions.length > 1 ? (
               <label className="mt-5 block max-w-xs text-[0.58rem] uppercase tracking-[0.24em] text-charcoal/50">
@@ -945,9 +936,6 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
                 {selectedColour}
               </p>
             ) : null}
-            <p className="mt-7 max-w-[34rem] text-[0.95rem] leading-7 text-charcoal/68">
-              {summaryDescription}
-            </p>
           <div className="mt-7 border-t border-black/12 pt-5 dark:border-white/15">
               <PriceCurrencyRow amount={selectedPrice} className="text-lg" />
               <p className="mt-3 text-[0.58rem] uppercase tracking-[0.25em] text-gold">

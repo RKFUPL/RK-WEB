@@ -1420,6 +1420,7 @@ def product_view(product: dict, *, display_order: int | None = None, media_limit
         "unallocatedStock": int(product.get("unallocatedStock") or 0),
         "customSizeConfig": _json_value(product.get("customSizeConfig") or {}),
         "category": product.get("category"),
+        "shortDescription": product.get("shortDescription"),
         "description": product.get("description"),
         "media": selected_media,
         "catalogMedia": structured_media,

@@ -5,6 +5,7 @@ export type ProductDraft = {
   price: string;
   availability: ProductAvailability;
   category: string;
+  shortDescription: string;
   description: string;
   sizes: string;
   colors: string;
@@ -48,6 +49,7 @@ export function productDraftFrom(product: CatalogProduct): ProductDraft {
     price: product.price === null || product.price === undefined ? "" : String(product.price),
     availability: product.availability,
     category: text(product.category),
+    shortDescription: text(product.shortDescription),
     description: text(product.description),
     sizes: Array.isArray(attributes.sizes) ? attributes.sizes.join(", ") : "",
     colors: Array.isArray(attributes.colors) ? attributes.colors.join(", ") : "",
@@ -65,6 +67,7 @@ function normalisedDraft(draft: ProductDraft) {
     ...draft,
     name: text(draft.name),
     category: text(draft.category),
+    shortDescription: text(draft.shortDescription),
     description: text(draft.description),
     sizes: list(draft.sizes, true),
     colors: list(draft.colors),
@@ -98,6 +101,7 @@ export function buildProductUpdate(
   if (draft.availability !== baseline.availability) payload.availability = draft.availability;
   if (draft.aiTryonEnabled !== (baseline.aiTryonEnabled === true)) payload.aiTryonEnabled = draft.aiTryonEnabled;
   if (next.category !== current.category) payload.category = next.category;
+  if (next.shortDescription !== current.shortDescription) payload.shortDescription = next.shortDescription;
   if (next.description !== current.description) payload.description = next.description;
 
   const attributesChanged = attributeKeys.some((key) => {
@@ -143,6 +147,7 @@ export function productUpdateMismatch(
   if ("availability" in payload && persisted.availability !== payload.availability) return "availability";
   if ("aiTryonEnabled" in payload && persisted.aiTryonEnabled !== payload.aiTryonEnabled) return "AI Try-On eligibility";
   if ("category" in payload && text(persisted.category) !== payload.category) return "category";
+  if ("shortDescription" in payload && text(persisted.shortDescription) !== payload.shortDescription) return "short description";
   if ("description" in payload && text(persisted.description) !== payload.description) return "description";
   if ("attributes" in payload) {
     const expected = payload.attributes as Record<string, unknown>;

@@ -87,6 +87,7 @@ const emptyForms: Record<
     stock: "0",
     status: "draft",
     availability: "in_stock",
+    shortDescription: "",
     description: "",
   },
   quotes: {
@@ -927,6 +928,7 @@ function CreateForm({
         required={
           name !== "orderNumber" &&
           name !== "quoteNumber" &&
+          name !== "shortDescription" &&
           name !== "description" &&
           name !== "notes"
         }
@@ -953,6 +955,7 @@ function CreateForm({
           <>
             {field("name", "Product name")}
             {field("sku", "SKU")}
+            {field("shortDescription", "Short description")}
             {field("price", "Price", "number")}
             {field("stock", "Opening stock", "number")}
             <CollectionChoices
@@ -1217,6 +1220,7 @@ export function OperationsSection({
             "stock",
             "availability",
             "status",
+            "shortDescription",
             "description",
           ]
         : section === "customers"
@@ -1974,6 +1978,19 @@ export function OperationsSection({
                 setEditForm((current) => ({ ...current, collectionIds: value }))
               }
             />
+            <label className="text-[10px] uppercase tracking-[.16em] text-[#858b94] md:col-span-2">
+              Short description
+              <input
+                value={editForm.shortDescription ?? ""}
+                onChange={(event) =>
+                  setEditForm((current) => ({
+                    ...current,
+                    shortDescription: event.target.value,
+                  }))
+                }
+                className={`${inputClass} mt-2 normal-case tracking-normal`}
+              />
+            </label>
             <label className="text-[10px] uppercase tracking-[.16em] text-[#858b94] md:col-span-2">
               Description
               <textarea

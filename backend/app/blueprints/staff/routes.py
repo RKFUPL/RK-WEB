@@ -385,6 +385,7 @@ def _document_view(document: dict, resource: str | None = None) -> dict:
             "availability": _json_value(document.get("availability")),
             "aiTryonEnabled": bool(document.get("aiTryonEnabled", False)),
             "category": _json_value(document.get("category")),
+            "shortDescription": _json_value(document.get("shortDescription")),
             "description": _json_value(document.get("description")),
             "sizeInventory": _json_value(document.get("sizeInventory") or []),
             "sizeInventoryConfigured": bool(document.get("sizeInventoryConfigured")),
@@ -910,7 +911,7 @@ def create_resource(resource: str):
             return jsonify({"error": str(error)}), 400
         attributes = payload.get("attributes") if isinstance(payload.get("attributes"), dict) else {}
         tax_inclusive = bool(payload.get("taxInclusive") or payload.get("mrpIncludesGst"))
-        document = {**common, "name": name, "styleCode": str(payload.get("styleCode") or "").strip().upper(), "style": str(payload.get("style") or "").strip(), "sku": sku, "price": price, "taxInclusive": tax_inclusive, "mrpIncludesGst": tax_inclusive, "stock": total_stock, "unallocatedStock": unallocated_stock, "sizeInventoryConfigured": size_enabled, "sizeSystemEnabled": size_enabled, "sizeInventory": size_inventory, "status": status, "availability": availability, "currency": "INR", "category": str(payload.get("category") or "").strip(), "description": str(payload.get("description") or "").strip(), "media": media[:12], "catalogMedia": catalog_media[:12], "attributes": attributes, "aiTryonEnabled": bool(payload.get("aiTryonEnabled", False)), "isActive": status != "archived"}
+        document = {**common, "name": name, "styleCode": str(payload.get("styleCode") or "").strip().upper(), "style": str(payload.get("style") or "").strip(), "sku": sku, "price": price, "taxInclusive": tax_inclusive, "mrpIncludesGst": tax_inclusive, "stock": total_stock, "unallocatedStock": unallocated_stock, "sizeInventoryConfigured": size_enabled, "sizeSystemEnabled": size_enabled, "sizeInventory": size_inventory, "status": status, "availability": availability, "currency": "INR", "category": str(payload.get("category") or "").strip(), "shortDescription": str(payload.get("shortDescription") or "").strip(), "description": str(payload.get("description") or "").strip(), "media": media[:12], "catalogMedia": catalog_media[:12], "attributes": attributes, "aiTryonEnabled": bool(payload.get("aiTryonEnabled", False)), "isActive": status != "archived"}
         if isinstance(payload.get("customSizeConfig"), dict):
             document["customSizeConfig"] = payload["customSizeConfig"]
         collection = db.products
@@ -1011,7 +1012,7 @@ def update_resource(resource: str, resource_id: str):
             if collection_error:
                 return collection_error
             previous_collection_ids = {collection["_id"] for collection in db.collections.find({"productRefs.productId": object_id})}
-        for key in ("name", "description"):
+        for key in ("name", "shortDescription", "description"):
             if key in payload:
                 updates[key] = str(payload.get(key) or "").strip()
         if "styleCode" in payload:

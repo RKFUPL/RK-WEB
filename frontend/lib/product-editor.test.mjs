@@ -16,6 +16,7 @@ const product = {
   price: 101,
   availability: "in_stock",
   category: "Couture",
+  shortDescription: "A luminous edit.",
   description: "Original",
   stock: 4,
   media: ["/api/catalog/products/product-1/media/media-1"],
@@ -65,6 +66,14 @@ test("descriptive edits preserve unrelated attributes and existing size quantiti
     gender: "Women",
     material: "Silk",
     customizationInformation: "Available",
+  });
+});
+
+test("product editor persists the separate short description", () => {
+  const draft = productDraftFrom(product);
+  draft.shortDescription = "A revised short description.";
+  assert.deepEqual(buildProductUpdate(product, draft).payload, {
+    shortDescription: "A revised short description.",
   });
 });
 
