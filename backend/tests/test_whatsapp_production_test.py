@@ -21,7 +21,6 @@ def case():
     instance.app.config.update(WHATSAPP_ENVIRONMENT="production", WHATSAPP_ENABLED=False,
         WHATSAPP_MARKETING_ENABLED=False, WHATSAPP_TEST_SEND_ENABLED=False,
         WHATSAPP_PRODUCTION_TEST_SEND_ENABLED=True,
-        WHATSAPP_PRODUCTION_TEST_RECIPIENT=instance.user["phone"],
         WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT=(now() + timedelta(hours=1)).isoformat())
     for mapping in instance.app.config["WHATSAPP_TEMPLATES"].values():
         mapping["enabled"] = False
@@ -34,7 +33,7 @@ def case():
 def payload(case, **changes):
     return {"event": "order_confirmation", "templateName": "rk_order_confirmation", "language": "en_US",
             "recipient": case.user["phone"], "parameters": {"body_1": "Fixture", "body_2": "RK-1", "body_3": "2026-11-15", "body_4": "INR 1.00"},
-            "confirmed": True, "requestId": "restricted-production-test-123456", **changes}
+            "confirmed": True, "recipientConsentVerified": True, "requestId": "restricted-production-test-123456", **changes}
 
 
 def submit(case, **changes):
@@ -60,18 +59,22 @@ def test_allowed_utility_uses_shared_transport_logs_and_receipts_without_order_q
     assert case.http.call_count == 1
 
 
-@pytest.mark.parametrize("recipient", ["+14155552672", "14155552671", "+1 415 555 2671", "", None])
-def test_only_exact_configured_recipient_is_allowed(case, recipient):
-    assert submit(case, recipient=recipient).status_code == 403
+@pytest.mark.parametrize("recipient", ["14155552671", "+1 415 555 2671", "", None, "+123"])
+def test_invalid_numbers_are_rejected(case, recipient):
+    assert submit(case, recipient=recipient).status_code == 400
     case.http.assert_not_called()
+
+
+@pytest.mark.parametrize("recipient,request_id", [("+14155552672", "recipient-us-1234567890"), ("+442079460018", "recipient-uk-1234567890")])
+def test_each_manually_entered_normalized_e164_recipient_is_allowed_without_allowlist(case, recipient, request_id):
+    result = submit(case, recipient=recipient, requestId=request_id)
+    assert result.status_code == 200
+    assert case.http.call_args.kwargs["json"]["to"] == recipient[1:]
+    assert case.db.whatsapp_messages.find_one({"recipient": "***" + recipient[-4:]})["testSend"] is True
 
 
 @pytest.mark.parametrize("key,value", [
     ("WHATSAPP_PRODUCTION_TEST_SEND_ENABLED", False),
-    ("WHATSAPP_PRODUCTION_TEST_RECIPIENT", ""),
-    ("WHATSAPP_PRODUCTION_TEST_RECIPIENT", "+123"),
-    ("WHATSAPP_PRODUCTION_TEST_RECIPIENT", "+1 415 555 2671"),
-    ("WHATSAPP_PRODUCTION_TEST_RECIPIENT", "+14155552671,+14155552672"),
     ("WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT", ""),
     ("WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT", "invalid"),
     ("WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT", "2099-01-01T00:00:00"),
@@ -95,6 +98,27 @@ def test_expiry_boundary_and_explicit_utc_z(case):
         case.app.config["WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT"] = (moment + offset).isoformat().replace("+00:00", "Z")
         with patch("app.whatsapp.now", return_value=moment):
             assert submit(case).status_code == expected_status
+
+
+def test_consent_attestation_is_audited_without_creating_consent_or_claiming_system_verification(case):
+    result = submit(case)
+    assert result.status_code == 200
+    audit = case.db.whatsapp_admin_audit.find_one({"action": "production_template_test_consent_attestation"})
+    assert audit["operatorVerifiedNumberAndWhatsAppConsent"] is True
+    assert audit["consentEvidenceType"] == "operator_attestation_not_system_verified"
+    assert audit["actorId"] == str(case.admin["_id"])
+    assert audit["recipientMasked"] == "***2671"
+    assert "phone" not in audit and "recipient" not in audit
+    assert case.db.whatsapp_consents.count_documents({}) == 0
+
+
+def test_signed_stop_opt_out_still_blocks_manual_production_recipient(case):
+    from app.whatsapp import fingerprint
+    case.db.whatsapp_optouts.insert_one({"_id": fingerprint(case.user["phone"], case.app.config), "active": True})
+    result = submit(case)
+    assert result.status_code == 409
+    assert result.json["reason"] == "recipient_opted_out"
+    case.http.assert_not_called()
 
 
 def test_too_far_expiry_has_a_safe_explanation(case):
@@ -131,14 +155,12 @@ def test_missing_template_evidence_and_exact_identity_and_parameters(case):
     case.http.assert_not_called()
 
 
-@pytest.mark.parametrize("mutation", ["expiry", "recipient", "gate", "approval"])
+@pytest.mark.parametrize("mutation", ["expiry", "gate", "approval"])
 def test_restrictions_rechecked_after_retry_backoff(case, mutation):
     case.http.return_value = case.response(429, {"error": {"code": 130429}}, {"Retry-After": "1"})
     def change(_):
         if mutation == "expiry":
             case.app.config["WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT"] = "2099-01-01T00:00:00Z"
-        elif mutation == "recipient":
-            case.app.config["WHATSAPP_PRODUCTION_TEST_RECIPIENT"] = "+14155552672"
         elif mutation == "gate":
             case.app.config["WHATSAPP_PRODUCTION_TEST_SEND_ENABLED"] = False
         else:
@@ -175,6 +197,7 @@ def test_free_text_and_automation_and_campaigns_stay_disabled(case):
 
 def test_consent_admin_authorization_and_rate_limit_retained(case):
     assert submit(case, confirmed=False).status_code == 400
+    assert submit(case, recipientConsentVerified=False).status_code == 400
     case.admin["role"] = "customer"
     assert submit(case).status_code == 403
     case.admin["role"] = "admin"
@@ -202,7 +225,7 @@ def test_admin_status_separates_template_mode_from_development_free_text_gate(ca
     status = case.client.get("/api/admin/integrations/whatsapp", headers=case.headers).json
     assert status["testSendEnabled"] is False
     assert status["productionTest"]["enabled"] is True
-    assert status["productionTest"]["recipient"] == case.user["phone"]
+    assert "recipient" not in status["productionTest"]
     assert status["templates"]["order_confirmation"]["eligibleForTesting"] is True
     assert status["templates"]["order_confirmation"]["eligibleForAutomation"] is False
     assert status["enabled"] is False and status["marketingEnabled"] is False
@@ -213,7 +236,6 @@ def test_real_config_defaults_off_and_old_production_gates_stay_hard_off():
     with patch.dict(os.environ, {}, clear=True):
         production = runpy.run_path(str(path))["ProductionConfig"]
         assert production.WHATSAPP_PRODUCTION_TEST_SEND_ENABLED is False
-        assert production.WHATSAPP_PRODUCTION_TEST_RECIPIENT == ""
         assert production.WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT == ""
     with patch.dict(os.environ, {key: "true" for key in ("WHATSAPP_PRODUCTION_TEST_SEND_ENABLED", "WHATSAPP_ENABLED", "WHATSAPP_MARKETING_ENABLED", "WHATSAPP_TEST_SEND_ENABLED")}, clear=True):
         production = runpy.run_path(str(path))["ProductionConfig"]

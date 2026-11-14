@@ -59,7 +59,7 @@ Verify these names in the existing approved runtime environment; never replace t
 | `FLASK_ENV` | Explicit production marker; no conflicting development marker in APP_ENV/ENVIRONMENT. |
 | `WHATSAPP_ENVIRONMENT` | Production. Environment is never selected from browser/Host headers. |
 | `WHATSAPP_ENABLED`, `WHATSAPP_TEST_SEND_ENABLED`, `WHATSAPP_MARKETING_ENABLED` | All off. Keep database integration and automated template switches off as well. |
-| `WHATSAPP_PRODUCTION_TEST_SEND_ENABLED`, `WHATSAPP_PRODUCTION_TEST_RECIPIENT`, `WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT` | New flag off, recipient/expiry blank for a disabled deployment. Any future temporary test requires separate authorization, one exact recipient and an explicit UTC expiry no more than 24 hours ahead; backend rechecks this at dispatch and retries. See the dedicated guide. |
+| `WHATSAPP_PRODUCTION_TEST_SEND_ENABLED`, `WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT` | New flag off and expiry blank for a disabled deployment. Any future temporary test requires separate authorization; the administrator manually enters one valid E.164 recipient per request, and an explicit UTC expiry no more than 24 hours ahead is checked at dispatch and retry. See the dedicated guide. |
 | `WHATSAPP_API_VERSION` | Explicit provider-supported version; current configured v26.0 metadata GETs were verified. No guessed default/version upgrade. |
 | `WHATSAPP_BUSINESS_ACCOUNT_ID`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_ID` | Exact intended app/WABA/registered business-number relationship, independently verified. |
 | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | Backend-only runtime secrets with correct permissions and lifetime. |

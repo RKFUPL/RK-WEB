@@ -17,7 +17,7 @@ const registeredTemplate = {
   ],
 };
 
-async function mockApi(page: Page, options: { active?: boolean; role?: string; window?: 'open' | 'closed' | 'expired'; invalidRecipient?: boolean; textError?: boolean; localRateLimit?: boolean; gate?: boolean; production?: boolean; catalogue?: boolean; mappingDisabled?: boolean; readReceiptStatus?: 'received' | 'not_received' | 'unknown'; logStatus?: string; registered?: boolean; metaApproved?: boolean; refreshFailure?: boolean; testTemplate?: Record<string, unknown>; productionTest?: { enabled: boolean; recipient: string; expiresAt: string | null } } = {}) {
+async function mockApi(page: Page, options: { active?: boolean; role?: string; window?: 'open' | 'closed' | 'expired'; invalidRecipient?: boolean; textError?: boolean; localRateLimit?: boolean; gate?: boolean; production?: boolean; catalogue?: boolean; mappingDisabled?: boolean; readReceiptStatus?: 'received' | 'not_received' | 'unknown'; logStatus?: string; registered?: boolean; metaApproved?: boolean; refreshFailure?: boolean; testTemplate?: Record<string, unknown>; productionTest?: { enabled: boolean; expiresAt: string | null } } = {}) {
   const sent: Record<string, unknown>[] = [];
   const filters: string[] = [];
   await page.route('**/*', async route => {
@@ -114,7 +114,7 @@ test('registered static template displays its exact contract and sends with cons
   await page.getByLabel('Consenting test recipient').fill('+14155552671');
   const send = page.getByRole('button', { name: 'Send approved test template', exact: true });
   await expect(send).toBeDisabled();
-  await page.getByLabel('I confirm this test recipient opted in').check();
+  await page.getByLabel(/I verified that the recipient provided this number/).check();
   await expect(form).toContainText('Service window: Closed');
   await expect(send).toBeEnabled();
   await send.click();
@@ -138,8 +138,8 @@ test('Meta-approved Utility mapping disabled for automation remains available fo
     await page.getByLabel(field).fill(value);
   }
   await page.getByLabel('Consenting test recipient').fill('+14155552671');
-  await expect(page.getByText(/Final confirmation: one-off template test to \+14155552671/)).toBeVisible();
-  await page.getByLabel(/I confirm this test recipient opted in/).check();
+  await expect(page.getByText(/Final confirmation: one manually initiated test to \+14155552671/)).toBeVisible();
+  await page.getByLabel(/I verified that the recipient provided this number/).check();
   const send = page.getByRole('button', { name: 'Send approved test template', exact: true });
   await expect(send).toBeEnabled();
   await send.click();
@@ -180,7 +180,7 @@ test('unapproved static template can be selected and previewed but cannot be sen
   await expect(page.getByText(registeredTemplate.components[1].text, { exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Selected template eligibility' })).toContainText('PENDING / IN_REVIEW');
   await page.getByLabel('Consenting test recipient').fill('+14155552671');
-  await page.getByLabel('I confirm this test recipient opted in').check();
+  await page.getByLabel(/I verified that the recipient provided this number/).check();
   await expect(page.getByRole('button', { name: 'Send approved test template', exact: true })).toBeDisabled();
   expect(calls.sent).toHaveLength(0);
 });
@@ -208,7 +208,7 @@ for (const scenario of [
     await expect(eligibility).toContainText('Language: en_US · Category: UTILITY');
     await expect(eligibility).toContainText('Test-send gate: On');
     await page.getByLabel('Consenting test recipient').fill('+14155552671');
-    await page.getByLabel('I confirm this test recipient opted in').check();
+    await page.getByLabel(/I verified that the recipient provided this number/).check();
     await expect(page.getByRole('button', { name: 'Send approved test template', exact: true })).toBeDisabled();
     // Exercise implicit/programmatic submission as well as the disabled button.
     await option.evaluate(element => (element.closest('form') as HTMLFormElement).requestSubmit());
@@ -227,7 +227,7 @@ test('production gate off permits approved template preview without permitting a
   await expect(eligibility).toContainText('Meta status: APPROVED');
   await expect(eligibility).toContainText('Test-send gate: Off');
   await page.getByLabel('Consenting test recipient').fill('+14155552671');
-  await page.getByLabel('I confirm this test recipient opted in').check();
+  await page.getByLabel(/I verified that the recipient provided this number/).check();
   await expect(page.getByRole('button', { name: 'Send approved test template', exact: true })).toBeDisabled();
   expect(calls.sent).toHaveLength(0);
 });
@@ -239,7 +239,7 @@ test('sending requires explicit consent and shows Meta ID; filters request logs'
   const send = page.getByRole('button', { name: 'Send approved test template', exact: true });
   await page.getByLabel('Consenting test recipient').fill('+14155552671');
   await expect(send).toBeDisabled();
-  await page.getByLabel('I confirm this test recipient opted in').check();
+  await page.getByLabel(/I verified that the recipient provided this number/).check();
   await send.click();
   await expect(page.getByRole('status')).toContainText('Meta message ID: wamid.fixture');
   expect(calls.sent).toHaveLength(1);
@@ -252,35 +252,40 @@ test('sending requires explicit consent and shows Meta ID; filters request logs'
   await expect.poll(() => calls.filters.some(value => value.includes('type=test'))).toBe(true);
 });
 
-test('restricted production mode allows only the configured Utility recipient with consent', async ({ page }) => {
+test('restricted production mode allows manually entered valid E.164 recipients with consent', async ({ page }) => {
   const calls = await mockApi(page, { active: true, production: true, registered: true,
-    productionTest: { enabled: true, recipient: '+14155552671', expiresAt: '2099-01-01T00:00:00+00:00' } });
+    productionTest: { enabled: true, expiresAt: '2099-01-01T00:00:00+00:00' } });
   await page.goto('/admin/integrations/whatsapp');
   await openSection(page, 'Test Messages');
   const mode = page.getByRole('region', { name: 'Restricted production test mode' });
   await expect(mode).toContainText('Enabled');
-  await expect(mode).toContainText('Only permitted recipient: +14155552671');
+  await expect(mode).toContainText('Enter one valid E.164 recipient for each manually initiated test');
   await expect(mode).toContainText('Expires (UTC): 2099-01-01T00:00:00+00:00');
   const send = page.getByRole('button', { name: 'Send approved test template', exact: true });
+  await page.getByLabel('Consenting test recipient').fill('+1 415 555 2672');
+  await expect(send).toBeDisabled();
   await page.getByLabel('Consenting test recipient').fill('+14155552672');
-  await page.getByLabel('I confirm this test recipient opted in').check();
   await expect(send).toBeDisabled();
-  await page.getByLabel('Consenting test recipient').fill('+14155552671');
-  await expect(send).toBeDisabled();
-  await page.getByLabel('I confirm this test recipient opted in').check();
+  await page.getByLabel(/I verified that the recipient provided this number/).check();
   await expect(send).toBeEnabled();
   await expect(page.getByRole('button', { name: 'Send Test Message', exact: true })).toBeDisabled();
   await send.click();
-  expect(calls.sent).toHaveLength(1);
-  expect(calls.sent[0]).toMatchObject({ recipient: '+14155552671', templateName: registeredTemplate.name, language: 'en_US', confirmed: true });
+  await expect.poll(() => calls.sent.length).toBe(1);
+  await page.getByLabel('Consenting test recipient').fill('+442079460018');
+  await page.getByLabel(/I verified that the recipient provided this number/).check();
+  await expect(send).toBeEnabled();
+  await send.click();
+  expect(calls.sent).toHaveLength(2);
+  expect(calls.sent[0]).toMatchObject({ recipient: '+14155552672', templateName: registeredTemplate.name, language: 'en_US', confirmed: true, recipientConsentVerified: true });
+  expect(calls.sent[1]).toMatchObject({ recipient: '+442079460018', templateName: registeredTemplate.name, language: 'en_US', confirmed: true, recipientConsentVerified: true });
 });
 
 for (const scenario of [
-  { name: 'missing settings', mode: { enabled: false, recipient: '', expiresAt: null }, template: {} },
-  { name: 'expired mode', mode: { enabled: true, recipient: '+14155552671', expiresAt: '2020-01-01T00:00:00Z' }, template: {} },
-  { name: 'missing expiry', mode: { enabled: true, recipient: '+14155552671', expiresAt: null }, template: {} },
-  { name: 'stale template', mode: { enabled: true, recipient: '+14155552671', expiresAt: '2099-01-01T00:00:00Z' }, template: { eligibleForTesting: false, statusStale: true } },
-  { name: 'unverified components', mode: { enabled: true, recipient: '+14155552671', expiresAt: '2099-01-01T00:00:00Z' }, template: { eligibleForTesting: false, componentsVerified: false } },
+  { name: 'missing settings', mode: { enabled: false, expiresAt: null }, template: {} },
+  { name: 'expired mode', mode: { enabled: true, expiresAt: '2020-01-01T00:00:00Z' }, template: {} },
+  { name: 'missing expiry', mode: { enabled: true, expiresAt: null }, template: {} },
+  { name: 'stale template', mode: { enabled: true, expiresAt: '2099-01-01T00:00:00Z' }, template: { eligibleForTesting: false, statusStale: true } },
+  { name: 'unverified components', mode: { enabled: true, expiresAt: '2099-01-01T00:00:00Z' }, template: { eligibleForTesting: false, componentsVerified: false } },
 ]) {
   test(`restricted production ${scenario.name} blocks sending`, async ({ page }) => {
     const calls = await mockApi(page, { active: true, production: true, catalogue: true, productionTest: scenario.mode, testTemplate: scenario.template });
@@ -289,7 +294,7 @@ for (const scenario of [
     await expect(page.getByRole('option', { name: /rk_authentication_otp/ })).toHaveCount(0);
     await expect(page.getByRole('option', { name: /rk_new_collection_drop/ })).toHaveCount(0);
     await page.getByLabel('Consenting test recipient').fill('+14155552671');
-    await page.getByLabel('I confirm this test recipient opted in').check();
+    await page.getByLabel(/I verified that the recipient provided this number/).check();
     await expect(page.getByRole('button', { name: 'Send approved test template', exact: true })).toBeDisabled();
     expect(calls.sent).toHaveLength(0);
   });
@@ -299,11 +304,11 @@ test('restricted production expiry disables an already valid form while the page
   const moment = Date.now();
   await page.clock.install({ time: moment });
   const calls = await mockApi(page, { active: true, production: true, registered: true,
-    productionTest: { enabled: true, recipient: '+14155552671', expiresAt: new Date(moment + 60_000).toISOString() } });
+    productionTest: { enabled: true, expiresAt: new Date(moment + 60_000).toISOString() } });
   await page.goto('/admin/integrations/whatsapp');
   await openSection(page, 'Test Messages');
   await page.getByLabel('Consenting test recipient').fill('+14155552671');
-  await page.getByLabel('I confirm this test recipient opted in').check();
+  await page.getByLabel(/I verified that the recipient provided this number/).check();
   const send = page.getByRole('button', { name: 'Send approved test template', exact: true });
   await expect(send).toBeEnabled();
   await page.clock.fastForward(61_000);
@@ -424,7 +429,7 @@ test('local gate off blocks both tests despite an open window', async ({ page })
   await expect(page.getByText('Open', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send Test Message', exact: true })).toBeDisabled();
   await page.getByLabel('Consenting test recipient').fill('+14155552671');
-  await page.getByLabel('I confirm this test recipient opted in').check();
+  await page.getByLabel(/I verified that the recipient provided this number/).check();
   await expect(page.getByRole('button', { name: 'Send approved test template', exact: true })).toBeDisabled();
   expect(calls.sent).toHaveLength(0);
 });
@@ -484,13 +489,13 @@ test('approved catalogue selection validates ordered fields outside the service 
   await page.getByRole('option', { name: /rk_order_confirmation.*Approved.*test eligible/ }).click();
   await page.getByLabel('Consenting test recipient').fill('+14155552671');
   const send = page.getByRole('button', { name: 'Send approved test template', exact: true });
-  await page.getByLabel('I confirm this test recipient opted in').check();
+  await page.getByLabel(/I verified that the recipient provided this number/).check();
   await expect(send).toBeDisabled();
   await page.getByLabel('Body variable 1: customer_name').fill('Fixture Customer');
   await page.getByLabel('Body variable 2: order_number').fill('RK-FIXTURE');
   await page.getByLabel('Body variable 3: order_date').fill('2026-11-13');
   await page.getByLabel('Body variable 4: order_total').fill('INR 1,250.00');
-  await page.getByLabel('I confirm this test recipient opted in').check();
+  await page.getByLabel(/I verified that the recipient provided this number/).check();
   await expect(send).toBeEnabled();
   await send.click();
   expect(calls.sent).toHaveLength(1);

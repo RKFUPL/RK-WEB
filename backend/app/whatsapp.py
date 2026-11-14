@@ -77,8 +77,7 @@ def test_send_enabled(config):
 
 
 def production_test_state(config):
-    """Admin-only state; canonical single recipient and explicit ISO UTC expiry."""
-    recipient = config.get("WHATSAPP_PRODUCTION_TEST_RECIPIENT")
+    """Admin-only state for a temporary production Utility-template test window."""
     expiry = config.get("WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT")
     expires = None
     try:
@@ -87,34 +86,32 @@ def production_test_state(config):
         expires = datetime.fromisoformat(expiry.replace("Z", "+00:00"))
     except ValueError:
         pass
-    try:
-        valid_recipient = bool(isinstance(recipient, str) and re.fullmatch(r"\+[1-9][0-9]{6,14}", recipient)
-                               and normalize_phone(recipient) == recipient)
-    except ValueError:
-        valid_recipient = False
     checked_at = now()
     reason = None
     if config.get("WHATSAPP_ENVIRONMENT") != "production" or config.get("WHATSAPP_PRODUCTION_TEST_SEND_ENABLED") is not True:
         reason = "production_test_disabled"
     elif any(config.get(key) is not False for key in ("WHATSAPP_ENABLED", "WHATSAPP_MARKETING_ENABLED", "WHATSAPP_TEST_SEND_ENABLED")):
         reason = "production_test_unsafe_gates"
-    elif not valid_recipient:
-        reason = "production_test_recipient_invalid"
     elif expires is None:
         reason = "production_test_expiry_invalid"
     elif expires <= checked_at:
         reason = "production_test_expired"
     elif expires > checked_at + timedelta(hours=24):
         reason = "production_test_expiry_too_far"
-    return {"enabled": reason is None, "recipient": recipient if valid_recipient else "",
-            "expiresAt": expires.isoformat() if expires else None, "reason": reason}
+    return {"enabled": reason is None, "expiresAt": expires.isoformat() if expires else None, "reason": reason}
 
 
 def production_test_block(config, recipient):
     state = production_test_state(config)
     if not state["enabled"]:
         return state["reason"]
-    return None if recipient == state["recipient"] else "production_test_recipient_mismatch"
+    try:
+        normalized = normalize_phone(recipient)
+    except ValueError:
+        return "invalid_recipient"
+    if not isinstance(recipient, str) or not re.fullmatch(r"\+[1-9][0-9]{6,14}", recipient) or normalized != recipient:
+        return "invalid_recipient"
+    return None
 
 
 def template_test_enabled(config):

@@ -691,7 +691,8 @@ class WhatsAppTests(unittest.TestCase):
             self.app.config.update(WHATSAPP_ENVIRONMENT=environment, WHATSAPP_TEST_SEND_ENABLED=gate)
             self.assertEqual(self.text_test().status_code, 403)
             result = self.client.post("/api/admin/integrations/whatsapp/test-send", headers=self.headers,
-                json={"recipient": self.user["phone"], "confirmed": True, "requestId": "template-test-request-123456"})
+                json={"recipient": self.user["phone"], "confirmed": True, "recipientConsentVerified": True,
+                      "requestId": "template-test-request-123456"})
             self.assertEqual(result.status_code, 403)
         self.http.assert_not_called()
 

@@ -31,7 +31,6 @@ class BaseConfig:
     WHATSAPP_TEST_SEND_ENABLED = os.getenv("WHATSAPP_TEST_SEND_ENABLED", "false").lower() == "true"
     # Separate temporary production Utility-template tests; never enables automation.
     WHATSAPP_PRODUCTION_TEST_SEND_ENABLED = os.getenv("WHATSAPP_PRODUCTION_TEST_SEND_ENABLED", "false").lower() == "true"
-    WHATSAPP_PRODUCTION_TEST_RECIPIENT = os.getenv("WHATSAPP_PRODUCTION_TEST_RECIPIENT", "")
     WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT = os.getenv("WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT", "")
     WHATSAPP_DEVELOPMENT_CALLBACK_URL = os.getenv("WHATSAPP_DEVELOPMENT_CALLBACK_URL", "")
     # Backend-only; both the environment gate and admin switch must be enabled.

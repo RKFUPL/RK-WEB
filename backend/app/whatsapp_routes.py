@@ -430,10 +430,13 @@ def test_connection():
 @limiter.shared_limit("3 per minute; 10 per hour", scope="whatsapp-test-sends")
 def test_send():
     payload = request.get_json(silent=True)
-    if not isinstance(payload, dict) or payload.get("confirmed") is not True or not re.fullmatch(r"[A-Za-z0-9-]{16,80}", str(payload.get("requestId", ""))):
-        return jsonify(error="Confirm recipient consent and provide a request ID."), 400
+    if (not isinstance(payload, dict) or payload.get("confirmed") is not True
+            or not re.fullmatch(r"[A-Za-z0-9-]{16,80}", str(payload.get("requestId", "")))):
+        return jsonify(error="Confirm this one-off test and provide a request ID."), 400
     production_test = current_app.config.get("WHATSAPP_ENVIRONMENT") == "production"
     if production_test:
+        if payload.get("recipientConsentVerified") is not True:
+            return jsonify(error="Confirm that you verified the recipient provided this number and agreed to receive WhatsApp messages from this business."), 400
         blocked = production_test_block(current_app.config, payload.get("recipient"))
         if blocked:
             return _test_response({"status": "skipped", "reason": blocked})
@@ -455,6 +458,20 @@ def test_send():
         return _test_response({"status": "skipped", "reason": "invalid_recipient"})
     if payload.get("recipient") != normalized_recipient or not re.fullmatch(r"\+[1-9][0-9]{6,14}", normalized_recipient):
         return _test_response({"status": "skipped", "reason": "invalid_recipient"})
+    if production_test:
+        actor_id = str(current_user()["_id"])
+        recipient_hash = fingerprint(normalized_recipient, config)
+        audit_id = f"production-test-consent:{actor_id}:{payload['requestId']}:{recipient_hash}"
+        db.whatsapp_admin_audit.update_one({"_id": audit_id}, {"$setOnInsert": {
+            "action": "production_template_test_consent_attestation",
+            "actorId": actor_id,
+            "requestId": payload["requestId"],
+            "recipientHash": recipient_hash,
+            "recipientMasked": "***" + normalized_recipient[-4:],
+            "operatorVerifiedNumberAndWhatsAppConsent": True,
+            "consentEvidenceType": "operator_attestation_not_system_verified",
+            "recordedAt": now(),
+        }}, upsert=True)
     result = send(db, config, payload.get("recipient"), event, {},
                   f"test:{current_user()['_id']}:{payload['requestId']}", test_send=True, consent=True,
                   test_parameters=payload.get("parameters"), production_test=production_test)
@@ -474,8 +491,7 @@ def _test_response(result):
         "recipient_opted_out": "This recipient has opted out. Obtain fresh consent through the account preferences before sending.",
         "production_test_disabled": "Restricted production template testing is off.",
         "production_test_unsafe_gates": "Production testing requires automated, marketing and development sending gates to remain off.",
-        "production_test_recipient_invalid": "Configure exactly one valid E.164 production test recipient in the backend.",
-        "production_test_recipient_mismatch": "This recipient is not the configured production test recipient.",
+        "production_test_recipient_invalid": "Enter one valid normalized E.164 recipient number.",
         "production_test_expiry_invalid": "Configure an explicit ISO 8601 UTC production test expiry in the backend.",
         "production_test_expired": "Restricted production template testing has expired.",
         "production_test_expiry_too_far": "The production test expiry must be no more than 24 hours from the current UTC time.",
