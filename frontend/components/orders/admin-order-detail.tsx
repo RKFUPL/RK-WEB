@@ -30,6 +30,25 @@ const actionLabels: Record<string, string> = {
   shipment_update: "Update Tracking",
   return_accept: "Accept Return",
 };
+const whatsappReasons: Record<string, string> = {
+  missing_phone: 'No order contact number is available.', invalid_recipient: 'The order contact needs a valid international country code.',
+  missing_or_withdrawn_consent: 'Transactional WhatsApp consent is missing, withdrawn, or does not cover this number.',
+  template_not_approved_or_enabled: 'Waiting for an enabled Utility template with confirmed Meta approval.',
+  shipment_not_recorded: 'Waiting for courier, AWB/tracking number and dispatch date.',
+  business_event_not_confirmed: 'The required payment, order or refund result has not been confirmed.',
+  automation_disabled: 'Automated WhatsApp messaging is disabled.', disabled_or_configuration_incomplete: 'Messaging is disabled or backend configuration is incomplete.',
+  staff_notifications_disabled: 'Customer notifications were switched off for this update.',
+  consent_or_event_changed: 'Consent or the business event changed before dispatch.',
+  business_event_or_consent_changed: 'The queued event or consent changed; this job will not send.',
+  operator_reconciliation_required: 'Delivery outcome needs operator reconciliation before retrying.',
+  notification_unavailable: 'The notification service could not queue this event. The order update was saved.',
+  queue_expired_or_unavailable: 'The queued notification expired or is no longer available; reconcile before retrying.',
+};
+const localDispatchValue = (value?: string) => {
+  if (!value) return '';
+  const date = new Date(value);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+};
 
 export function AdminOrderDetail({ orderId }: { orderId: string }) {
   const [order, setOrder] = useState<Order | null>(null);
@@ -42,6 +61,7 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
     courier: "",
     trackingNumber: "",
     trackingUrl: "",
+    shippedAt: "",
     customerNote: "",
     sendCustomerNotification: true,
     receivedBy: "",
@@ -83,6 +103,7 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
       courier: order.fulfillment.courier || "",
       trackingNumber: order.fulfillment.trackingNumber || "",
       trackingUrl: order.fulfillment.trackingUrl || "",
+      shippedAt: localDispatchValue(order.fulfillment.shippedAt),
       customerNote: "",
       sendCustomerNotification: true,
       receivedBy: "",
@@ -136,7 +157,7 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
             Authorization: `Bearer ${token()}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ ...body, shippedAt: form.shippedAt ? new Date(form.shippedAt).toISOString() : undefined }),
         },
       );
       const payload = await response.json();
@@ -409,6 +430,7 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
               <dt className="text-[#858b94]">Tracking</dt>
               <dd>{order.fulfillment.trackingNumber || "Not yet available"}</dd>
             </div>
+            <div className="flex justify-between gap-4"><dt className="text-[#858b94]">Dispatch date</dt><dd>{order.fulfillment.shippedAt ? orderDateTime(order.fulfillment.shippedAt) : 'Not recorded'}</dd></div>
             <div className="flex justify-between gap-4">
               <dt className="text-[#858b94]">URL</dt>
               <dd>
@@ -435,6 +457,29 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
           </dl>
         </section>
       </div>
+      <section className={`${panelClass} mt-4`} aria-labelledby="order-whatsapp-heading">
+        <div className="flex flex-wrap items-center justify-between gap-3"><h2 id="order-whatsapp-heading" className="text-sm font-medium">WhatsApp notification activity</h2><button type="button" onClick={() => void load()} className="text-xs underline">Refresh notification activity</button></div>
+        <dl className="mt-4 grid gap-3 text-xs sm:grid-cols-2">
+          <div><dt className="text-[#858b94]">Customer WhatsApp number</dt><dd>{order.whatsapp?.number || 'No eligible number recorded'}</dd></div>
+          <div><dt className="text-[#858b94]">Transactional consent</dt><dd>{order.whatsapp?.consent === 'granted' ? 'Granted for this number' : 'Not eligible (missing or withdrawn consent)'}</dd></div>
+          <div><dt className="text-[#858b94]">Order status</dt><dd>{fulfillmentLabels[order.fulfillmentStatus]}</dd></div>
+          <div><dt className="text-[#858b94]">Automated messaging</dt><dd>{order.whatsapp?.automationEnabled ? 'Enabled' : 'Disabled'}</dd></div>
+        </dl>
+        {order.whatsapp?.eligibilityReason && <p className="mt-3 text-xs">{whatsappReasons[order.whatsapp.eligibilityReason] || titleCase(order.whatsapp.eligibilityReason)}</p>}
+        <ul className="mt-4 space-y-1 text-xs">{order.whatsapp?.templates.filter(template => !template.approved || !template.enabled).map(template => <li key={template.event}>Waiting for approved template: {template.name || titleCase(template.event)} · {template.status}</li>)}</ul>
+        {order.whatsapp?.activity.length ? <ol className="mt-5 divide-y divide-black/10">{order.whatsapp.activity.map((entry, index) => <li key={`${entry.event}-${index}`} className="space-y-1 py-3 text-xs">
+          <p><strong>{index === 0 ? 'Last WhatsApp notification: ' : ''}{titleCase(entry.event)}</strong> · {titleCase(entry.status)}</p>
+          <p>{orderDateTime(entry.updatedAt || entry.createdAt)}</p>
+          {entry.reason && <p>{whatsappReasons[entry.reason] || titleCase(entry.reason)}</p>}
+          {entry.acceptedAt && <p>Meta accepted: {orderDateTime(entry.acceptedAt)}</p>}
+          {entry.sentAt && <p>Sent: {orderDateTime(entry.sentAt)}</p>}
+          {entry.deliveredAt && <p>Delivered: {orderDateTime(entry.deliveredAt)}</p>}
+          {entry.readAt ? <p>Read receipt received: {orderDateTime(entry.readAt)}</p> : <p>No read receipt received yet; reading is not inferred from delivery.</p>}
+          {entry.failedAt && <p>Failed: {orderDateTime(entry.failedAt)}</p>}
+          {entry.error?.kind && <p>Provider detail: {titleCase(entry.error.kind)}{entry.error.code ? ` · Meta code ${entry.error.code}` : ''}</p>}
+          {entry.nextAttemptAt && <p>Next retry: {orderDateTime(entry.nextAttemptAt)}</p>}
+        </li>)}</ol> : <p className="mt-4 text-xs text-[#858b94]">No WhatsApp notification event recorded for this order.</p>}
+      </section>
       {order.requiresAvailabilityConfirmation ? (
         <section className={`${panelClass} mt-4`}>
           <p className="text-[9px] uppercase tracking-[.18em] text-[#9a7a4d]">
@@ -518,7 +563,7 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
                 ) : null}
                 {event.notifyCustomer ? (
                   <p className="mt-1 text-[10px] uppercase tracking-[.12em] text-emerald-700">
-                    Customer notified
+                    Customer notification requested
                   </p>
                 ) : null}
               </div>
@@ -586,6 +631,7 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
                     className={fieldClass}
                   />
                 </label>
+                <label className="text-[9px] uppercase tracking-[.16em] text-[#858b94]">Shipment dispatch date and time<input type="datetime-local" value={form.shippedAt} onChange={event => setForm(current => ({ ...current, shippedAt: event.target.value }))} className={fieldClass} /></label>
               </div>
             ) : null}
             {action === "cancelled" &&

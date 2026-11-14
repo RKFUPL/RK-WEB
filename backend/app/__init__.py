@@ -42,14 +42,17 @@ from .ai_tryon import ai_tryon_bp
 from .feedback import feedback_bp, ensure_feedback_indexes
 from .returns import returns_bp
 from .blueprints.staff.routes import staff_bp
+from .whatsapp_routes import webhook_bp as whatsapp_webhook_bp, admin_bp as whatsapp_admin_bp
+from .whatsapp import ensure_indexes as ensure_whatsapp_indexes
 from .config import get_config, validate_database_maintenance_target, validate_security_config
-from .extensions import cors, jwt, limiter, mail, mongo
+from .extensions import cors, jwt, limiter, mail, mongo, configure_trusted_proxy
 from .order_fulfillment import migrate_legacy_orders
 
 
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config.from_object(get_config())
+    configure_trusted_proxy(app)
     validate_security_config(app.config)
     if len(str(app.config.get("JWT_SECRET_KEY") or "").encode("utf-8")) < 32:
         app.logger.warning("JWT_SECRET_KEY is shorter than the recommended 32 bytes; rotate it through a controlled session-invalidating change.")
@@ -108,6 +111,9 @@ def create_app() -> Flask:
         )
         return {"error": "Database temporarily unavailable."}, 503, {"Retry-After": "5"}
 
+    from .whatsapp_ops import register_commands
+    register_commands(app, mongo)
+
     @app.cli.command("database-maintenance")
     def database_maintenance():
         """Explicitly create indexes and canonical catalog records."""
@@ -125,6 +131,7 @@ def create_app() -> Flask:
         ensure_catalog_seed(database)
         ensure_dashboard_indexes(database)
         ensure_feedback_indexes(database)
+        ensure_whatsapp_indexes(database)
         migrate_legacy_orders(database)
         click.echo("Database maintenance completed")
 
@@ -155,6 +162,8 @@ def create_app() -> Flask:
         db = mongo.db if mongo.db is not None else mongo.cx[app.config["MONGO_DBNAME"]]
         return db.revoked_tokens.find_one({"jti": jwt_payload.get("jti")}, {"_id": 1}) is not None
 
+    app.register_blueprint(whatsapp_webhook_bp, url_prefix="/api/webhooks")
+    app.register_blueprint(whatsapp_admin_bp, url_prefix="/api/admin/integrations/whatsapp")
     app.register_blueprint(health_bp, url_prefix="/api")
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(analytics_bp, url_prefix="/api/analytics")

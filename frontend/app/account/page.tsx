@@ -4,6 +4,7 @@ import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
 import { brandLogoUrl } from '@/lib/home-content';
 import { apiBaseUrl } from '@/lib/rbac';
+import { whatsappConsentText } from '@/lib/whatsapp-consent';
 
 type AccountUser = { id: string; email: string; username?: string; displayName?: string; role: 'customer' | 'staff' | 'admin' };
 type AuthMode = 'login' | 'signup' | 'forgot';
@@ -93,6 +94,10 @@ export default function AccountPage() {
   const [user, setUser] = useState<AccountUser | null>(null);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [whatsappOtpConsent, setWhatsappOtpConsent] = useState(false);
+  const [whatsappTransactionalConsent, setWhatsappTransactionalConsent] = useState(false);
+  const [otpChannel, setOtpChannel] = useState('email');
+  const [loginOtp, setLoginOtp] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<SignupField, string>>>({});
 
@@ -195,12 +200,12 @@ export default function AccountPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ firstName, lastName, username, email, phone, dob, gender, region, password }),
+        body: JSON.stringify({ firstName, lastName, username, email, phone, dob, gender, region, password, whatsappOtpConsent, whatsappTransactionalConsent, otpChannel }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? 'Unable to send signup code.');
       setOtpStep(true);
-      setMessage('A six-digit signup code has been sent to your email.');
+      setMessage(`Requested code delivery: email ${data.delivery?.email ?? 'requested'}, WhatsApp ${data.delivery?.whatsapp ?? 'not requested'}. Use the latest code.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Unable to send signup code.');
     } finally {
@@ -239,12 +244,12 @@ export default function AccountPage() {
       const response = await fetch(`${apiBaseUrl}/api/auth/forgot-password/request-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier }),
+        body: JSON.stringify({ identifier, whatsappOtpConsent, otpChannel }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? 'Unable to send recovery code.');
       setOtpStep(true);
-      setMessage('If the account exists, a recovery code has been sent.');
+      setMessage(`If the account exists, requested delivery has been attempted. Email: ${data.delivery?.email ?? 'requested'}. WhatsApp: ${data.delivery?.whatsapp ?? 'not requested'}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Unable to send recovery code.');
     } finally {
@@ -275,9 +280,26 @@ export default function AccountPage() {
 
   if (authChecking || user) return <main className="min-h-screen bg-ivory" aria-label="Loading account" />;
 
+  const submitLoginOtp = async (event: FormEvent) => {
+    event.preventDefault(); setBusy(true); setMessage('');
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/auth/${otpStep ? 'verify-otp' : 'request-otp'}`, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(otpStep ? { identifier, otp } : { identifier, otpChannel, whatsappOtpConsent }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to complete code verification.');
+      if (!otpStep) { setOtpStep(true); setMessage(`Requested delivery: email ${data.delivery?.email ?? 'requested'}, WhatsApp ${data.delivery?.whatsapp ?? 'not requested'}. Use the latest code.`); }
+      else {
+        if (data.accessToken) { localStorage.setItem('rk_access_token', data.accessToken); localStorage.setItem('rk_auth_token', data.accessToken); }
+        localStorage.setItem('rk_auth_user', JSON.stringify(data.user)); window.location.replace('/');
+      }
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Unable to verify code.'); }
+    finally { setBusy(false); }
+  };
   const isSignup = mode === 'signup';
   const isForgot = mode === 'forgot';
-  const formSubmit = isSignup ? (otpStep ? verifySignupOtp : requestSignupOtp) : isForgot ? (otpStep ? resetPassword : requestRecoveryOtp) : submitLogin;
+  const formSubmit = isSignup ? (otpStep ? verifySignupOtp : requestSignupOtp) : isForgot ? (otpStep ? resetPassword : requestRecoveryOtp) : loginOtp ? submitLoginOtp : submitLogin;
 
   return (
     <main className="min-h-screen bg-white text-charcoal">
@@ -302,6 +324,7 @@ export default function AccountPage() {
             <h1 className="mt-4 font-display text-5xl leading-none md:text-6xl">{isSignup ? 'Get access to everything.' : isForgot ? 'Reset your password.' : 'Your account.'}</h1>
             <p className="mt-5 text-sm leading-7 text-charcoal/60">{isSignup ? 'Create a profile for collection notes, private previews, and a more personal RK experience.' : isForgot ? 'Enter your username or email to receive a password reset code.' : 'Sign in with your username or email and password.'}</p>
 
+            {!isSignup && !isForgot && <button type="button" className="mt-5 text-sm underline" onClick={() => { setLoginOtp(value => !value); setOtpStep(false); setOtp(''); setMessage(''); setOtpChannel('email'); setWhatsappOtpConsent(false); }}>{loginOtp ? 'Sign in with password' : 'Sign in with one-time code'}</button>}
             <form onSubmit={formSubmit} noValidate={isSignup} className="mt-10 space-y-5">
               {isSignup ? (
                 <>
@@ -320,12 +343,15 @@ export default function AccountPage() {
               ) : (
                 <>
                   <label className="block text-xs uppercase tracking-[0.25em] text-charcoal/55">Username or email<input required value={identifier} onChange={(event) => setIdentifier(event.target.value)} disabled={otpStep} className="mt-3 w-full border-b border-black/15 px-0 py-3 text-base normal-case tracking-normal outline-none focus:border-gold" /></label>
-                  {!isForgot ? <PasswordField label="Password" value={password} onChange={setPassword} /> : null}
+                  {!isForgot && !loginOtp ? <PasswordField label="Password" value={password} onChange={setPassword} /> : null}
                 </>
               )}
               {isForgot && otpStep ? <PasswordField label="New password" minLength={8} value={password} onChange={setPassword} /> : null}
-              {isForgot && otpStep || isSignup && otpStep ? <label className="block text-xs uppercase tracking-[0.25em] text-charcoal/55">One-time code<input type="text" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} required value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, ''))} className="mt-3 w-full border-b border-black/15 px-0 py-3 text-base tracking-[0.35em] outline-none focus:border-gold" /></label> : null}
-              <button type="submit" disabled={busy} className="w-full rounded-full bg-ink px-5 py-4 text-xs uppercase tracking-[0.28em] text-ivory transition hover:bg-gold disabled:opacity-50">{busy ? 'Please wait...' : isSignup ? (otpStep ? 'Verify signup code' : 'Send signup code') : isForgot ? (otpStep ? 'Reset password' : 'Send recovery code') : 'Sign in'}</button>
+              {isForgot && otpStep || isSignup && otpStep || loginOtp && otpStep ? <label className="block text-xs uppercase tracking-[0.25em] text-charcoal/55">One-time code<input type="text" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} required value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, ''))} className="mt-3 w-full border-b border-black/15 px-0 py-3 text-base tracking-[0.35em] outline-none focus:border-gold" /></label> : null}
+              {(isSignup || isForgot || loginOtp) && !otpStep && <label className="block text-xs">OTP delivery channel<select aria-label="OTP delivery channel" value={otpChannel} onChange={event => { setOtpChannel(event.target.value); setWhatsappOtpConsent(false); }} className="mt-2 block w-full border p-2"><option value="email">Email</option><option value="whatsapp">WhatsApp</option><option value="both">Email and WhatsApp</option></select></label>}
+              {(isSignup || isForgot || loginOtp) && !otpStep && <label className="flex items-start gap-3 text-xs leading-5 text-charcoal/70"><input type="checkbox" checked={whatsappOtpConsent} onChange={event => { setWhatsappOtpConsent(event.target.checked); setOtpChannel(event.target.checked ? (otpChannel === 'email' ? 'both' : otpChannel) : 'email'); }} />I request this verification code on WhatsApp at my provided account number. This request does not enable marketing.</label>}
+              {isSignup && !otpStep && <label className="flex items-start gap-3 text-xs leading-5 text-charcoal/70"><input type="checkbox" checked={whatsappTransactionalConsent} onChange={event => setWhatsappTransactionalConsent(event.target.checked)} />{whatsappConsentText}</label>}
+              <button type="submit" disabled={busy} className="w-full rounded-full bg-ink px-5 py-4 text-xs uppercase tracking-[0.28em] text-ivory transition hover:bg-gold disabled:opacity-50">{busy ? 'Please wait...' : isSignup ? (otpStep ? 'Verify signup code' : 'Send signup code') : isForgot ? (otpStep ? 'Reset password' : 'Send recovery code') : loginOtp ? (otpStep ? 'Verify sign-in code' : 'Send sign-in code') : 'Sign in'}</button>
               {message ? <p className="text-sm text-charcoal/65">{message}</p> : null}
             </form>
 

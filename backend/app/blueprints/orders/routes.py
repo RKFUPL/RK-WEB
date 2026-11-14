@@ -23,6 +23,8 @@ from ...order_fulfillment import (
 from ...order_confirmation import send_order_confirmation
 from ...returns import create_return_request, return_url, send_return_accepted
 from ...rbac import authenticated_user_id, current_user, database, requireCustomer, requirePermission
+from ...whatsapp_orders import order_whatsapp_activity
+from ...time_utils import json_value
 
 
 customer_orders_bp = Blueprint("customer_orders", __name__)
@@ -32,6 +34,12 @@ staff_orders_bp = Blueprint("staff_orders", __name__)
 def _prepare(database_instance) -> None:
     ensure_order_indexes(database_instance)
     migrate_legacy_orders(database_instance)
+
+
+def _staff_view(db, order):
+    view = order_view(order, include_private_payment=True)
+    view["whatsapp"] = json_value(order_whatsapp_activity(db, current_app.config, order))
+    return view
 
 
 def _object_id(value: str):
@@ -222,7 +230,7 @@ def get_staff_order(order_id: str):
     if not order:
         return jsonify({"error": "Order not found."}), 404
     return jsonify({
-        "order": order_view(ensure_order_tracking(db, order), include_private_payment=True),
+        "order": _staff_view(db, ensure_order_tracking(db, order)),
         "courierOptions": _configured_couriers(db),
     }), 200
 
@@ -243,7 +251,7 @@ def resend_confirmation_email(order_id: str):
     updated = db.orders.find_one({"_id": object_id}) or order
     status_code = 200 if sent else 502
     return jsonify({
-        "order": order_view(updated, include_private_payment=True),
+        "order": _staff_view(db, updated),
         "message": "Order confirmation sent." if sent else "The order remains confirmed, but email delivery failed and can be retried.",
     }), status_code
 
@@ -267,7 +275,7 @@ def change_fulfillment(order_id: str):
         return jsonify({"error": str(error)}), 400
     except OrderTransitionConflict as error:
         return jsonify({"error": str(error)}), 409
-    return jsonify({"order": order_view(updated, include_private_payment=True)}), 200
+    return jsonify({"order": _staff_view(db, updated)}), 200
 
 
 @staff_orders_bp.patch("/<order_id>/shipment")
@@ -287,7 +295,7 @@ def edit_shipment(order_id: str):
         return jsonify({"error": str(error)}), 400
     except OrderTransitionConflict as error:
         return jsonify({"error": str(error)}), 409
-    return jsonify({"order": order_view(updated, include_private_payment=True)}), 200
+    return jsonify({"order": _staff_view(db, updated)}), 200
 
 
 @staff_orders_bp.patch("/<order_id>/return")
@@ -314,4 +322,4 @@ def accept_return(order_id: str):
             send_return_accepted(db, updated, token, customer_note)
     except Exception:
         current_app.logger.exception("Unable to send return acceptance notification")
-    return jsonify({"order": order_view(updated, include_private_payment=True), "returnFormUrl": return_url(token)}), 200
+    return jsonify({"order": _staff_view(db, updated), "returnFormUrl": return_url(token)}), 200

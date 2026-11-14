@@ -22,6 +22,7 @@ from ...catalog import (
     product_view,
     natural_product_sort_key,
 )
+from ...whatsapp import notify, notify_admins
 from ...mail import SENDERS, send_html_email
 from ...extensions import limiter
 from ...fx_rates import public_currency_context as build_currency_context
@@ -374,6 +375,19 @@ def create_custom_order_request():
         "createdAt": datetime.now(timezone.utc),
     }
     result = db.custom_order_requests.insert_one(record)
+    record["_id"] = result.inserted_id
+    # An anonymous email address must not authorize WhatsApp delivery to a stored account.
+    from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
+    try:
+        verify_jwt_in_request(optional=True)
+        from ...rbac import current_user, _shared_user
+        customer = current_user() if get_jwt_identity() else _shared_user()
+        if customer and str(customer.get("email", "")).lower() == email:
+            db.custom_order_requests.update_one({"_id": record["_id"]}, {"$set": {"customerId": customer["_id"]}})
+            notify(db, "custom_order_received", record, user=customer)
+    except Exception:
+        current_app.logger.warning("Custom request WhatsApp account association unavailable")
+    notify_admins(db, record, "custom_order_received")
     _send_custom_order_emails(record)
     return jsonify({
         "requestId": str(result.inserted_id),

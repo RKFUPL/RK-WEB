@@ -622,7 +622,8 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
         `${apiBaseUrl}/api/catalog/custom-order-requests`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...(window.localStorage.getItem("rk_access_token") ? { Authorization: `Bearer ${window.localStorage.getItem("rk_access_token")}` } : {}) },
         body: JSON.stringify({
           productId: product.id,
           variantId: selectedVariant?.id,

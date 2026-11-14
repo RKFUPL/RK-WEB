@@ -4,6 +4,11 @@ from datetime import timedelta
 from urllib.parse import unquote, urlsplit
 
 
+def whatsapp_environment():
+    environment = os.getenv("WHATSAPP_ENVIRONMENT", "production").strip().lower()
+    return environment if environment in {"development", "production"} else "production"
+
+
 def validate_database_maintenance_target(config, expected_database):
     """Fail closed unless the explicit target agrees with config and URI path."""
     configured = str(config.get("MONGO_DBNAME") or "").strip()
@@ -21,6 +26,25 @@ def validate_database_maintenance_target(config, expected_database):
 
 
 class BaseConfig:
+    # Resolved by the application config class, never from a browser/Host header.
+    WHATSAPP_ENVIRONMENT = whatsapp_environment()
+    WHATSAPP_TEST_SEND_ENABLED = os.getenv("WHATSAPP_TEST_SEND_ENABLED", "false").lower() == "true"
+    WHATSAPP_DEVELOPMENT_CALLBACK_URL = os.getenv("WHATSAPP_DEVELOPMENT_CALLBACK_URL", "")
+    # Backend-only; both the environment gate and admin switch must be enabled.
+    WHATSAPP_ENABLED = os.getenv("WHATSAPP_ENABLED", "false").lower() == "true"
+    WHATSAPP_MARKETING_ENABLED = os.getenv("WHATSAPP_MARKETING_ENABLED", "false").lower() == "true"
+    WHATSAPP_CANONICAL_URL = os.getenv("WHATSAPP_CANONICAL_URL", "")
+    WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "")
+    WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
+    WHATSAPP_BUSINESS_ACCOUNT_ID = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID", "")
+    WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
+    WHATSAPP_APP_ID = os.getenv("WHATSAPP_APP_ID", "")
+    WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "")
+    WHATSAPP_WEBHOOK_VERIFY_TOKEN = os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN", "")
+    WHATSAPP_OUTBOX_KEY = os.getenv("WHATSAPP_OUTBOX_KEY", "")
+    WHATSAPP_TEMPLATES = os.getenv("WHATSAPP_TEMPLATES", "{}")
+    WHATSAPP_EXPECTED_DATABASE = os.getenv("WHATSAPP_EXPECTED_DATABASE", "")
+    WHATSAPP_WORKER_LEASE_SECONDS = os.getenv("WHATSAPP_WORKER_LEASE_SECONDS", "300")
     SECRET_KEY = os.getenv("SECRET_KEY", "change-me")
     MONGO_URI = os.getenv("MONGO_DB", os.getenv("MONGO_URI", "mongodb://localhost:27017/rashi_kapoor"))
     MONGO_DBNAME = os.getenv("DB_NAME", "rashi_kapoor")
@@ -48,6 +72,7 @@ class BaseConfig:
     TWELVE_DATA_COMMERCIAL_USE_APPROVED = os.getenv("TWELVE_DATA_COMMERCIAL_USE_APPROVED", "false").strip().lower() == "true"
     RATELIMIT_DEFAULT = "200 per hour"
     RATELIMIT_STORAGE_URI = os.getenv("RATELIMIT_STORAGE_URI", "memory://")
+    TRUSTED_PROXY_HOPS = os.getenv("TRUSTED_PROXY_HOPS", "0")
     AUTH_SESSION_DAYS = int(os.getenv("AUTH_SESSION_DAYS", "30"))
     SHARED_SESSION_COOKIE_NAME = os.getenv("SHARED_SESSION_COOKIE_NAME", "rk_shared_session")
     SHARED_SESSION_COOKIE_DOMAIN = os.getenv("SHARED_SESSION_COOKIE_DOMAIN", ".rashikapoor.co.in")
@@ -81,6 +106,10 @@ class DevelopmentConfig(BaseConfig):
 
 
 class ProductionConfig(BaseConfig):
+    WHATSAPP_ENVIRONMENT = "production"
+    WHATSAPP_TEST_SEND_ENABLED = False
+    WHATSAPP_ENABLED = False
+    WHATSAPP_MARKETING_ENABLED = False
     DEBUG = False
 
     # Keep this value in Render's environment permanently. Rotating it on

@@ -1,0 +1,7 @@
+# Explicit reviewed image references for deployment and rollback.
+# Keep base Compose behavior unchanged; use both files and --no-build for up.
+services:
+  backend:
+    image: ${RK_BACKEND_IMAGE:?Set an explicit reviewed backend image reference}
+  frontend:
+    image: ${RK_FRONTEND_IMAGE:?Set an explicit reviewed frontend image reference}

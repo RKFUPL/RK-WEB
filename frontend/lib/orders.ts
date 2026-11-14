@@ -96,10 +96,19 @@ export type ConfirmationEmailState = {
 
 export type Order = {
   id: string;
+  refunds?: { id: string; status: string; amountPaise: number; currency: string; processedAt?: string }[];
   orderNumber: string;
   customerName?: string;
   email?: string;
   phone?: string;
+  whatsapp?: {
+    number?: string | null; contactSource?: string; consent: string; eligibilityReason?: string;
+    automationEnabled: boolean;
+    templates: { event: string; name: string; approved: boolean; enabled: boolean; status: string }[];
+    activity: { event: string; status: string; reason?: string; createdAt?: string; updatedAt?: string;
+      acceptedAt?: string; sentAt?: string; deliveredAt?: string; readAt?: string; failedAt?: string;
+      nextAttemptAt?: string; providerId?: string; error?: { kind?: string; code?: number; subcode?: number } }[];
+  };
   shipping?: ShippingAddress;
   shippingAddress?: ShippingAddress;
   items: OrderItem[];

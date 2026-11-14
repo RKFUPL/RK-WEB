@@ -7,12 +7,31 @@ from bcrypt import checkpw, gensalt, hashpw
 from bson import ObjectId
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import create_access_token, get_jwt, unset_jwt_cookies
+from pymongo import ReturnDocument
 
 from ...extensions import limiter, mongo
+from ...whatsapp import notify, notify_auth_otp, normalize_phone, enabled
+from ...whatsapp_templates import template_registry
+from ...whatsapp_consent import record_consent
+from ...whatsapp_marketing_consent import record_marketing_consent
+from ...whatsapp_catalogue import OTP_EXPIRY_MINUTES
 from ...mail import send_otp
 from ...rbac import authenticated_user_id, effective_permissions, requireAuth
 
 auth_bp = Blueprint("auth", __name__)
+
+
+def _consume_otp(collection, challenge, code, timestamp, *, user_document=False):
+    """Bound attempts atomically and allow only one successful consumer."""
+    query = {"_id": challenge["_id"], "otpHash": challenge["otpHash"],
+             "otpExpiresAt": {"$gt": timestamp}, "otpAttempts": {"$lt": 5}}
+    attempt = collection.find_one_and_update(query, {"$inc": {"otpAttempts": 1}}, return_document=ReturnDocument.AFTER)
+    if not attempt or not checkpw(code.encode(), attempt["otpHash"].encode()):
+        return None
+    query["otpAttempts"] = {"$lte": 5}
+    if user_document:
+        return collection.find_one_and_update(query, {"$unset": {"otpHash": "", "otpExpiresAt": "", "otpAttempts": ""}})
+    return collection.find_one_and_delete(query)
 
 
 def _database():
@@ -90,6 +109,35 @@ def _send_otp_email(email: str, otp: str, purpose: str = "verification") -> None
     send_otp(email, otp, purpose)
 
 
+def _otp_channel(payload, event):
+    channel = payload.get("otpChannel", "both" if payload.get("whatsappOtpConsent") is True else "email")
+    if channel not in {"email", "whatsapp", "both"}:
+        raise ValueError("Choose email, WhatsApp, or both for code delivery.")
+    if channel != "email" and payload.get("whatsappOtpConsent") is not True:
+        raise ValueError("Explicitly request this verification code on WhatsApp.")
+    if channel == "whatsapp":
+        template = template_registry(_database(), current_app.config).get(event, {})
+        if not enabled(_database(), current_app.config) or not template.get("enabled") or not template.get("approved"):
+            raise ValueError("WhatsApp verification is currently unavailable. Choose email to continue.")
+    return channel
+
+
+def _deliver_otp(channel, event, user, challenge, code, purpose, email):
+    delivery = {"email": "not_requested", "whatsapp": "not_requested"}
+    if channel in {"whatsapp", "both"}:
+        result = notify_auth_otp(_database(), event, user, code, challenge, purpose)
+        delivery["whatsapp"] = result.get("status", "unavailable")
+    if channel in {"email", "both"}:
+        try:
+            _send_otp_email(email, code)
+            delivery["email"] = "sent"
+        except Exception:
+            current_app.logger.warning("OTP email unavailable")
+            delivery["email"] = "unavailable"
+    success = delivery["email"] == "sent" or delivery["whatsapp"] in {"queued", "accepted", "duplicate"}
+    return delivery, success
+
+
 def _public_user(user: dict) -> dict:
     first_name = user.get("firstName") or str(user.get("displayName") or "").split(" ")[0]
     last_name = user.get("lastName") or " ".join(str(user.get("displayName") or "").split(" ")[1:])
@@ -115,6 +163,8 @@ def _public_user(user: dict) -> dict:
         "newsletter": user.get("newsletter", False),
         "marketingEmails": user.get("marketingEmails", False),
         "whatsappNotifications": user.get("whatsappNotifications", False),
+        "whatsappMarketingNotifications": user.get("whatsappMarketingNotifications", False),
+        "whatsappMarketingPhone": (user.get("whatsappMarketingConsent") or {}).get("phone"),
         "must_change_password": bool(user.get("mustChangePassword", False)),
     }
 
@@ -155,9 +205,16 @@ def _valid_dob(value: object) -> str | None:
 @auth_bp.post("/request-otp")
 @limiter.limit("5 per 15 minutes")
 def request_otp():
-    email = _normalise_email((request.get_json(silent=True) or {}).get("email"))
+    payload = request.get_json(silent=True) or {}
+    identifier = str(payload.get("identifier") or payload.get("email") or "").strip()
+    matched = _database().users.find_one(_identifier_query(identifier)) if identifier else None
+    email = matched["email"] if matched else _normalise_email(payload.get("email") or identifier)
     if not email or "@" not in email:
         return jsonify({"error": "A valid email address is required."}), 400
+    try:
+        channel = _otp_channel(payload, "login_otp")
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
 
     now = datetime.now(timezone.utc)
     users = _database().users
@@ -179,25 +236,28 @@ def request_otp():
         {"_id": user["_id"]},
         {"$set": {
             "otpHash": hashpw(otp.encode(), gensalt()).decode(),
-            "otpExpiresAt": now + timedelta(minutes=10),
+            "otpExpiresAt": now + timedelta(minutes=OTP_EXPIRY_MINUTES),
             "otpAttempts": 0,
+            "otpChannel": channel,
             "updatedAt": now,
         }},
     )
 
-    try:
-        _send_otp_email(email, otp)
-    except Exception:
-        current_app.logger.exception("Unable to send OTP")
-        return jsonify({"error": "We could not send the login code. Please try again."}), 502
-
-    return jsonify({"message": "If the email is valid, a login code has been sent."}), 202
+    user = users.find_one({"_id": user["_id"]})
+    delivery, success = _deliver_otp(channel, "login_otp", user, user, otp, "login", email)
+    if not success:
+        return jsonify(error="We could not dispatch the requested code. Choose an available channel and retry.", delivery=delivery), 502
+    return jsonify(message="Requested code delivery has been attempted. Use the latest code; delivery is not guaranteed.", delivery=delivery), 202
 
 
 @auth_bp.post("/signup/request-otp")
 @limiter.limit("5 per 15 minutes")
 def signup_request_otp():
     payload = request.get_json(silent=True) or {}
+    try:
+        channel = _otp_channel(payload, "signup_otp")
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
     email = _normalise_email(payload.get("email"))
     username = _normalise_username(payload.get("username"))
     first_name = str(payload.get("firstName") or "").strip()
@@ -214,6 +274,12 @@ def signup_request_otp():
         return jsonify({"error": "First name, last name, username, valid email, phone number, date of birth, gender, region, and an 8-character password are required."}), 400
     if not re.fullmatch(r"[a-zA-Z0-9_.-]{3,30}", username):
         return jsonify({"error": "Username must be 3-30 characters and use letters, numbers, dots, dashes, or underscores."}), 400
+
+    if payload.get("whatsappOtpConsent") is True or payload.get("whatsappTransactionalConsent") is True:
+        try:
+            phone = normalize_phone(phone)
+        except ValueError:
+            return jsonify(error="WhatsApp consent requires a valid international phone number."), 400
 
     users = _database().users
     email_exists = users.find_one({"email": email})
@@ -233,6 +299,9 @@ def signup_request_otp():
         {
             "email": email,
             "purpose": "signup",
+            "whatsappTransactionalConsent": payload.get("whatsappTransactionalConsent") is True,
+            "whatsappOtpConsent": payload.get("whatsappOtpConsent") is True,
+            "otpChannel": channel,
             "username": username,
             "displayName": display_name,
             "firstName": first_name,
@@ -244,18 +313,17 @@ def signup_request_otp():
             "currency": _currency_for_region(region),
             "passwordHash": _password_hash(password),
             "otpHash": hashpw(otp.encode(), gensalt()).decode(),
-            "otpExpiresAt": now + timedelta(minutes=10),
+            "otpExpiresAt": now + timedelta(minutes=OTP_EXPIRY_MINUTES),
             "otpAttempts": 0,
             "createdAt": now,
         },
         upsert=True,
     )
-    try:
-        _send_otp_email(email, otp)
-    except Exception:
-        current_app.logger.exception("Unable to send signup OTP")
-        return jsonify({"error": "We could not send the signup code. Please try again."}), 502
-    return jsonify({"message": "A signup code has been sent."}), 202
+    challenge = _database().otp_challenges.find_one({"email": email, "purpose": "signup"})
+    delivery, success = _deliver_otp(channel, "signup_otp", {"phone": challenge["phone"]}, challenge, otp, "signup", email)
+    if not success:
+        return jsonify(error="We could not dispatch the signup code. Choose an available channel and retry.", delivery=delivery), 502
+    return jsonify(message="Requested signup code delivery has been attempted.", delivery=delivery), 202
 
 
 @auth_bp.post("/signup/verify-otp")
@@ -270,8 +338,7 @@ def signup_verify_otp():
         return jsonify({"error": "The signup code is invalid or expired."}), 400
     if challenge.get("otpAttempts", 0) >= 5:
         return jsonify({"error": "Too many attempts. Please request a new code."}), 400
-    _database().otp_challenges.update_one({"_id": challenge["_id"]}, {"$inc": {"otpAttempts": 1}})
-    if not checkpw(otp.encode(), challenge["otpHash"].encode()):
+    if not _consume_otp(_database().otp_challenges, challenge, otp, now):
         return jsonify({"error": "The signup code is invalid or expired."}), 400
 
     first_name = challenge.get("firstName") or _split_name(challenge["displayName"])[0]
@@ -288,15 +355,19 @@ def signup_verify_otp():
         "region": challenge.get("region", "asia-india"),
         "currency": challenge.get("currency", _currency_for_region(challenge.get("region", "asia-india"))),
         "passwordHash": challenge["passwordHash"],
-        "role": _initial_role(challenge["email"], True),
+        "role": _initial_role(challenge["email"], challenge.get("otpChannel", "email") == "email"),
         "isActive": True,
-        "emailVerified": True,
+        "emailVerified": challenge.get("otpChannel", "email") == "email",
         "createdAt": now,
         "updatedAt": now,
         "profile": {},
         "credentialVersion": 1,
     }).inserted_id
     _database().otp_challenges.delete_one({"_id": challenge["_id"]})
+    if challenge.get("whatsappTransactionalConsent") is True:
+        record_consent(_database(), current_app.config, user_id, challenge["phone"], True, "signup")
+    if challenge.get("whatsappOtpConsent"):
+        _database().whatsapp_consents.update_many({"customerId": None, "phone": challenge["phone"], "source": "explicit_signup_otp"}, {"$set": {"customerId": str(user_id)}})
     user = _database().users.find_one({"_id": user_id})
     session_token, expires = _create_shared_session(user_id)
     response = jsonify({"accessToken": create_access_token(identity=str(user_id)), "user": _public_user(user)})
@@ -329,7 +400,12 @@ def login():
 @auth_bp.post("/forgot-password/request-otp")
 @limiter.limit("5 per 15 minutes")
 def forgot_password_request_otp():
-    identifier = str((request.get_json(silent=True) or {}).get("identifier") or "").strip()
+    payload = request.get_json(silent=True) or {}
+    try:
+        channel = _otp_channel(payload, "forgot_password_otp")
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    identifier = str(payload.get("identifier") or "").strip()
     user = _database().users.find_one(_identifier_query(identifier))
     if not user:
         return jsonify({"message": "If the account exists, a recovery code has been sent."}), 202
@@ -337,15 +413,14 @@ def forgot_password_request_otp():
     otp = f"{secrets.randbelow(1_000_000):06d}"
     _database().otp_challenges.replace_one(
         {"userId": user["_id"], "purpose": "forgot-password"},
-        {"userId": user["_id"], "purpose": "forgot-password", "email": user["email"], "otpHash": hashpw(otp.encode(), gensalt()).decode(), "otpExpiresAt": now + timedelta(minutes=10), "otpAttempts": 0},
+        {"userId": user["_id"], "purpose": "forgot-password", "email": user["email"], "otpHash": hashpw(otp.encode(), gensalt()).decode(), "otpExpiresAt": now + timedelta(minutes=OTP_EXPIRY_MINUTES), "otpAttempts": 0},
         upsert=True,
     )
-    try:
-        _send_otp_email(user["email"], otp)
-    except Exception:
-        current_app.logger.exception("Unable to send recovery OTP")
-        return jsonify({"error": "We could not send the recovery code. Please try again."}), 502
-    return jsonify({"message": "If the account exists, a recovery code has been sent."}), 202
+    challenge = _database().otp_challenges.find_one({"userId": user["_id"], "purpose": "forgot-password"})
+    delivery, success = _deliver_otp(channel, "forgot_password_otp", user, challenge, otp, "forgot-password", user["email"])
+    if not success:
+        return jsonify(error="We could not dispatch the recovery code. Choose an available channel and retry.", delivery=delivery), 502
+    return jsonify(message="If the account exists, requested code delivery has been attempted.", delivery=delivery), 202
 
 
 @auth_bp.post("/forgot-password/reset")
@@ -360,8 +435,7 @@ def forgot_password_reset():
     now = datetime.now(timezone.utc)
     if not user or not challenge or not _valid_password(password) or len(otp) != 6 or _is_expired(challenge.get("otpExpiresAt"), now) or challenge.get("otpAttempts", 0) >= 5:
         return jsonify({"error": "The recovery code is invalid or expired."}), 400
-    _database().otp_challenges.update_one({"_id": challenge["_id"]}, {"$inc": {"otpAttempts": 1}})
-    if not checkpw(otp.encode(), challenge["otpHash"].encode()):
+    if not _consume_otp(_database().otp_challenges, challenge, otp, now):
         return jsonify({"error": "The recovery code is invalid or expired."}), 400
     version = int(user.get("credentialVersion", 0)) + 1
     _database().users.update_one({"_id": user["_id"]}, {"$set": {"passwordHash": _password_hash(password), "credentialVersion": version, "updatedAt": now}})
@@ -376,25 +450,24 @@ def verify_otp():
     payload = request.get_json(silent=True) or {}
     email = _normalise_email(payload.get("email"))
     otp = str(payload.get("otp") or "").strip()
-    user = _database().users.find_one({"email": email})
+    user = _database().users.find_one(_identifier_query(str(payload.get("identifier") or email)))
     now = datetime.now(timezone.utc)
 
-    if not user or not user.get("otpHash") or len(otp) != 6:
+    if not user or user.get("isActive") is False or not user.get("otpHash") or len(otp) != 6:
         return jsonify({"error": "The code is invalid or expired."}), 400
     if _is_expired(user.get("otpExpiresAt"), now) or user.get("otpAttempts", 0) >= 5:
         return jsonify({"error": "The code is invalid or expired."}), 400
 
-    _database().users.update_one({"_id": user["_id"]}, {"$inc": {"otpAttempts": 1}})
-    if not checkpw(otp.encode(), user["otpHash"].encode()):
+    if not _consume_otp(_database().users, user, otp, now, user_document=True):
         return jsonify({"error": "The code is invalid or expired."}), 400
 
     _database().users.update_one(
         {"_id": user["_id"]},
-        {"$unset": {"otpHash": "", "otpExpiresAt": "", "otpAttempts": ""}, "$set": {"lastLoginAt": now, "emailVerified": True, "updatedAt": now}},
+        {"$set": {"lastLoginAt": now, "emailVerified": bool(user.get("emailVerified")) or user.get("otpChannel", "email") == "email", "updatedAt": now}},
     )
     user = _database().users.find_one({"_id": user["_id"]})
     token = create_access_token(identity=str(user["_id"]))
-    session_token, expires = _create_shared_session(user_id)
+    session_token, expires = _create_shared_session(user["_id"])
     response = jsonify({"accessToken": token, "user": _public_user(user)})
     return _shared_cookie(response, session_token, expires), 200
 
@@ -489,11 +562,13 @@ def update_profile():
         if image and (not isinstance(image, str) or len(image) > 4_000_000 or not re.match(r"^(https://|data:image/(png|jpeg|jpg|webp);base64,)", image)):
             return jsonify({"error": "Upload a valid JPG, PNG, or WebP image under 3 MB."}), 400
         updates["profileImage"] = image or None
-    for key in ("newsletter", "marketingEmails", "whatsappNotifications"):
+    for key in ("newsletter", "marketingEmails", "whatsappNotifications", "whatsappMarketingNotifications"):
         if key in payload:
             if not isinstance(payload[key], bool):
                 return jsonify({"error": f"{key} must be boolean."}), 400
             updates[key] = payload[key]
+            if key == "whatsappNotifications":
+                updates["whatsappConsent"] = {"enabled": payload[key]}
     if payload.get("language") is not None and updates.get("language") not in {"English", "Hindi"}:
         return jsonify({"error": "Please choose a supported language."}), 400
     if not str(updates.get("phone", current.get("phone")) or "").strip():
@@ -505,9 +580,41 @@ def update_profile():
     if not updates:
         return jsonify({"error": "No profile changes were submitted."}), 400
 
+    consent_requested = payload.get("whatsappNotifications")
+    marketing_requested = payload.get("whatsappMarketingNotifications")
+    marketing_phone_changed = updates.get("phone", current.get("phone")) != current.get("phone")
+    marketing_needs_grant = marketing_requested is True and (current.get("whatsappMarketingNotifications") is not True or marketing_phone_changed)
+    if marketing_needs_grant:
+        try:
+            normalize_phone(updates.get("phone", current.get("phone")))
+        except ValueError:
+            return jsonify(error="Marketing WhatsApp consent requires a valid international phone number."), 400
+    if consent_requested is not None:
+        try:
+            consent_phone = normalize_phone(updates.get("phone", current.get("phone")))
+        except ValueError:
+            if consent_requested:
+                return jsonify(error="WhatsApp preferences require a valid international phone number."), 400
+            consent_phone = str(updates.get("phone", current.get("phone")) or "")
+    elif "phone" in updates and updates["phone"] != current.get("phone"):
+        updates["whatsappNotifications"] = False
+        updates["whatsappConsent"] = {"enabled": False, "source": "phone_changed"}
     now = datetime.now(timezone.utc)
     updates["updatedAt"] = now
     users.update_one({"_id": user_id}, {"$set": updates})
+    if consent_requested is not None:
+        record_consent(_database(), current_app.config, user_id, consent_phone, consent_requested, "authenticated_profile")
+    old_marketing_phone = (current.get("whatsappMarketingConsent") or {}).get("phone") or current.get("phone")
+    new_phone = updates.get("phone", current.get("phone"))
+    if marketing_requested is not None:
+        if marketing_requested is False:
+            record_marketing_consent(_database(), current_app.config, user_id, old_marketing_phone, False, "authenticated_profile")
+        elif marketing_needs_grant:
+            if old_marketing_phone and old_marketing_phone != new_phone:
+                record_marketing_consent(_database(), current_app.config, user_id, old_marketing_phone, False, "phone_changed")
+            record_marketing_consent(_database(), current_app.config, user_id, new_phone, True, "authenticated_profile")
+    elif "phone" in updates and updates["phone"] != current.get("phone"):
+        record_marketing_consent(_database(), current_app.config, user_id, old_marketing_phone, False, "phone_changed")
     _database().profile_update_logs.insert_one({"user": user_id, "changedFields": sorted(updates.keys()), "timestamp": now})
     user = _database().users.find_one({"_id": user_id})
     return jsonify({"user": _public_user(user)}), 200
@@ -539,7 +646,7 @@ def request_password_change():
             "userId": user_id,
             "purpose": "password-change",
             "otpHash": hashpw(otp.encode(), gensalt()).decode(),
-            "otpExpiresAt": now + timedelta(minutes=10),
+            "otpExpiresAt": now + timedelta(minutes=OTP_EXPIRY_MINUTES),
             "otpAttempts": 0,
             "createdAt": now,
         },
@@ -650,7 +757,7 @@ def request_email_change():
     now = datetime.now(timezone.utc)
     _database().email_change_challenges.replace_one(
         {"userId": user_id},
-        {"userId": user_id, "email": email, "otpHash": hashpw(otp.encode(), gensalt()).decode(), "otpExpiresAt": now + timedelta(minutes=10), "createdAt": now},
+        {"userId": user_id, "email": email, "otpHash": hashpw(otp.encode(), gensalt()).decode(), "otpExpiresAt": now + timedelta(minutes=OTP_EXPIRY_MINUTES), "createdAt": now},
         upsert=True,
     )
     try:

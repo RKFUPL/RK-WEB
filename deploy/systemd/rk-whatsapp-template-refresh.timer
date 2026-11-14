@@ -1,0 +1,11 @@
+[Unit]
+Description=Keep Meta approval evidence within its existing 24-hour limit
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=6h
+AccuracySec=1min
+Unit=rk-whatsapp-template-refresh.service
+
+[Install]
+WantedBy=timers.target

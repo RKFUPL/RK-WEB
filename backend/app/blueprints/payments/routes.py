@@ -19,6 +19,10 @@ from ...order_fulfillment import (
     payment_failure_changes,
     timeline_event,
 )
+from ...whatsapp import notify
+from ...whatsapp import normalize_phone
+from ...whatsapp_consent import record_consent
+from ...whatsapp_marketing_consent import record_marketing_consent
 from ...order_confirmation import send_order_confirmation
 from ...payments import RazorpayAPIError, is_configured, razorpay_api_request, verify_payment_signature, verify_webhook_signature
 from ...product_variants import find_variant, sync_product_variants
@@ -407,6 +411,10 @@ def create_razorpay_order():
         return jsonify({"error": "Razorpay Test Mode is not configured on the backend."}), 503
     payload = request.get_json(silent=True) or {}
     attempt_id = _safe_text(payload.get("checkoutAttemptId"), 80)
+    if "whatsappTransactionalConsent" in payload and not isinstance(payload["whatsappTransactionalConsent"], bool):
+        return jsonify(error="WhatsApp consent must be boolean."), 400
+    if "whatsappMarketingConsent" in payload and not isinstance(payload["whatsappMarketingConsent"], bool):
+        return jsonify(error="Marketing WhatsApp consent must be boolean."), 400
     if not re.fullmatch(r"[A-Za-z0-9_.:-]{8,80}", attempt_id):
         return jsonify({"error": "A valid checkout attempt is required."}), 400
     user = current_user()
@@ -417,6 +425,8 @@ def create_razorpay_order():
     try:
         display_currency = _display_currency(payload.get("displayCurrency", "INR"))
         shipping = _normalise_shipping(db, user_id, payload.get("shipping") if isinstance(payload.get("shipping"), dict) else {})
+        if payload.get("whatsappTransactionalConsent") is True or payload.get("whatsappMarketingConsent") is True:
+            normalize_phone(shipping.get("phone"))
         items, subtotal = _checkout_items(db, payload.get("cart"))
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
@@ -436,6 +446,18 @@ def create_razorpay_order():
     if not existing:
         try:
             order["_id"] = db.orders.insert_one(order).inserted_id
+            if "whatsappTransactionalConsent" in payload:
+                # Declining this order does not withdraw unrelated account consent.
+                if payload["whatsappTransactionalConsent"]:
+                    consent = record_consent(db, current_app.config, user_id, shipping["phone"], True, "checkout", order_id=order["_id"], update_user=False)
+                else:
+                    consent = {"customerId": str(user_id), "phone": shipping.get("phone"), "category": "transactional", "enabled": False, "status": "declined", "timestamp": now, "source": "checkout", "orderId": str(order["_id"])}
+                    db.whatsapp_consents.insert_one(dict(consent))
+                order["whatsappConsent"] = consent
+                db.orders.update_one({"_id": order["_id"]}, {"$set": {"whatsappConsent": consent}})
+            if "whatsappMarketingConsent" in payload:
+                marketing = record_marketing_consent(db, current_app.config, user_id, shipping["phone"], payload["whatsappMarketingConsent"], "checkout", update_user=payload["whatsappMarketingConsent"] is True)
+                db.orders.update_one({"_id": order["_id"]}, {"$set": {"whatsappMarketingConsent": marketing}})
         except DuplicateKeyError:
             order = db.orders.find_one({"customerId": user_id, "checkoutAttemptId": attempt_id})
             if not order:
@@ -523,6 +545,8 @@ def update_razorpay_state():
         {"$set": fields, "$push": {"timeline": event}},
         return_document=ReturnDocument.AFTER,
     )
+    if updated and state == "failed":
+        notify(db, "payment_failure", updated, key=f"payment_failure:{order['_id']}:{order.get('razorpayOrderId')}")
     return jsonify({"order": _order_view(updated or order)}), 200
 
 
@@ -558,7 +582,8 @@ def razorpay_webhook():
     try:
         db.razorpay_webhook_events.insert_one({"eventId": event_id, "event": payload.get("event"), "receivedAt": now, "payloadHash": hashlib.sha256(raw_body).hexdigest()})
     except DuplicateKeyError:
-        return jsonify({"received": True, "duplicate": True}), 200
+        if (db.razorpay_webhook_events.find_one({"eventId": event_id}) or {}).get("processedAt"):
+            return jsonify({"received": True, "duplicate": True}), 200
 
     event_name = str(payload.get("event") or "")
     payment_entity = (((payload.get("payload") or {}).get("payment") or {}).get("entity") or {})
@@ -566,16 +591,34 @@ def razorpay_webhook():
     order = db.orders.find_one({"razorpayOrderId": order_id}) if order_id else None
     result = {"received": True, "event": event_name, "handled": False}
     try:
-        if event_name == "payment.captured" and order:
+        if event_name == "refund.processed":
+            refund = (((payload.get("payload") or {}).get("refund") or {}).get("entity") or {})
+            reference, payment_id = _safe_text(refund.get("id"), 120), _safe_text(refund.get("payment_id"), 120)
+            refunded_order = db.orders.find_one({"$or": [{"razorpayPaymentId": payment_id}, {"payment.razorpayPaymentId": payment_id}]}) if payment_id else None
+            amount = refund.get("amount")
+            if (not refunded_order or refund.get("status") != "processed" or not reference
+                    or not isinstance(amount, int) or isinstance(amount, bool) or amount <= 0
+                    or amount > int(refunded_order.get("amountPaise") or round(float(refunded_order.get("total", 0)) * 100))
+                    or refund.get("currency") != refunded_order.get("currency", "INR")):
+                raise ValueError("Refund result does not match a recorded order.")
+            proof = {"id": reference, "paymentId": payment_id, "status": "processed", "amountPaise": amount,
+                     "currency": refund["currency"], "source": "razorpay_signed_webhook", "processedAt": now}
+            db.orders.update_one({"_id": refunded_order["_id"], "refunds.id": {"$ne": reference}}, {"$push": {"refunds": proof}})
+            refunded_order["whatsappRefund"] = proof
+            notify(db, "refund_completed", refunded_order, key=f"refund_processed:{reference}")
+            result.update(handled=True, orderId=str(refunded_order["_id"]))
+        elif event_name == "payment.captured" and order:
             _validate_payment_entity(order, payment_entity)
             confirmed, _ = _fulfil_paid_order(db, order, str(payment_entity.get("id") or ""), "webhook")
             result.update({"handled": True, "orderId": str(confirmed["_id"])})
         elif event_name == "payment.failed" and order:
             fields, event = payment_failure_changes(order, _safe_text(((payment_entity.get("error_description") or payment_entity.get("error_reason"))), 240) or "Razorpay reported a failed payment.", now)
-            db.orders.update_one(
+            changed = db.orders.update_one(
                 {"_id": order["_id"], "paymentStatus": {"$ne": "paid"}},
                 {"$set": fields, "$push": {"timeline": event}},
             )
+            if changed.modified_count:
+                notify(db, "payment_failure", order, key=f"payment_failure:{order['_id']}:{order.get('razorpayOrderId')}")
             result.update({"handled": True, "orderId": str(order["_id"])})
     except (StockUnavailable, ValueError) as error:
         current_app.logger.error("Razorpay webhook could not be applied: %s", error)

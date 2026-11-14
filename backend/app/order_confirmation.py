@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import html
 import re
 
+from .whatsapp import notify, notify_admins
 from .mail import SENDERS, send_html_email
 from .rbac import effective_permissions
 
@@ -160,6 +161,11 @@ def render_order_confirmation(order: dict) -> str:
 
 
 def send_order_confirmation(database, order: dict, config, logger, *, force: bool = False) -> bool:
+    # Channel claims are independent of email retry/resend claims.
+    notify(database, "order_confirmation", order)
+    if order.get("paymentStatus") == "paid":
+        notify(database, "payment_confirmation", order)
+    notify_admins(database, order, "order_received")
     order_id = order.get("_id")
     recipient = _email(order.get("email"))
     if not order_id or not recipient:

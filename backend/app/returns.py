@@ -9,6 +9,7 @@ from flask import Blueprint, current_app, jsonify, request
 from pymongo import ReturnDocument
 
 from .rbac import database
+from .whatsapp import notify, notify_admins
 from .mail import SENDERS, send_html_email
 from .time_utils import isoformat_utc
 
@@ -59,6 +60,7 @@ def _send_return_submission(record: dict, shipment: dict) -> None:
 
 
 def send_return_accepted(db, order: dict, token: str, customer_note: str = "") -> None:
+    notify(db, "return_status", order, key=f"return:accepted:{order.get('_id')}", parameters={"reference": str(order.get("orderNumber") or order["_id"]), "status": "return accepted"})
     email = str(order.get("email") or "").strip().lower()
     if not email:
         return
@@ -100,6 +102,10 @@ def submit_return_form(token: str):
     if not updated:
         return jsonify({"error": "This return shipment has already been submitted."}), 409
     db.orders.update_one({"_id": record["orderId"]}, {"$set": {"returnRequest.status": "shipment_submitted", "returnRequest.shipment": shipment, "returnRequest.submittedAt": now}})
+    order = db.orders.find_one({"_id": record["orderId"]})
+    if order:
+        notify(db, "return_status", order, key=f"return:submitted:{record['_id']}", parameters={"reference": str(order.get("orderNumber") or order["_id"]), "status": "return shipment submitted"})
+        notify_admins(db, order, "return_shipment_submitted")
     try:
         _send_return_submission(updated, shipment)
     except Exception:

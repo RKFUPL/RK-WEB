@@ -2,6 +2,8 @@
 frontend/.next/
 frontend/node_modules/
 frontend/tsconfig.tsbuildinfo
+frontend/test-results/
+frontend/playwright-report/
 careers/.next/
 careers/node_modules/
 careers/tsconfig.tsbuildinfo

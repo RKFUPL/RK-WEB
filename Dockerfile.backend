@@ -10,7 +10,10 @@ COPY backend/requirements.txt ./
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY backend/ ./
+# Runtime source only. Never copy backend environment files, local scripts,
+# test data or instance/private uploads even if a context rule is changed.
+COPY backend/app ./app
+COPY backend/wsgi.py ./wsgi.py
 
 EXPOSE 5000
 

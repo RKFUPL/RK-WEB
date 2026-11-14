@@ -20,11 +20,17 @@ class MemoryCollection:
     def _matches(document, query):
         if "$or" in query and not any(MemoryCollection._matches(document, branch) for branch in query["$or"]):
             return False
-        return all(
-            document.get(key) != value["$ne"] if isinstance(value, dict) and "$ne" in value
-            else document.get(key) == value
-            for key, value in query.items() if key != "$or"
-        )
+        for key, value in query.items():
+            if key == "$or":
+                continue
+            current = document.get(key)
+            if isinstance(value, dict):
+                for operator, expected in value.items():
+                    if operator == "$ne" and current == expected or operator == "$gt" and not (current is not None and current > expected) or operator == "$lt" and not (current is not None and current < expected) or operator == "$lte" and not (current is not None and current <= expected):
+                        return False
+            elif current != value:
+                return False
+        return True
 
     def find_one(self, query):
         return next((document for document in self.documents if self._matches(document, query)), None)
@@ -49,6 +55,22 @@ class MemoryCollection:
         current.update(update.get("$set", {}))
         for key, amount in update.get("$inc", {}).items():
             current[key] = current.get(key, 0) + amount
+        for key in update.get("$unset", {}):
+            current.pop(key, None)
+
+    def find_one_and_update(self, query, update, return_document=False):
+        current = self.find_one(query)
+        if current is None:
+            return None
+        previous = dict(current)
+        self.update_one(query, update)
+        return dict(current) if return_document else previous
+
+    def find_one_and_delete(self, query):
+        current = self.find_one(query)
+        if current is not None:
+            self.documents.remove(current)
+        return current
 
     def update_many(self, query, update):
         for current in self.documents:

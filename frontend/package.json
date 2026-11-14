@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "node --test lib/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "test:whatsapp-ui": "playwright test"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.85.3",
@@ -23,6 +26,7 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "@types/node": "^24.3.0",
     "@types/react": "^19.1.9",
     "@types/react-dom": "^19.1.7",

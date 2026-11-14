@@ -19,6 +19,7 @@ from flask import current_app
 from pymongo import ReturnDocument
 from pymongo.errors import OperationFailure
 
+from .whatsapp import notify, notify_admins
 from .mail import SENDERS, send_html_email
 
 from .time_utils import as_utc_datetime, isoformat_utc, json_value as serialize_json_value
@@ -352,12 +353,23 @@ def shipment_fields(payload: dict, require_complete: bool = False) -> dict:
         raise OrderTransitionError("Courier and tracking number are required for this shipment update.")
     if tracking_number and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9\s._/-]{2,159}", tracking_number):
         raise OrderTransitionError("Enter a valid tracking number.")
-    return {
+    fields = {
         "courier": courier,
         "trackingNumber": tracking_number,
         "trackingUrl": validate_tracking_url(payload.get("trackingUrl")),
         "shippingNote": safe_text(payload.get("shippingNote") or payload.get("note"), 500),
     }
+    if payload.get("shippedAt"):
+        try:
+            value = payload["shippedAt"]
+            dispatch = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            dispatch = as_utc_datetime(dispatch)
+            if not dispatch or dispatch > datetime.now(timezone.utc) + timedelta(minutes=5):
+                raise ValueError()
+            fields["shippedAt"] = dispatch
+        except (ValueError, TypeError):
+            raise OrderTransitionError("Enter a valid dispatch date that is not in the future.") from None
+    return fields
 
 
 def validate_transition(order: dict, target_status: str, actor_type: str = "staff") -> tuple[str, str]:
@@ -434,6 +446,15 @@ def _proof_data(value: object, maximum: int = 2_500_000) -> str:
 
 
 def send_status_notification(database, order: dict, status: str, customer_note: str = "", notification_key: str | None = None) -> None:
+    event = {"confirmed": "order_confirmation", "returned": "return_status", "refunded": "refund_completed"}.get(status, status)
+    if notification_key and notification_key.startswith("shipment:"):
+        event = "shipped"
+    if status == "return_requested":
+        notify_admins(database, order, "return_requested")
+    notification_id = f"order_confirmation:{order.get('_id')}" if event == "order_confirmation" else f"{order.get('_id')}:{notification_key or ('fulfillment:' + status)}"
+    notify(database, event, order, key=notification_id,
+           parameters={"reference": str(order.get("orderNumber") or order.get("_id") or ""),
+                       "status": {"returned": "return received", "refunded": "refund completed"}.get(status, status.replace("_", " "))})
     copy = _notification_copy(status)
     email = safe_text(order.get("email"), 160).lower()
     if not copy or not email:
@@ -510,7 +531,7 @@ def apply_transition(database, order: dict, target_status: str, actor_type: str,
     if target == "shipped":
         shipment = shipment_fields(payload, require_complete=False)
         fulfillment.update(shipment)
-        fulfillment["shippedAt"] = now
+        fulfillment["shippedAt"] = shipment.get("shippedAt") or now
         metadata = {"courier": shipment["courier"], "trackingNumber": shipment["trackingNumber"]}
     if target == "delivered":
         fulfillment["deliveredAt"] = now
@@ -556,6 +577,11 @@ def apply_transition(database, order: dict, target_status: str, actor_type: str,
         raise OrderTransitionConflict("The order changed in another session. Refresh and try again.")
     if send_customer_notification:
         send_status_notification(database, updated, target, customer_note)
+    else:
+        from .whatsapp_orders import ORDER_NOTIFICATIONS, notify_order_whatsapp
+        whatsapp_event = {"confirmed": "order_confirmation", "refunded": "refund_completed"}.get(target, target)
+        if whatsapp_event in ORDER_NOTIFICATIONS:
+            notify_order_whatsapp(database, updated["_id"], whatsapp_event, {"suppressed": True})
     return updated
 
 
@@ -564,7 +590,7 @@ def update_shipment(database, order: dict, actor_user: dict, payload: dict) -> d
     current = canonical_fulfillment_status(order)
     if current not in {"shipped", "out_for_delivery", "delivered"}:
         raise OrderTransitionError("Shipment information can only be edited after an order has shipped.")
-    shipment = shipment_fields(payload, require_complete=False)
+    shipment = shipment_fields({**dict(order.get("fulfillment") or {}), **payload}, require_complete=False)
     now = datetime.now(timezone.utc)
     fulfillment = {**dict(order.get("fulfillment") or {}), **shipment}
     send_customer_notification = payload.get("sendCustomerNotification", True) is not False
@@ -594,6 +620,9 @@ def update_shipment(database, order: dict, actor_user: dict, payload: dict) -> d
         raise OrderTransitionConflict("The order changed in another session. Refresh and try again.")
     if payload.get("sendCustomerNotification", True) is not False:
         send_status_notification(database, updated, "shipped", customer_note, f"shipment:{now.isoformat()}")
+    else:
+        from .whatsapp_orders import notify_order_whatsapp
+        notify_order_whatsapp(database, updated["_id"], "shipped", {"suppressed": True})
     return updated
 
 
@@ -630,4 +659,6 @@ def order_view(order: dict, include_private_payment: bool = False) -> dict:
     if isinstance(order.get("returnRequest"), dict):
         return_request = {key: value for key, value in order["returnRequest"].items() if key not in {"token", "tokenHash"}}
         view["returnRequest"] = json_value(return_request)
+    view["refunds"] = json_value([{key: refund.get(key) for key in ("id", "status", "amountPaise", "currency", "processedAt")}
+                                for refund in order.get("refunds", []) if refund.get("source") == "razorpay_signed_webhook" and refund.get("status") == "processed"])
     return view

@@ -1,0 +1,1539 @@
+{
+  "notice": "Local definitions only. Not submitted or enabled. Read-only Meta approval evidence is separate. Examples must be synthetic; never use real OTPs or customer data.",
+  "canonicalOrigin": "https://rashikapoor.co.in",
+  "templates": [
+    {
+      "name": "rk_authentication_otp",
+      "category": "AUTHENTICATION",
+      "language": "en_US",
+      "events": [
+        "signup_otp",
+        "login_otp",
+        "forgot_password_otp"
+      ],
+      "parameters": [
+        "code"
+      ],
+      "parameterTypes": [
+        "otp"
+      ],
+      "approvalStatus": "NOT_SUBMITTED",
+      "body": "*{{1}}* is your verification code. For your security, do not share this code.",
+      "footer": "This code expires in 10 minutes.",
+      "otpExpiryMinutes": 10,
+      "handler": "auth.signup_request_otp / request_otp / forgot_password_request_otp (explicit WhatsApp request)",
+      "submissionComponents": [
+        {
+          "type": "BODY",
+          "add_security_recommendation": true
+        },
+        {
+          "type": "FOOTER",
+          "code_expiration_minutes": 10
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "OTP",
+              "otp_type": "COPY_CODE",
+              "text": "Copy code"
+            }
+          ]
+        }
+      ],
+      "components": [
+        {
+          "type": "BODY",
+          "add_security_recommendation": true
+        },
+        {
+          "type": "FOOTER",
+          "code_expiration_minutes": 10
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "OTP",
+              "otp_type": "COPY_CODE",
+              "text": "Copy code"
+            }
+          ]
+        }
+      ],
+      "enabled": false
+    },
+    {
+      "name": "rk_order_confirmation",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "order_confirmation"
+      ],
+      "parameters": [
+        "customer_name",
+        "order_number",
+        "order_date",
+        "order_total"
+      ],
+      "parameterTypes": [
+        "text",
+        "text",
+        "text",
+        "text"
+      ],
+      "body": "Dear {{1}},\n\nThank you for choosing Rashi Kapoor.\n\nYour order has been successfully confirmed.\n\nOrder Confirmation No.: {{2}}\n\nOrder Date: {{3}}\n\nOrder Total: {{4}}\n\nWe appreciate your trust in Rashi Kapoor and will keep you updated on your order.",
+      "handler": "order_confirmation.send_order_confirmation; order_fulfillment.apply_transition(confirmed)",
+      "approvalStatus": "NOT_SUBMITTED",
+      "header": "Order Confirmed",
+      "footer": "Rashi Kapoor",
+      "components": [
+        {
+          "type": "HEADER",
+          "format": "TEXT",
+          "text": "Order Confirmed"
+        },
+        {
+          "type": "BODY",
+          "text": "Dear {{1}},\n\nThank you for choosing Rashi Kapoor.\n\nYour order has been successfully confirmed.\n\nOrder Confirmation No.: {{2}}\n\nOrder Date: {{3}}\n\nOrder Total: {{4}}\n\nWe appreciate your trust in Rashi Kapoor and will keep you updated on your order."
+        },
+        {
+          "type": "FOOTER",
+          "text": "Rashi Kapoor"
+        }
+      ],
+      "enabled": false
+    },
+    {
+      "name": "rk_payment_confirmation",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "payment_confirmation"
+      ],
+      "parameters": [
+        "customer_name",
+        "order_number",
+        "paid_amount",
+        "payment_reference"
+      ],
+      "parameterTypes": [
+        "text",
+        "text",
+        "text",
+        "text"
+      ],
+      "body": "Dear {{1}} ,\n\nWe are pleased to confirm that your payment has been successfully received.\n\nOrder Confirmation No.: {{2}}\n\nAmount Paid: {{3}}\n\nPayment Reference: {{4}}\n\nYour order is now being processed.\n\nThank you for shopping with Rashi Kapoor.",
+      "handler": "payments._fulfil_paid_order -> order_confirmation.send_order_confirmation",
+      "approvalStatus": "NOT_SUBMITTED",
+      "header": "Payment Received",
+      "footer": "Rashi Kapoor Official",
+      "components": [
+        {
+          "type": "HEADER",
+          "format": "TEXT",
+          "text": "Payment Received"
+        },
+        {
+          "type": "BODY",
+          "text": "Dear {{1}} ,\n\nWe are pleased to confirm that your payment has been successfully received.\n\nOrder Confirmation No.: {{2}}\n\nAmount Paid: {{3}}\n\nPayment Reference: {{4}}\n\nYour order is now being processed.\n\nThank you for shopping with Rashi Kapoor."
+        },
+        {
+          "type": "FOOTER",
+          "text": "Rashi Kapoor Official"
+        }
+      ],
+      "enabled": false
+    },
+    {
+      "name": "rk_order_shipped",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "shipped"
+      ],
+      "parameters": [
+        "customer_name",
+        "order_number",
+        "courier_name",
+        "tracking_id"
+      ],
+      "parameterTypes": [
+        "text",
+        "text",
+        "text",
+        "text"
+      ],
+      "body": "Dear {{1}},\n\nGood news! Your Rashi Kapoor order is on its way.\n\nOrder Confirmation No.: {{2}}\n\nCourier Partner: {{3}}\n\nTracking / AWB Number: {{4}}\n\nYou can use the tracking number above to follow your shipment.\n\nThank you for choosing Rashi Kapoor.",
+      "handler": "order_fulfillment.apply_transition / update_shipment (saved courier and tracking required)",
+      "approvalStatus": "NOT_SUBMITTED",
+      "header": "Your Order Has Been Shipped",
+      "footer": "Rashi Kapoor Official",
+      "components": [
+        {
+          "type": "HEADER",
+          "format": "TEXT",
+          "text": "Your Order Has Been Shipped"
+        },
+        {
+          "type": "BODY",
+          "text": "Dear {{1}},\n\nGood news! Your Rashi Kapoor order is on its way.\n\nOrder Confirmation No.: {{2}}\n\nCourier Partner: {{3}}\n\nTracking / AWB Number: {{4}}\n\nYou can use the tracking number above to follow your shipment.\n\nThank you for choosing Rashi Kapoor."
+        },
+        {
+          "type": "FOOTER",
+          "text": "Rashi Kapoor Official"
+        }
+      ],
+      "enabled": false
+    },
+    {
+      "name": "rk_out_for_delivery",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "out_for_delivery"
+      ],
+      "parameters": [
+        "customer_name",
+        "order_number",
+        "courier_name",
+        "tracking_id"
+      ],
+      "parameterTypes": [
+        "text",
+        "text",
+        "text",
+        "text"
+      ],
+      "body": "Dear {{1}},\n\nYour Rashi Kapoor order is scheduled for delivery today.\n\nOrder Confirmation No.: {{2}}\n\nCourier Partner: {{3}}\n\nTracking / AWB Number: {{4}}\n\nPlease keep your phone available to coordinate the delivery.\n\nWe hope you enjoy your Rashi Kapoor purchase.",
+      "handler": "order_fulfillment.apply_transition(out_for_delivery), staff records actual courier status",
+      "approvalStatus": "NOT_SUBMITTED",
+      "header": "Out for Delivery",
+      "footer": "Rashi Kapoor Official",
+      "components": [
+        {
+          "type": "HEADER",
+          "format": "TEXT",
+          "text": "Out for Delivery"
+        },
+        {
+          "type": "BODY",
+          "text": "Dear {{1}},\n\nYour Rashi Kapoor order is scheduled for delivery today.\n\nOrder Confirmation No.: {{2}}\n\nCourier Partner: {{3}}\n\nTracking / AWB Number: {{4}}\n\nPlease keep your phone available to coordinate the delivery.\n\nWe hope you enjoy your Rashi Kapoor purchase."
+        },
+        {
+          "type": "FOOTER",
+          "text": "Rashi Kapoor Official"
+        }
+      ],
+      "enabled": false
+    },
+    {
+      "name": "rk_order_delivered",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "delivered"
+      ],
+      "parameters": [
+        "customer_name",
+        "order_number",
+        "delivered_on"
+      ],
+      "parameterTypes": [
+        "text",
+        "text",
+        "text"
+      ],
+      "body": "Dear {{1}},\n\nYour Rashi Kapoor order has been successfully delivered.\n\nOrder Confirmation No.: {{2}}\n\nDelivered On: {{3}}\n\nWe hope your purchase brings you joy.\n\nThank you for choosing Rashi Kapoor. We look forward to welcoming you again.",
+      "handler": "order_fulfillment.apply_transition(delivered)",
+      "approvalStatus": "NOT_SUBMITTED",
+      "header": "Order Successfully Delivered",
+      "footer": "Rashi Kapoor Official",
+      "components": [
+        {
+          "type": "HEADER",
+          "format": "TEXT",
+          "text": "Order Successfully Delivered"
+        },
+        {
+          "type": "BODY",
+          "text": "Dear {{1}},\n\nYour Rashi Kapoor order has been successfully delivered.\n\nOrder Confirmation No.: {{2}}\n\nDelivered On: {{3}}\n\nWe hope your purchase brings you joy.\n\nThank you for choosing Rashi Kapoor. We look forward to welcoming you again."
+        },
+        {
+          "type": "FOOTER",
+          "text": "Rashi Kapoor Official"
+        }
+      ],
+      "enabled": false
+    },
+    {
+      "name": "rk_order_cancelled",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "cancelled"
+      ],
+      "parameters": [
+        "customer_name",
+        "order_number",
+        "cancellation_reference"
+      ],
+      "parameterTypes": [
+        "text",
+        "text",
+        "text"
+      ],
+      "body": "Dear {{1}},\n\nThis is to inform you that your Rashi Kapoor order has been cancelled.\n\nOrder Confirmation No.: {{2}} \n\nCancellation Reference: {{3}}\n\nIf a payment has already been captured, any applicable refund will be communicated separately.\n\nFor assistance, please contact our customer support team.",
+      "handler": "order_fulfillment.apply_transition(cancelled)",
+      "approvalStatus": "NOT_SUBMITTED",
+      "header": "Order Cancellation",
+      "footer": "Rashi Kapoor Official",
+      "components": [
+        {
+          "type": "HEADER",
+          "format": "TEXT",
+          "text": "Order Cancellation"
+        },
+        {
+          "type": "BODY",
+          "text": "Dear {{1}},\n\nThis is to inform you that your Rashi Kapoor order has been cancelled.\n\nOrder Confirmation No.: {{2}} \n\nCancellation Reference: {{3}}\n\nIf a payment has already been captured, any applicable refund will be communicated separately.\n\nFor assistance, please contact our customer support team."
+        },
+        {
+          "type": "FOOTER",
+          "text": "Rashi Kapoor Official"
+        }
+      ],
+      "enabled": false
+    },
+    {
+      "name": "rk_refund_processed",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "refund_completed"
+      ],
+      "parameters": [
+        "customer_name",
+        "order_number",
+        "refund_amount",
+        "refund_reference"
+      ],
+      "parameterTypes": [
+        "text",
+        "text",
+        "text",
+        "text"
+      ],
+      "body": "Dear {{1}},\n\nWe would like to inform you that your refund has been successfully processed.\n\nOrder Confirmation No.: {{2}}\n\nRefund Amount: {{3}}\n\nRefund Reference: {{4}}\n\nThe refunded amount may take some time to appear in your original payment method, depending on your bank or payment provider.\n\nThank you for your understanding.\n\nTeam Rashi Kapoor",
+      "handler": "payments.razorpay_webhook(refund.processed), verified gateway result only",
+      "approvalStatus": "NOT_SUBMITTED",
+      "header": "Refund Processed",
+      "footer": "Rashi Kapoor Official",
+      "components": [
+        {
+          "type": "HEADER",
+          "format": "TEXT",
+          "text": "Refund Processed"
+        },
+        {
+          "type": "BODY",
+          "text": "Dear {{1}},\n\nWe would like to inform you that your refund has been successfully processed.\n\nOrder Confirmation No.: {{2}}\n\nRefund Amount: {{3}}\n\nRefund Reference: {{4}}\n\nThe refunded amount may take some time to appear in your original payment method, depending on your bank or payment provider.\n\nThank you for your understanding.\n\nTeam Rashi Kapoor"
+        },
+        {
+          "type": "FOOTER",
+          "text": "Rashi Kapoor Official"
+        }
+      ],
+      "enabled": false
+    },
+    {
+      "name": "rk_new_collection_drop",
+      "language": "en_US",
+      "category": "MARKETING",
+      "events": [
+        "new_collection_drop"
+      ],
+      "parameters": [
+        "first_name",
+        "collection_name"
+      ],
+      "parameterTypes": [
+        "text",
+        "text"
+      ],
+      "body": "Hello {{1}},\nA new expression of Rashi Kapoor has arrived.\nDiscover {{2}}, our latest collection, thoughtfully curated and now available to explore.\nExplore the collection and discover pieces that speak to your style.",
+      "header": "A New Collection Has Arrived",
+      "footer": "Rashi Kapoor",
+      "approvalStatus": "NOT_SUBMITTED",
+      "handler": "explicit authorized campaign",
+      "buttonParameters": [
+        "destination_path"
+      ],
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "Explore Collection",
+          "url": "https://rashikapoor.co.in/{{1}}"
+        }
+      ],
+      "components": [
+        {
+          "type": "HEADER",
+          "format": "TEXT",
+          "text": "A New Collection Has Arrived"
+        },
+        {
+          "type": "BODY",
+          "text": "Hello {{1}},\nA new expression of Rashi Kapoor has arrived.\nDiscover {{2}}, our latest collection, thoughtfully curated and now available to explore.\nExplore the collection and discover pieces that speak to your style."
+        },
+        {
+          "type": "FOOTER",
+          "text": "Rashi Kapoor"
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "Explore Collection",
+              "url": "https://rashikapoor.co.in/{{1}}"
+            }
+          ]
+        }
+      ],
+      "enabled": false
+    },
+    {
+      "name": "rk_exclusive_offer",
+      "language": "en_US",
+      "category": "MARKETING",
+      "events": [
+        "exclusive_offer"
+      ],
+      "parameters": [
+        "first_name",
+        "offer_description",
+        "coupon_code",
+        "expiry_date"
+      ],
+      "parameterTypes": [
+        "text",
+        "text",
+        "text",
+        "text"
+      ],
+      "body": "Hello {{1}},\nA little something from Rashi Kapoor.\nEnjoy {{2}} on your next purchase with code {{3}}.\nOffer valid until {{4}}, subject to the applicable terms.\nExplore our collections and discover something you'll love.",
+      "header": "A Special Offer for You",
+      "footer": "Rashi Kapoor",
+      "approvalStatus": "NOT_SUBMITTED",
+      "handler": "explicit authorized campaign",
+      "buttonParameters": [
+        "destination_path"
+      ],
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "Shop Now",
+          "url": "https://rashikapoor.co.in/{{1}}"
+        }
+      ],
+      "components": [
+        {
+          "type": "HEADER",
+          "format": "TEXT",
+          "text": "A Special Offer for You"
+        },
+        {
+          "type": "BODY",
+          "text": "Hello {{1}},\nA little something from Rashi Kapoor.\nEnjoy {{2}} on your next purchase with code {{3}}.\nOffer valid until {{4}}, subject to the applicable terms.\nExplore our collections and discover something you'll love."
+        },
+        {
+          "type": "FOOTER",
+          "text": "Rashi Kapoor"
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "Shop Now",
+              "url": "https://rashikapoor.co.in/{{1}}"
+            }
+          ]
+        }
+      ],
+      "enabled": false
+    },
+    {
+      "name": "rk_order_confirmation_v2",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "order_confirmation"
+      ],
+      "parameters": [
+        "customer_name",
+        "order_number",
+        "order_date",
+        "order_total"
+      ],
+      "parameterTypes": [
+        "text",
+        "text",
+        "text",
+        "text"
+      ],
+      "body": "Dear {{1}},\n\nThank you for choosing Rashi Kapoor.\n\nYour order has been successfully confirmed.\n\nOrder Confirmation No.: {{2}}\n\nOrder Date: {{3}}\n\nOrder Total: {{4}}\n\nWe appreciate your trust in Rashi Kapoor and will keep you updated on your order.",
+      "handler": "order_confirmation.send_order_confirmation; order_fulfillment.apply_transition(confirmed)",
+      "approvalStatus": "NOT_SUBMITTED",
+      "header": "Order Confirmed",
+      "footer": "Rashi Kapoor",
+      "versionOf": "rk_order_confirmation",
+      "buttonParameters": [
+        "order_id"
+      ],
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "View Order",
+          "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+        }
+      ],
+      "components": [
+        {
+          "type": "HEADER",
+          "format": "TEXT",
+          "text": "Order Confirmed"
+        },
+        {
+          "type": "BODY",
+          "text": "Dear {{1}},\n\nThank you for choosing Rashi Kapoor.\n\nYour order has been successfully confirmed.\n\nOrder Confirmation No.: {{2}}\n\nOrder Date: {{3}}\n\nOrder Total: {{4}}\n\nWe appreciate your trust in Rashi Kapoor and will keep you updated on your order."
+        },
+        {
+          "type": "FOOTER",
+          "text": "Rashi Kapoor"
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "View Order",
+              "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+            }
+          ]
+        }
+      ],
+      "enabled": false
+    },
+    {
+      "name": "rk_payment_confirmation_v2",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "payment_confirmation"
+      ],
+      "parameters": [
+        "customer_name",
+        "order_number",
+        "paid_amount",
+        "payment_reference"
+      ],
+      "parameterTypes": [
+        "text",
+        "text",
+        "text",
+        "text"
+      ],
+      "body": "Dear {{1}} ,\n\nWe are pleased to confirm that your payment has been successfully received.\n\nOrder Confirmation No.: {{2}}\n\nAmount Paid: {{3}}\n\nPayment Reference: {{4}}\n\nYour order is now being processed.\n\nThank you for shopping with Rashi Kapoor.",
+      "handler": "payments._fulfil_paid_order -> order_confirmation.send_order_confirmation",
+      "approvalStatus": "NOT_SUBMITTED",
+      "header": "Payment Received",
+      "footer": "Rashi Kapoor Official",
+      "versionOf": "rk_payment_confirmation",
+      "buttonParameters": [
+        "order_id"
+      ],
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "View Order",
+          "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+        }
+      ],
+      "components": [
+        {
+          "type": "HEADER",
+          "format": "TEXT",
+          "text": "Payment Received"
+        },
+        {
+          "type": "BODY",
+          "text": "Dear {{1}} ,\n\nWe are pleased to confirm that your payment has been successfully received.\n\nOrder Confirmation No.: {{2}}\n\nAmount Paid: {{3}}\n\nPayment Reference: {{4}}\n\nYour order is now being processed.\n\nThank you for shopping with Rashi Kapoor."
+        },
+        {
+          "type": "FOOTER",
+          "text": "Rashi Kapoor Official"
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "View Order",
+              "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+            }
+          ]
+        }
+      ],
+      "enabled": false
+    },
+    {
+      "name": "rk_order_shipped_v2",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "shipped"
+      ],
+      "parameters": [
+        "customer_name",
+        "order_number",
+        "courier_name",
+        "tracking_id"
+      ],
+      "parameterTypes": [
+        "text",
+        "text",
+        "text",
+        "text"
+      ],
+      "body": "Dear {{1}},\n\nGood news! Your Rashi Kapoor order is on its way.\n\nOrder Confirmation No.: {{2}}\n\nCourier Partner: {{3}}\n\nTracking / AWB Number: {{4}}\n\nYou can use the tracking number above to follow your shipment.\n\nThank you for choosing Rashi Kapoor.",
+      "handler": "order_fulfillment.apply_transition / update_shipment (saved courier and tracking required)",
+      "approvalStatus": "NOT_SUBMITTED",
+      "header": "Your Order Has Been Shipped",
+      "footer": "Rashi Kapoor Official",
+      "versionOf": "rk_order_shipped",
+      "buttonParameters": [
+        "order_id"
+      ],
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "Track Shipment",
+          "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+        }
+      ],
+      "components": [
+        {
+          "type": "HEADER",
+          "format": "TEXT",
+          "text": "Your Order Has Been Shipped"
+        },
+        {
+          "type": "BODY",
+          "text": "Dear {{1}},\n\nGood news! Your Rashi Kapoor order is on its way.\n\nOrder Confirmation No.: {{2}}\n\nCourier Partner: {{3}}\n\nTracking / AWB Number: {{4}}\n\nYou can use the tracking number above to follow your shipment.\n\nThank you for choosing Rashi Kapoor."
+        },
+        {
+          "type": "FOOTER",
+          "text": "Rashi Kapoor Official"
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "Track Shipment",
+              "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+            }
+          ]
+        }
+      ],
+      "enabled": false
+    },
+    {
+      "name": "rk_out_for_delivery_v2",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "out_for_delivery"
+      ],
+      "parameters": [
+        "customer_name",
+        "order_number",
+        "courier_name",
+        "tracking_id"
+      ],
+      "parameterTypes": [
+        "text",
+        "text",
+        "text",
+        "text"
+      ],
+      "body": "Dear {{1}},\n\nYour Rashi Kapoor order is scheduled for delivery today.\n\nOrder Confirmation No.: {{2}}\n\nCourier Partner: {{3}}\n\nTracking / AWB Number: {{4}}\n\nPlease keep your phone available to coordinate the delivery.\n\nWe hope you enjoy your Rashi Kapoor purchase.",
+      "handler": "order_fulfillment.apply_transition(out_for_delivery), staff records actual courier status",
+      "approvalStatus": "NOT_SUBMITTED",
+      "header": "Out for Delivery",
+      "footer": "Rashi Kapoor Official",
+      "versionOf": "rk_out_for_delivery",
+      "buttonParameters": [
+        "order_id"
+      ],
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "Track Shipment",
+          "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+        }
+      ],
+      "components": [
+        {
+          "type": "HEADER",
+          "format": "TEXT",
+          "text": "Out for Delivery"
+        },
+        {
+          "type": "BODY",
+          "text": "Dear {{1}},\n\nYour Rashi Kapoor order is scheduled for delivery today.\n\nOrder Confirmation No.: {{2}}\n\nCourier Partner: {{3}}\n\nTracking / AWB Number: {{4}}\n\nPlease keep your phone available to coordinate the delivery.\n\nWe hope you enjoy your Rashi Kapoor purchase."
+        },
+        {
+          "type": "FOOTER",
+          "text": "Rashi Kapoor Official"
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "Track Shipment",
+              "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+            }
+          ]
+        }
+      ],
+      "enabled": false
+    },
+    {
+      "name": "rk_order_delivered_v2",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "delivered"
+      ],
+      "parameters": [
+        "customer_name",
+        "order_number",
+        "delivered_on"
+      ],
+      "parameterTypes": [
+        "text",
+        "text",
+        "text"
+      ],
+      "body": "Dear {{1}},\n\nYour Rashi Kapoor order has been successfully delivered.\n\nOrder Confirmation No.: {{2}}\n\nDelivered On: {{3}}\n\nWe hope your purchase brings you joy.\n\nThank you for choosing Rashi Kapoor. We look forward to welcoming you again.",
+      "handler": "order_fulfillment.apply_transition(delivered)",
+      "approvalStatus": "NOT_SUBMITTED",
+      "header": "Order Successfully Delivered",
+      "footer": "Rashi Kapoor Official",
+      "versionOf": "rk_order_delivered",
+      "buttonParameters": [
+        "order_id"
+      ],
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "View Order",
+          "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+        }
+      ],
+      "components": [
+        {
+          "type": "HEADER",
+          "format": "TEXT",
+          "text": "Order Successfully Delivered"
+        },
+        {
+          "type": "BODY",
+          "text": "Dear {{1}},\n\nYour Rashi Kapoor order has been successfully delivered.\n\nOrder Confirmation No.: {{2}}\n\nDelivered On: {{3}}\n\nWe hope your purchase brings you joy.\n\nThank you for choosing Rashi Kapoor. We look forward to welcoming you again."
+        },
+        {
+          "type": "FOOTER",
+          "text": "Rashi Kapoor Official"
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "View Order",
+              "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+            }
+          ]
+        }
+      ],
+      "enabled": false
+    },
+    {
+      "name": "rk_order_cancelled_v2",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "cancelled"
+      ],
+      "parameters": [
+        "customer_name",
+        "order_number",
+        "cancellation_reference"
+      ],
+      "parameterTypes": [
+        "text",
+        "text",
+        "text"
+      ],
+      "body": "Dear {{1}},\n\nThis is to inform you that your Rashi Kapoor order has been cancelled.\n\nOrder Confirmation No.: {{2}} \n\nCancellation Reference: {{3}}\n\nIf a payment has already been captured, any applicable refund will be communicated separately.\n\nFor assistance, please contact our customer support team.",
+      "handler": "order_fulfillment.apply_transition(cancelled)",
+      "approvalStatus": "NOT_SUBMITTED",
+      "header": "Order Cancellation",
+      "footer": "Rashi Kapoor Official",
+      "versionOf": "rk_order_cancelled",
+      "buttonParameters": [
+        "order_id"
+      ],
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "View Order",
+          "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+        }
+      ],
+      "components": [
+        {
+          "type": "HEADER",
+          "format": "TEXT",
+          "text": "Order Cancellation"
+        },
+        {
+          "type": "BODY",
+          "text": "Dear {{1}},\n\nThis is to inform you that your Rashi Kapoor order has been cancelled.\n\nOrder Confirmation No.: {{2}} \n\nCancellation Reference: {{3}}\n\nIf a payment has already been captured, any applicable refund will be communicated separately.\n\nFor assistance, please contact our customer support team."
+        },
+        {
+          "type": "FOOTER",
+          "text": "Rashi Kapoor Official"
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "View Order",
+              "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+            }
+          ]
+        }
+      ],
+      "enabled": false
+    },
+    {
+      "name": "rk_refund_processed_v2",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "refund_completed"
+      ],
+      "parameters": [
+        "customer_name",
+        "order_number",
+        "refund_amount",
+        "refund_reference"
+      ],
+      "parameterTypes": [
+        "text",
+        "text",
+        "text",
+        "text"
+      ],
+      "body": "Dear {{1}},\n\nWe would like to inform you that your refund has been successfully processed.\n\nOrder Confirmation No.: {{2}}\n\nRefund Amount: {{3}}\n\nRefund Reference: {{4}}\n\nThe refunded amount may take some time to appear in your original payment method, depending on your bank or payment provider.\n\nThank you for your understanding.\n\nTeam Rashi Kapoor",
+      "handler": "payments.razorpay_webhook(refund.processed), verified gateway result only",
+      "approvalStatus": "NOT_SUBMITTED",
+      "header": "Refund Processed",
+      "footer": "Rashi Kapoor Official",
+      "versionOf": "rk_refund_processed",
+      "buttonParameters": [
+        "order_id"
+      ],
+      "buttons": [
+        {
+          "type": "URL",
+          "text": "View Refund",
+          "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+        }
+      ],
+      "components": [
+        {
+          "type": "HEADER",
+          "format": "TEXT",
+          "text": "Refund Processed"
+        },
+        {
+          "type": "BODY",
+          "text": "Dear {{1}},\n\nWe would like to inform you that your refund has been successfully processed.\n\nOrder Confirmation No.: {{2}}\n\nRefund Amount: {{3}}\n\nRefund Reference: {{4}}\n\nThe refunded amount may take some time to appear in your original payment method, depending on your bank or payment provider.\n\nThank you for your understanding.\n\nTeam Rashi Kapoor"
+        },
+        {
+          "type": "FOOTER",
+          "text": "Rashi Kapoor Official"
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "View Refund",
+              "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+            }
+          ]
+        }
+      ],
+      "enabled": false
+    },
+    {
+      "name": "rk_payment_failure",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "payment_failure"
+      ],
+      "parameters": [
+        "reference",
+        "status"
+      ],
+      "parameterTypes": [
+        "text",
+        "text"
+      ],
+      "approvalStatus": "DRAFT",
+      "integrationStatus": "DRAFT",
+      "eventEvidence": "payments.update_razorpay_state(state=failed) and payments.razorpay_webhook(payment.failed) persist paymentStatus=failed and paymentFailureReason, then call notify(payment_failure); this exact template is not in the local approved catalogue.",
+      "header": null,
+      "body": "Rashi Kapoor: order {{1}} has this update: {{2}}.",
+      "footer": null,
+      "variableSources": [
+        {
+          "position": 1,
+          "parameter": "reference",
+          "placeholder": "{{1}}",
+          "persistedField": "orders.orderNumber"
+        },
+        {
+          "position": 2,
+          "parameter": "status",
+          "placeholder": "{{2}}",
+          "persistedField": "orders.paymentFailureReason (sanitized before notification)"
+        }
+      ],
+      "exampleValues": [
+        "<synthetic order number>",
+        "<synthetic persisted payment failure reason>"
+      ],
+      "urlButtonProposal": {
+        "type": "URL",
+        "text": "View Order",
+        "url": "https://rashikapoor.co.in/account/orders/{{1}}",
+        "buttonParameter": "order_id",
+        "persistedField": "orders._id",
+        "route": "/account/orders/[orderId]",
+        "condition": "Use only the actual persisted order _id for this recipient; never fabricate or substitute a public reference."
+      },
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Rashi Kapoor: order {{1}} has this update: {{2}}."
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "View Order",
+              "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+            }
+          ]
+        }
+      ],
+      "enabled": false,
+      "submissionNote": "Local proposal only. No Meta submission or approval evidence. Synthetic examples must be replaced with non-customer sample values before submission."
+    },
+    {
+      "name": "rk_processing",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "processing"
+      ],
+      "parameters": [
+        "reference",
+        "status"
+      ],
+      "parameterTypes": [
+        "text",
+        "text"
+      ],
+      "approvalStatus": "DRAFT",
+      "integrationStatus": "DRAFT",
+      "eventEvidence": "order_fulfillment.send_status_notification emits processing after the persisted fulfillment transition; the exact template is not in the local approved catalogue.",
+      "header": null,
+      "body": "Rashi Kapoor: order {{1}} has this update: {{2}}.",
+      "footer": null,
+      "variableSources": [
+        {
+          "position": 1,
+          "parameter": "reference",
+          "placeholder": "{{1}}",
+          "persistedField": "orders.orderNumber"
+        },
+        {
+          "position": 2,
+          "parameter": "status",
+          "placeholder": "{{2}}",
+          "persistedField": "orders.fulfillment.status"
+        }
+      ],
+      "exampleValues": [
+        "<synthetic order number>",
+        "processing"
+      ],
+      "urlButtonProposal": {
+        "type": "URL",
+        "text": "View Order",
+        "url": "https://rashikapoor.co.in/account/orders/{{1}}",
+        "buttonParameter": "order_id",
+        "persistedField": "orders._id",
+        "route": "/account/orders/[orderId]",
+        "condition": "Use only the actual persisted order _id for this recipient."
+      },
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Rashi Kapoor: order {{1}} has this update: {{2}}."
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "View Order",
+              "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+            }
+          ]
+        }
+      ],
+      "enabled": false,
+      "submissionNote": "Local proposal only; not submitted or approved by Meta."
+    },
+    {
+      "name": "rk_packed",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "packed"
+      ],
+      "parameters": [
+        "reference",
+        "status"
+      ],
+      "parameterTypes": [
+        "text",
+        "text"
+      ],
+      "approvalStatus": "DRAFT",
+      "integrationStatus": "DRAFT",
+      "eventEvidence": "order_fulfillment.send_status_notification emits packed after the persisted fulfillment transition; the exact template is not in the local approved catalogue.",
+      "header": null,
+      "body": "Rashi Kapoor: order {{1}} has this update: {{2}}.",
+      "footer": null,
+      "variableSources": [
+        {
+          "position": 1,
+          "parameter": "reference",
+          "placeholder": "{{1}}",
+          "persistedField": "orders.orderNumber"
+        },
+        {
+          "position": 2,
+          "parameter": "status",
+          "placeholder": "{{2}}",
+          "persistedField": "orders.fulfillment.status"
+        }
+      ],
+      "exampleValues": [
+        "<synthetic order number>",
+        "packed"
+      ],
+      "urlButtonProposal": {
+        "type": "URL",
+        "text": "View Order",
+        "url": "https://rashikapoor.co.in/account/orders/{{1}}",
+        "buttonParameter": "order_id",
+        "persistedField": "orders._id",
+        "route": "/account/orders/[orderId]",
+        "condition": "Use only the actual persisted order _id for this recipient."
+      },
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Rashi Kapoor: order {{1}} has this update: {{2}}."
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "View Order",
+              "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+            }
+          ]
+        }
+      ],
+      "enabled": false,
+      "submissionNote": "Local proposal only; not submitted or approved by Meta."
+    },
+    {
+      "name": "rk_tracking_update",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "tracking_update"
+      ],
+      "parameters": [
+        "reference",
+        "status",
+        "tracking"
+      ],
+      "parameterTypes": [
+        "text",
+        "text",
+        "text"
+      ],
+      "approvalStatus": "DRAFT",
+      "integrationStatus": "DRAFT",
+      "eventEvidence": "The event is emitted, but whatsapp.notify aliases tracking_update to shipped; it is not dispatched as an independent catalogue event/template.",
+      "header": null,
+      "body": "Rashi Kapoor: order {{1}} has this shipping update: {{2}}. Tracking details: {{3}}.",
+      "footer": null,
+      "variableSources": [
+        {
+          "position": 1,
+          "parameter": "reference",
+          "placeholder": "{{1}}",
+          "persistedField": "orders.orderNumber"
+        },
+        {
+          "position": 2,
+          "parameter": "status",
+          "placeholder": "{{2}}",
+          "persistedField": "orders.fulfillment.status"
+        },
+        {
+          "position": 3,
+          "parameter": "tracking",
+          "placeholder": "{{3}}",
+          "persistedField": "orders.fulfillment.courier + trackingNumber + trackingUrl; only saved values"
+        }
+      ],
+      "exampleValues": [
+        "<synthetic order number>",
+        "shipped",
+        "<saved courier; saved tracking number; saved URL when present>"
+      ],
+      "urlButtonProposal": {
+        "type": "URL",
+        "text": "View Order",
+        "url": "https://rashikapoor.co.in/account/orders/{{1}}",
+        "buttonParameter": "order_id",
+        "persistedField": "orders._id",
+        "route": "/account/orders/[orderId]",
+        "condition": "Use only the actual persisted order _id for this recipient."
+      },
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Rashi Kapoor: order {{1}} has this shipping update: {{2}}. Tracking details: {{3}}."
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "View Order",
+              "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+            }
+          ]
+        }
+      ],
+      "enabled": false,
+      "submissionNote": "Local proposal only; not submitted or approved by Meta."
+    },
+    {
+      "name": "rk_return_requested",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "return_requested"
+      ],
+      "parameters": [
+        "reference",
+        "status"
+      ],
+      "parameterTypes": [
+        "text",
+        "text"
+      ],
+      "approvalStatus": "DRAFT",
+      "integrationStatus": "DRAFT",
+      "eventEvidence": "The customer return flow persists orders.returnRequest and transitions fulfillment; the request endpoint currently suppresses customer notification.",
+      "header": null,
+      "body": "Rashi Kapoor: order {{1}} has this update: {{2}}.",
+      "footer": null,
+      "variableSources": [
+        {
+          "position": 1,
+          "parameter": "reference",
+          "placeholder": "{{1}}",
+          "persistedField": "orders.orderNumber"
+        },
+        {
+          "position": 2,
+          "parameter": "status",
+          "placeholder": "{{2}}",
+          "persistedField": "orders.returnRequest.status and requestedAt; status is the saved requested state"
+        }
+      ],
+      "exampleValues": [
+        "<synthetic order number>",
+        "requested"
+      ],
+      "urlButtonProposal": {
+        "type": "URL",
+        "text": "View Order",
+        "url": "https://rashikapoor.co.in/account/orders/{{1}}",
+        "buttonParameter": "order_id",
+        "persistedField": "orders._id",
+        "route": "/account/orders/[orderId]",
+        "condition": "Use only the actual persisted order _id for this recipient."
+      },
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Rashi Kapoor: order {{1}} has this update: {{2}}."
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "View Order",
+              "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+            }
+          ]
+        }
+      ],
+      "enabled": false,
+      "submissionNote": "Local proposal only; not submitted or approved by Meta."
+    },
+    {
+      "name": "rk_return_status",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "return_status"
+      ],
+      "parameters": [
+        "reference",
+        "status"
+      ],
+      "parameterTypes": [
+        "text",
+        "text"
+      ],
+      "approvalStatus": "DRAFT",
+      "integrationStatus": "DRAFT",
+      "eventEvidence": "returns.send_return_accepted and submit_return_form call notify(return_status); fulfillment also emits return_status for returned orders. No catalogue mapping exists.",
+      "header": null,
+      "body": "Rashi Kapoor: order {{1}} has this update: {{2}}.",
+      "footer": null,
+      "variableSources": [
+        {
+          "position": 1,
+          "parameter": "reference",
+          "placeholder": "{{1}}",
+          "persistedField": "orders.orderNumber"
+        },
+        {
+          "position": 2,
+          "parameter": "status",
+          "placeholder": "returns.status / orders.returnRequest.status; returned orders use orders.fulfillment.status"
+        }
+      ],
+      "exampleValues": [
+        "<synthetic order number>",
+        "accepted or submitted (from persisted return state)"
+      ],
+      "urlButtonProposal": {
+        "type": "URL",
+        "text": "View Order",
+        "url": "https://rashikapoor.co.in/account/orders/{{1}}",
+        "buttonParameter": "order_id",
+        "persistedField": "orders._id",
+        "route": "/account/orders/[orderId]",
+        "condition": "Use only the actual persisted order _id for this recipient; no return token is included."
+      },
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Rashi Kapoor: order {{1}} has this update: {{2}}."
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "View Order",
+              "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+            }
+          ]
+        }
+      ],
+      "enabled": false,
+      "submissionNote": "Local proposal only; not submitted or approved by Meta."
+    },
+    {
+      "name": "rk_refund_initiated",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "refund_initiated"
+      ],
+      "parameters": [
+        "reference",
+        "status"
+      ],
+      "parameterTypes": [
+        "text",
+        "text"
+      ],
+      "approvalStatus": "DRAFT",
+      "integrationStatus": "DRAFT",
+      "eventEvidence": "Admin lifecycle-update persists orders.refundNotification.initiatedAt and calls notify(refund_initiated); it records operator-reported initiation and does not initiate a gateway refund.",
+      "header": null,
+      "body": "Rashi Kapoor: order {{1}} has this update: {{2}}.",
+      "footer": null,
+      "variableSources": [
+        {
+          "position": 1,
+          "parameter": "reference",
+          "placeholder": "{{1}}",
+          "persistedField": "orders.orderNumber (or the same order's persisted _id fallback)"
+        },
+        {
+          "position": 2,
+          "parameter": "status",
+          "placeholder": "{{2}}",
+          "persistedField": "orders.refundNotification.initiatedAt; backend renders the state as refund initiated externally"
+        }
+      ],
+      "exampleValues": [
+        "<synthetic order number>",
+        "refund initiated externally"
+      ],
+      "urlButtonProposal": {
+        "type": "URL",
+        "text": "View Order",
+        "url": "https://rashikapoor.co.in/account/orders/{{1}}",
+        "buttonParameter": "order_id",
+        "persistedField": "orders._id",
+        "route": "/account/orders/[orderId]",
+        "condition": "Use only the actual persisted order _id for this recipient."
+      },
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Rashi Kapoor: order {{1}} has this update: {{2}}."
+        },
+        {
+          "type": "BUTTONS",
+          "buttons": [
+            {
+              "type": "URL",
+              "text": "View Order",
+              "url": "https://rashikapoor.co.in/account/orders/{{1}}"
+            }
+          ]
+        }
+      ],
+      "enabled": false,
+      "submissionNote": "Local proposal only; not submitted or approved by Meta."
+    },
+    {
+      "name": "rk_custom_order_received",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "custom_order_received"
+      ],
+      "parameters": [
+        "reference",
+        "status"
+      ],
+      "parameterTypes": [
+        "text",
+        "text"
+      ],
+      "approvalStatus": "DRAFT",
+      "integrationStatus": "DRAFT",
+      "eventEvidence": "Custom-order creation persists custom_order_requests and calls notify(custom_order_received) only for a request associated with the matching authenticated account; delivery still requires consent.",
+      "header": null,
+      "body": "Rashi Kapoor: custom order request {{1}} has this update: {{2}}.",
+      "footer": null,
+      "variableSources": [
+        {
+          "position": 1,
+          "parameter": "reference",
+          "placeholder": "{{1}}",
+          "persistedField": "custom_order_requests._id; do not label it as a public order number"
+        },
+        {
+          "position": 2,
+          "parameter": "status",
+          "placeholder": "{{2}}",
+          "persistedField": "custom_order_requests.status"
+        }
+      ],
+      "exampleValues": [
+        "<persisted request identifier; no invented public ID>",
+        "new"
+      ],
+      "urlButtonProposal": null,
+      "buttonNote": "No customer-facing custom-order detail route was verified; omit a URL button until one exists.",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Rashi Kapoor: custom order request {{1}} has this update: {{2}}."
+        }
+      ],
+      "enabled": false,
+      "submissionNote": "Local proposal only; not submitted or approved by Meta."
+    },
+    {
+      "name": "rk_custom_order_status",
+      "category": "UTILITY",
+      "language": "en_US",
+      "events": [
+        "custom_order_status"
+      ],
+      "parameters": [
+        "reference",
+        "status"
+      ],
+      "parameterTypes": [
+        "text",
+        "text"
+      ],
+      "approvalStatus": "DRAFT",
+      "integrationStatus": "DRAFT",
+      "eventEvidence": "Admin lifecycle-update persists an allowed state to custom_order_requests.status and calls notify(custom_order_status); the exact template is not in the local approved catalogue.",
+      "header": null,
+      "body": "Rashi Kapoor: custom order request {{1}} has this update: {{2}}.",
+      "footer": null,
+      "variableSources": [
+        {
+          "position": 1,
+          "parameter": "reference",
+          "placeholder": "{{1}}",
+          "persistedField": "custom_order_requests._id; do not label it as a public order number"
+        },
+        {
+          "position": 2,
+          "parameter": "status",
+          "placeholder": "{{2}}",
+          "persistedField": "custom_order_requests.status"
+        }
+      ],
+      "exampleValues": [
+        "<persisted request identifier; no invented public ID>",
+        "in_review / quoted / confirmed / in_progress / completed / cancelled; use actual saved state"
+      ],
+      "urlButtonProposal": null,
+      "buttonNote": "No customer-facing custom-order detail route was verified; omit a URL button until one exists.",
+      "components": [
+        {
+          "type": "BODY",
+          "text": "Rashi Kapoor: custom order request {{1}} has this update: {{2}}."
+        }
+      ],
+      "enabled": false,
+      "submissionNote": "Local proposal only; not submitted or approved by Meta."
+    }
+  ],
+  "preservedNonSubmissionTemplates": [
+    {
+      "name": "3p_direct_integration_test_template",
+      "category": "UTILITY",
+      "language": "en_US",
+      "approvalStatus": "APPROVED",
+      "approvalEvidence": "Fresh complete read-only Meta inventory for the configured WABA returned APPROVED and exact component equality. Meta quality_score.score was UNKNOWN, which is separate from approval status.",
+      "customerFacingSubmissionCatalogue": false,
+      "components": [
+        {
+          "type": "HEADER",
+          "format": "TEXT",
+          "text": "Integration Test"
+        },
+        {
+          "type": "BODY",
+          "text": "Welcome! This is a test message from the WhatsApp Business Platform. You have successfully configured your WhatsApp Business account and completed onboarding. You can now start sending messages to your customers."
+        },
+        {
+          "type": "FOOTER",
+          "text": "WhatsApp Business Platform"
+        }
+      ],
+      "qualityRating": "UNKNOWN",
+      "qualityDisplay": "Quality pending",
+      "lastSuccessfulMetaReadAt": "2026-11-13T14:18:49Z",
+      "lastCompleteInventoryRecords": 19,
+      "componentsVerified": true
+    }
+  ],
+  "cataloguePolicy": {
+    "customerFacingExclusions": [
+      "rk_admin_notification"
+    ],
+    "optionalUtilityTemplates": "DRAFT and disabled until exact name, language, category, approval status and components are confirmed by a real Meta read.",
+    "automatedMessagingEnabled": false,
+    "marketingMessagingEnabled": false,
+    "sevenExistingMetaSubmissions": "Preserved unchanged; no Meta template was read, created, modified or submitted for this update.",
+    "threeMissingRecordAudit": [
+      {
+        "name": "rk_authentication_otp",
+        "classification": "Local Authentication draft; not submitted",
+        "reason": "Account-level Meta creation permission was previously denied; absent from the fresh complete inventory."
+      },
+      {
+        "name": "rk_exclusive_offer",
+        "classification": "Local Marketing draft; not submitted",
+        "reason": "Blocked by the missing integrated coupon/promotion engine; absent from the fresh complete inventory."
+      },
+      {
+        "name": "rk_admin_notification",
+        "classification": "Internal-only local draft; not customer-facing",
+        "reason": "No customer-facing submission; absent from the fresh complete inventory."
+      }
+    ],
+    "rk_test": {
+      "classification": "Found in Meta but not locally mapped",
+      "language": "en",
+      "category": "MARKETING",
+      "status": "PENDING",
+      "note": "Kept unmapped and unavailable for sending; no language/category remapping was inferred."
+    }
+  }
+}
