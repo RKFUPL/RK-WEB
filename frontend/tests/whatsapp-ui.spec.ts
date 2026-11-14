@@ -17,7 +17,7 @@ const registeredTemplate = {
   ],
 };
 
-async function mockApi(page: Page, options: { active?: boolean; role?: string; window?: 'open' | 'closed' | 'expired'; invalidRecipient?: boolean; textError?: boolean; localRateLimit?: boolean; gate?: boolean; production?: boolean; catalogue?: boolean; mappingDisabled?: boolean; readReceiptStatus?: 'received' | 'not_received' | 'unknown'; logStatus?: string; registered?: boolean; metaApproved?: boolean; refreshFailure?: boolean } = {}) {
+async function mockApi(page: Page, options: { active?: boolean; role?: string; window?: 'open' | 'closed' | 'expired'; invalidRecipient?: boolean; textError?: boolean; localRateLimit?: boolean; gate?: boolean; production?: boolean; catalogue?: boolean; mappingDisabled?: boolean; readReceiptStatus?: 'received' | 'not_received' | 'unknown'; logStatus?: string; registered?: boolean; metaApproved?: boolean; refreshFailure?: boolean; testTemplate?: Record<string, unknown> } = {}) {
   const sent: Record<string, unknown>[] = [];
   const filters: string[] = [];
   await page.route('**/*', async route => {
@@ -27,7 +27,7 @@ async function mockApi(page: Page, options: { active?: boolean; role?: string; w
     if (path === '/api/admin/integrations/whatsapp/template-status' && route.request().method() === 'POST' && options.refreshFailure) return route.fulfill({ status: 502, json: { error: 'Unable to read a complete Meta template inventory. Previous verified statuses are retained and marked stale.', status: { ...integration, configured: true, missing: [], templates: { test: { ...registeredTemplate, approved: false, observedStatus: 'APPROVED', qualityRating: 'UNKNOWN', statusStale: true, approvalCheckedAt: '2026-11-13T09:00:00Z', statusEvidence: 'found' }, new_collection_drop: { name: 'rk_new_collection_drop', language: 'en_US', category: 'MARKETING', parameters: ['first_name', 'collection_name'], enabled: false, approved: false, observedStatus: 'PENDING', statusStale: true, approvalCheckedAt: '2026-11-13T09:00:00Z', statusEvidence: 'found' } }, catalogue: {}, templateStatusSync: { lastAttemptAt: '2026-11-13T10:00:00Z', lastSuccessAt: '2026-11-13T09:00:00Z', lastError: 'meta_inventory_unavailable_or_incomplete', outcome: 'failed' }, environment: 'development', testSendEnabled: true } } });
     if (path === '/api/admin/integrations/whatsapp' || path === '/api/admin/integrations/whatsapp/template-status') return route.fulfill({ json: {
       ...integration,
-      ...(options.active ? { configured: true, missing: [], templates: { test: options.registered || options.catalogue ? { ...registeredTemplate, approved: options.metaApproved !== false, eligibleForTesting: options.metaApproved !== false, observedStatus: options.metaApproved === false ? 'PENDING' : 'APPROVED' } : { ...integration.templates.test, enabled: true, approved: true, eligibleForTesting: true, testParameterFields: [], locallyMapped: true, mappingEnabled: false, approvalSource: 'meta_api_read', requiresMetaApproval: true, componentsVerified: true, observedStatus: 'APPROVED' }, ...(options.catalogue ? {
+      ...(options.active ? { configured: true, missing: [], templates: { test: options.registered || options.catalogue ? { ...registeredTemplate, approved: options.metaApproved !== false, eligibleForTesting: options.metaApproved !== false, observedStatus: options.metaApproved === false ? 'PENDING' : 'APPROVED' } : { ...integration.templates.test, enabled: true, approved: true, eligibleForTesting: true, testParameterFields: [], locallyMapped: true, mappingEnabled: false, approvalSource: 'meta_api_read', requiresMetaApproval: true, componentsVerified: true, observedStatus: 'APPROVED' }, ...(options.testTemplate ? { test: { ...registeredTemplate, ...options.testTemplate } } : {}), ...(options.catalogue ? {
         order_confirmation: { name: 'rk_order_confirmation', language: 'en_US', category: 'UTILITY', parameters: ['customer_name', 'order_number', 'order_date', 'order_total'], parameterTypes: ['text', 'text', 'text', 'text'], approvalStatus: 'APPROVED', observedStatus: 'APPROVED', enabled: !options.mappingDisabled, approved: true, eligibleForTesting: true, eligibleForAutomation: !options.mappingDisabled, locallyMapped: true, mappingEnabled: !options.mappingDisabled, approvalSource: 'meta_api_read', requiresMetaApproval: true, componentsVerified: true, templateGroup: 'Transactional', testParameterFields: [{ key: 'body_1', label: 'Body variable 1: customer_name', component: 'body', number: 1 }, { key: 'body_2', label: 'Body variable 2: order_number', component: 'body', number: 2 }, { key: 'body_3', label: 'Body variable 3: order_date', component: 'body', number: 3 }, { key: 'body_4', label: 'Body variable 4: order_total', component: 'body', number: 4 }], components: [{ type: 'HEADER', format: 'TEXT', text: 'Order Confirmed' }, { type: 'BODY', text: 'Dear {{1}}, Order {{2}}, dated {{3}}, total {{4}}.' }], metaComponents: [{ type: 'HEADER', format: 'TEXT', text: 'Order Confirmed' }, { type: 'BODY', text: 'Dear {{1}}, Order {{2}}, dated {{3}}, total {{4}}.' }], schemaVersion: 2 },
         signup_otp: { name: 'rk_authentication_otp', language: 'en_US', category: 'AUTHENTICATION', parameters: ['code'], enabled: true, approved: true, approvalStatus: 'APPROVED' },
         shipped: { name: 'rk_order_shipped', language: 'en_US', category: 'UTILITY', parameters: ['customer_name', 'order_number', 'courier_name', 'tracking_id'], approvalStatus: 'PENDING', observedStatus: 'PENDING', enabled: false, approved: false },
@@ -132,7 +132,7 @@ test('Meta-approved Utility mapping disabled for automation remains available fo
   await expect(option).toBeEnabled();
   await expect(option).toContainText('Automated mapping disabled');
   await option.click();
-  await expect(page.getByText('Meta-approved template preview · rk_order_confirmation · en_US')).toBeVisible();
+  await expect(page.getByText('Template preview · rk_order_confirmation · en_US')).toBeVisible();
   for (const [field, value] of [['Body variable 1: customer_name', 'Fixture'], ['Body variable 2: order_number', 'RK-123'], ['Body variable 3: order_date', 'Nov 14'], ['Body variable 4: order_total', 'INR 1']] as const) {
     await page.getByLabel(field).fill(value);
   }
@@ -167,13 +167,66 @@ test('approved integration template stays in approved filter, test selector, and
   await expect(orderOption).not.toContainText('Integration Test');
 });
 
-test('registered static template remains unavailable without Meta approval', async ({ page }) => {
+test('unapproved static template can be selected and previewed but cannot be sent', async ({ page }) => {
   const calls = await mockApi(page, { active: true, registered: true, metaApproved: false });
   await page.goto('/admin/integrations/whatsapp');
   await openSection(page, 'Test Messages');
+  const option = page.getByRole('option', { name: /3p_direct_integration_test_template/ });
+  await expect(option).toBeEnabled();
+  await expect(option).toHaveAttribute('aria-description', /Preview only/);
+  await option.click();
+  await expect(option).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByText(registeredTemplate.components[1].text, { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Selected template eligibility' })).toContainText('PENDING / IN_REVIEW');
   await page.getByLabel('Consenting test recipient').fill('+14155552671');
   await page.getByLabel('I confirm this test recipient opted in').check();
-  await expect(page.getByRole('option', { name: /3p_direct_integration_test_template/ })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Send approved test template', exact: true })).toBeDisabled();
+  expect(calls.sent).toHaveLength(0);
+});
+
+for (const scenario of [
+  { name: 'missing Meta evidence', template: { observedStatus: 'MISSING_OR_UNKNOWN', componentsVerified: false, statusEvidence: 'absent_from_complete_inventory' }, evidence: 'Not present in the last complete Meta inventory.', status: 'MISSING_OR_UNKNOWN', components: 'Components unconfirmed' },
+  { name: 'approved but unverified components', template: { observedStatus: 'APPROVED', componentsVerified: false, statusEvidence: 'found' }, evidence: 'Exact name and language found in Meta.', status: 'APPROVED', components: 'Components unconfirmed' },
+  { name: 'approved but stale Meta evidence', template: { observedStatus: 'APPROVED', componentsVerified: true, statusStale: true, statusEvidence: 'found' }, evidence: 'Last verified status is stale', status: 'APPROVED', components: 'Components verified' },
+]) {
+  test(`${scenario.name} permits selection and preview but blocks all form submissions`, async ({ page }) => {
+    const calls = await mockApi(page, { active: true, catalogue: true, testTemplate: { ...scenario.template, approved: false, eligibleForTesting: false } });
+    await page.goto('/admin/integrations/whatsapp');
+    await openSection(page, 'Test Messages');
+    await page.getByRole('option', { name: /rk_order_confirmation/ }).click();
+    const option = page.getByRole('option', { name: /3p_direct_integration_test_template/ });
+    await option.click();
+    await expect(option).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByText('Template preview · 3p_direct_integration_test_template · en_US')).toBeVisible();
+    await expect(page.getByText(registeredTemplate.components[1].text, { exact: true })).toBeVisible();
+    const eligibility = page.getByRole('region', { name: 'Selected template eligibility' });
+    await expect(eligibility).toContainText('Preview only');
+    await expect(eligibility).toContainText(`Meta status: ${scenario.status}`);
+    await expect(eligibility).toContainText(scenario.components);
+    await expect(eligibility).toContainText(scenario.evidence);
+    await expect(eligibility).toContainText('Language: en_US · Category: UTILITY');
+    await expect(eligibility).toContainText('Test-send gate: On');
+    await page.getByLabel('Consenting test recipient').fill('+14155552671');
+    await page.getByLabel('I confirm this test recipient opted in').check();
+    await expect(page.getByRole('button', { name: 'Send approved test template', exact: true })).toBeDisabled();
+    // Exercise implicit/programmatic submission as well as the disabled button.
+    await option.evaluate(element => (element.closest('form') as HTMLFormElement).requestSubmit());
+    expect(calls.sent).toHaveLength(0);
+  });
+}
+
+test('production gate off permits approved template preview without permitting a send', async ({ page }) => {
+  const calls = await mockApi(page, { active: true, catalogue: true, production: true });
+  await page.goto('/admin/integrations/whatsapp');
+  await openSection(page, 'Test Messages');
+  await page.getByRole('option', { name: /rk_order_confirmation/ }).click();
+  await page.getByRole('option', { name: /3p_direct_integration_test_template/ }).click();
+  await expect(page.getByText(registeredTemplate.components[1].text, { exact: true })).toBeVisible();
+  const eligibility = page.getByRole('region', { name: 'Selected template eligibility' });
+  await expect(eligibility).toContainText('Meta status: APPROVED');
+  await expect(eligibility).toContainText('Test-send gate: Off');
+  await page.getByLabel('Consenting test recipient').fill('+14155552671');
+  await page.getByLabel('I confirm this test recipient opted in').check();
   await expect(page.getByRole('button', { name: 'Send approved test template', exact: true })).toBeDisabled();
   expect(calls.sent).toHaveLength(0);
 });
@@ -362,7 +415,11 @@ test('approved catalogue selection validates ordered fields outside the service 
   await openSection(page, 'Test Messages');
   await expect(page.getByRole('heading', { name: 'Send one-off approved template test' })).toBeVisible();
   await expect(page.getByRole('option', { name: /rk_authentication_otp/ })).toHaveCount(0);
-  await expect(page.getByRole('option', { name: /rk_order_shipped/ })).toBeDisabled();
+  const pendingOption = page.getByRole('option', { name: /rk_order_shipped/ });
+  await expect(pendingOption).toBeEnabled();
+  await pendingOption.click();
+  await expect(page.getByRole('region', { name: 'Selected template eligibility' })).toContainText('PENDING / IN_REVIEW');
+  await expect(page.getByRole('button', { name: 'Send approved test template', exact: true })).toBeDisabled();
   await page.getByRole('option', { name: /rk_order_confirmation.*Approved.*test eligible/ }).click();
   await page.getByLabel('Consenting test recipient').fill('+14155552671');
   const send = page.getByRole('button', { name: 'Send approved test template', exact: true });
