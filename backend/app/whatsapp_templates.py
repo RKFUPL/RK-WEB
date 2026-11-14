@@ -222,7 +222,7 @@ def registry(config):
         valid = valid and entry.get("parameterTypes", types) == types
         valid = valid and all(button.get("url") for button in (spec or {}).get("buttons", []))
         if local_test:
-            valid = valid and event == "test" and config.get("WHATSAPP_ENVIRONMENT") == "development"
+            valid = valid and event == "test"
             valid = valid and language == LOCAL_TEST_TEMPLATE["language"] and category == LOCAL_TEST_TEMPLATE["category"]
             valid = valid and not parameters and entry.get("components", LOCAL_TEST_TEMPLATE["components"]) == LOCAL_TEST_TEMPLATE["components"]
         # Retain legacy configuration syntax only as local metadata.

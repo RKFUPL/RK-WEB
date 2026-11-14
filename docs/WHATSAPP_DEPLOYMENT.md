@@ -1,6 +1,6 @@
 # WhatsApp disabled deployment and operations
 
-These are instructions for a future separately authorized VPS/Meta change window. No command in the VPS or Meta sections was executed during local remediation. All real sending gates remain off, including local test sending. The production configuration class also forces all send flags off in code. This runbook supersedes operational instructions in the older implementation notes.
+These are instructions for a future separately authorized VPS/Meta change window. No command in the VPS or Meta sections was executed during local remediation. All real sending gates remain off, including local test sending. The production configuration class forces automated, marketing and development-test flags off in code. A separate default-off, expiring, single-recipient Utility test exception is documented in [WHATSAPP_PRODUCTION_TEST_MODE.md](WHATSAPP_PRODUCTION_TEST_MODE.md); leave it off for this disabled deployment. This runbook supersedes operational instructions in the older implementation notes.
 
 ## Local startup and validation
 
@@ -59,6 +59,7 @@ Verify these names in the existing approved runtime environment; never replace t
 | `FLASK_ENV` | Explicit production marker; no conflicting development marker in APP_ENV/ENVIRONMENT. |
 | `WHATSAPP_ENVIRONMENT` | Production. Environment is never selected from browser/Host headers. |
 | `WHATSAPP_ENABLED`, `WHATSAPP_TEST_SEND_ENABLED`, `WHATSAPP_MARKETING_ENABLED` | All off. Keep database integration and automated template switches off as well. |
+| `WHATSAPP_PRODUCTION_TEST_SEND_ENABLED`, `WHATSAPP_PRODUCTION_TEST_RECIPIENT`, `WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT` | New flag off, recipient/expiry blank for a disabled deployment. Any future temporary test requires separate authorization, one exact recipient and an explicit UTC expiry no more than 24 hours ahead; backend rechecks this at dispatch and retries. See the dedicated guide. |
 | `WHATSAPP_API_VERSION` | Explicit provider-supported version; current configured v26.0 metadata GETs were verified. No guessed default/version upgrade. |
 | `WHATSAPP_BUSINESS_ACCOUNT_ID`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_ID` | Exact intended app/WABA/registered business-number relationship, independently verified. |
 | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | Backend-only runtime secrets with correct permissions and lifetime. |

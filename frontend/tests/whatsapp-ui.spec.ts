@@ -17,7 +17,7 @@ const registeredTemplate = {
   ],
 };
 
-async function mockApi(page: Page, options: { active?: boolean; role?: string; window?: 'open' | 'closed' | 'expired'; invalidRecipient?: boolean; textError?: boolean; localRateLimit?: boolean; gate?: boolean; production?: boolean; catalogue?: boolean; mappingDisabled?: boolean; readReceiptStatus?: 'received' | 'not_received' | 'unknown'; logStatus?: string; registered?: boolean; metaApproved?: boolean; refreshFailure?: boolean; testTemplate?: Record<string, unknown> } = {}) {
+async function mockApi(page: Page, options: { active?: boolean; role?: string; window?: 'open' | 'closed' | 'expired'; invalidRecipient?: boolean; textError?: boolean; localRateLimit?: boolean; gate?: boolean; production?: boolean; catalogue?: boolean; mappingDisabled?: boolean; readReceiptStatus?: 'received' | 'not_received' | 'unknown'; logStatus?: string; registered?: boolean; metaApproved?: boolean; refreshFailure?: boolean; testTemplate?: Record<string, unknown>; productionTest?: { enabled: boolean; recipient: string; expiresAt: string | null } } = {}) {
   const sent: Record<string, unknown>[] = [];
   const filters: string[] = [];
   await page.route('**/*', async route => {
@@ -43,6 +43,7 @@ async function mockApi(page: Page, options: { active?: boolean; role?: string; w
       } } : {}),
       testSendEnabled: Boolean(options.active && options.gate !== false && !options.production),
       environment: options.production ? 'production' : 'development',
+      productionTest: options.productionTest,
       callbackUrl: options.production ? 'https://rashikapoor.co.in/api/webhooks/whatsapp' : options.active ? 'https://fixture-tunnel.example/api/webhooks/whatsapp' : '',
     } });
     if (path === '/api/admin/integrations/whatsapp/test-window') {
@@ -249,6 +250,66 @@ test('sending requires explicit consent and shows Meta ID; filters request logs'
   await expect.poll(() => calls.filters.some(value => value.includes('status=delivered'))).toBe(true);
   await page.getByRole('combobox', { name: 'Message type filter' }).selectOption('test');
   await expect.poll(() => calls.filters.some(value => value.includes('type=test'))).toBe(true);
+});
+
+test('restricted production mode allows only the configured Utility recipient with consent', async ({ page }) => {
+  const calls = await mockApi(page, { active: true, production: true, registered: true,
+    productionTest: { enabled: true, recipient: '+14155552671', expiresAt: '2099-01-01T00:00:00+00:00' } });
+  await page.goto('/admin/integrations/whatsapp');
+  await openSection(page, 'Test Messages');
+  const mode = page.getByRole('region', { name: 'Restricted production test mode' });
+  await expect(mode).toContainText('Enabled');
+  await expect(mode).toContainText('Only permitted recipient: +14155552671');
+  await expect(mode).toContainText('Expires (UTC): 2099-01-01T00:00:00+00:00');
+  const send = page.getByRole('button', { name: 'Send approved test template', exact: true });
+  await page.getByLabel('Consenting test recipient').fill('+14155552672');
+  await page.getByLabel('I confirm this test recipient opted in').check();
+  await expect(send).toBeDisabled();
+  await page.getByLabel('Consenting test recipient').fill('+14155552671');
+  await expect(send).toBeDisabled();
+  await page.getByLabel('I confirm this test recipient opted in').check();
+  await expect(send).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Send Test Message', exact: true })).toBeDisabled();
+  await send.click();
+  expect(calls.sent).toHaveLength(1);
+  expect(calls.sent[0]).toMatchObject({ recipient: '+14155552671', templateName: registeredTemplate.name, language: 'en_US', confirmed: true });
+});
+
+for (const scenario of [
+  { name: 'missing settings', mode: { enabled: false, recipient: '', expiresAt: null }, template: {} },
+  { name: 'expired mode', mode: { enabled: true, recipient: '+14155552671', expiresAt: '2020-01-01T00:00:00Z' }, template: {} },
+  { name: 'missing expiry', mode: { enabled: true, recipient: '+14155552671', expiresAt: null }, template: {} },
+  { name: 'stale template', mode: { enabled: true, recipient: '+14155552671', expiresAt: '2099-01-01T00:00:00Z' }, template: { eligibleForTesting: false, statusStale: true } },
+  { name: 'unverified components', mode: { enabled: true, recipient: '+14155552671', expiresAt: '2099-01-01T00:00:00Z' }, template: { eligibleForTesting: false, componentsVerified: false } },
+]) {
+  test(`restricted production ${scenario.name} blocks sending`, async ({ page }) => {
+    const calls = await mockApi(page, { active: true, production: true, catalogue: true, productionTest: scenario.mode, testTemplate: scenario.template });
+    await page.goto('/admin/integrations/whatsapp');
+    await openSection(page, 'Test Messages');
+    await expect(page.getByRole('option', { name: /rk_authentication_otp/ })).toHaveCount(0);
+    await expect(page.getByRole('option', { name: /rk_new_collection_drop/ })).toHaveCount(0);
+    await page.getByLabel('Consenting test recipient').fill('+14155552671');
+    await page.getByLabel('I confirm this test recipient opted in').check();
+    await expect(page.getByRole('button', { name: 'Send approved test template', exact: true })).toBeDisabled();
+    expect(calls.sent).toHaveLength(0);
+  });
+}
+
+test('restricted production expiry disables an already valid form while the page remains open', async ({ page }) => {
+  const moment = Date.now();
+  await page.clock.install({ time: moment });
+  const calls = await mockApi(page, { active: true, production: true, registered: true,
+    productionTest: { enabled: true, recipient: '+14155552671', expiresAt: new Date(moment + 60_000).toISOString() } });
+  await page.goto('/admin/integrations/whatsapp');
+  await openSection(page, 'Test Messages');
+  await page.getByLabel('Consenting test recipient').fill('+14155552671');
+  await page.getByLabel('I confirm this test recipient opted in').check();
+  const send = page.getByRole('button', { name: 'Send approved test template', exact: true });
+  await expect(send).toBeEnabled();
+  await page.clock.fastForward(61_000);
+  await expect(send).toBeDisabled();
+  await expect(page.getByRole('region', { name: 'Restricted production test mode' })).toContainText('Off or expired');
+  expect(calls.sent).toHaveLength(0);
 });
 
 test('message logs state when no read receipt has arrived yet', async ({ page }) => {

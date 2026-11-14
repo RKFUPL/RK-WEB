@@ -12,6 +12,7 @@ type Status = {
   enabled: boolean; environmentEnabled: boolean; configured: boolean; missing: string[];
   phoneNumberId: string; businessPhoneNumber?: string; businessAccountId: string; apiVersion: string; callbackUrl: string;
   environment: 'development' | 'production'; testSendEnabled: boolean;
+  productionTest?: { enabled: boolean; recipient: string; expiresAt?: string | null; reason?: string | null };
   verifiedAt?: string; lastWebhook?: string; lastApiSuccess?: string;
   subscriptionStatus?: string; subscriptionCheckedAt?: string; lastError?: { kind: string; code?: number };
   templates: Record<string, Template>;
@@ -149,6 +150,7 @@ export default function WhatsAppIntegrationPage() {
   const [logRevision, setLogRevision] = useState(0);
   const [recipient, setRecipient] = useState('');
   const [confirmed, setConfirmed] = useState(false);
+  const [testClock, setTestClock] = useState(() => Date.now());
   const [templateEvent, setTemplateEvent] = useState('test');
   const [templateParameters, setTemplateParameters] = useState<Record<string, string>>({});
   const [templateWindow, setTemplateWindow] = useState<{ open: boolean; lastIncomingAt?: string } | null>(null);
@@ -184,6 +186,12 @@ export default function WhatsAppIntegrationPage() {
     try { setStatus(await api()); } catch (error) { setNotice(error instanceof Error ? error.message : 'Unable to load connection status.'); }
   }, [api]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!status?.productionTest?.enabled) return;
+    setTestClock(Date.now());
+    const timer = setInterval(() => setTestClock(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [status?.productionTest?.enabled, status?.productionTest?.expiresAt]);
   useEffect(() => {
     setTemplateWindow(null);
     if (!validTestRecipient(recipient)) return;
@@ -224,7 +232,9 @@ export default function WhatsAppIntegrationPage() {
   const selectedTemplate = status?.templates[templateEvent];
   const testParameterFields = selectedTemplate?.testParameterFields ?? [];
   const templateParametersValid = Boolean(selectedTemplate && testParameterFields.every(field => Boolean(templateParameters[field.key]?.trim()) && templateParameters[field.key].length <= 500));
-  const canSendTemplate = Boolean(!busy && confirmed && status?.testSendEnabled && status.configured && validTestRecipient(recipient) && selectedTemplate?.eligibleForTesting && templateParametersValid);
+  const productionTestOpen = Boolean(status?.environment === 'production' && status.productionTest?.enabled && status.productionTest.expiresAt && Date.parse(status.productionTest.expiresAt) > testClock);
+  const templateTestGateOpen = status?.environment === 'production' ? productionTestOpen && recipient === status.productionTest?.recipient : status?.testSendEnabled;
+  const canSendTemplate = Boolean(!busy && confirmed && templateTestGateOpen && status?.configured && validTestRecipient(recipient) && selectedTemplate?.eligibleForTesting && templateParametersValid);
   const catalogRows = Object.values(status?.catalogue ?? {});
   const extraRows = Object.values(status?.templates ?? {}).filter(template => !catalogRows.some(row => row.name === template.name && row.language === template.language)
     && template.name !== 'rk_test');
@@ -262,6 +272,7 @@ export default function WhatsAppIntegrationPage() {
       {show('test-messages') && <>
         <WhatsAppTestMessage enabled={status.testSendEnabled} configured={status.configured} request={api} onComplete={() => setLogRevision(value => value + 1)} />
         <section className={`${box} space-y-4`}><div><h2 className="text-xl font-semibold">Send one-off approved template test</h2><p className="mt-1 text-sm text-gray-600">This sends directly through the configured WhatsApp Phone Number ID and writes to test message logs. Automated mapping enablement is separate and is not required. Authentication and marketing templates use their separate eligibility and consent flows.</p></div>
+          {status.environment === 'production' && <div role="region" aria-label="Restricted production test mode" className="space-y-2 rounded-xl border border-amber-700/30 bg-amber-50 p-4 text-sm"><p className="font-semibold">Restricted production template testing: {productionTestOpen ? 'Enabled' : 'Off or expired'}</p><p>Only permitted recipient: {status.productionTest?.recipient || 'Not configured'} · Expires (UTC): {status.productionTest?.expiresAt || 'Not configured'}</p><p>Approved Utility templates only. Free-text, Authentication, Marketing and automated messaging remain unavailable. The backend rechecks the recipient and expiry before every dispatch.</p>{status.productionTest?.reason && <p>Backend restriction: {status.productionTest.reason}</p>}</div>}
           <label className="block max-w-2xl text-sm">Search templates<input aria-label="Search approved templates" className={`${input} mt-1 block w-full`} value={templateSearch} onChange={event => { setTemplateSearch(event.target.value); setTemplateLimit(6); }} placeholder="Search by template name or language" /></label>
           <form className="space-y-4" onSubmit={event => { event.preventDefault(); if (!canSendTemplate) return; if (!requestId.current) requestId.current = crypto.randomUUID(); void action('/test-send', 'POST', { recipient, event: templateEvent, templateName: selectedTemplate?.name, language: selectedTemplate?.language, parameters: templateParameters, confirmed, requestId: requestId.current }); }}>
           <div role="listbox" aria-label="Utility templates" className="space-y-1 rounded-xl border p-2">{testTemplates.map(([event, template]) => <button type="button" role="option" aria-selected={templateEvent === event} key={event} aria-description={template.eligibleForTesting ? 'Select to preview; sending requires the test-send gate, configuration, recipient, consent and valid parameters.' : 'Preview only; this template is not eligible for test sending.'} onClick={() => { setTemplateEvent(event); setTemplateParameters({}); setConfirmed(false); requestId.current = ''; }} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm hover:bg-[#f7f4ef] aria-selected:bg-[#f7f4ef]"><span className="break-all">{template.templateGroup === 'Integration Test' ? 'Integration Test - ' : ''}{template.name || event} · {template.language} · {template.category}{template.locallyMapped ? ` · Automated mapping ${template.mappingEnabled ? 'enabled' : 'disabled'}` : ''}</span><span className={chip(template.eligibleForTesting === true, metaStatus(template))}>{template.eligibleForTesting ? 'Approved · test eligible' : metaStatus(template)}</span></button>)}{!testTemplates.length && <p className="p-3 text-sm text-gray-500">No Utility templates match.</p>}</div>
@@ -273,7 +284,7 @@ export default function WhatsAppIntegrationPage() {
           <p className="rounded-lg bg-[#f7f4ef] p-3 text-sm">Final confirmation: one-off template test to <strong>{recipient || 'enter an E.164 recipient number'}</strong>. This does not create or update an order.</p><label className="flex gap-2 text-sm"><input required type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />I confirm this test recipient opted in and authorize one one-off test send.</label>
           <div role="region" aria-label="Selected template eligibility" className="space-y-2 rounded-xl border p-4 text-sm">
             <p className="font-semibold">{selectedTemplate?.eligibleForTesting ? 'Template eligible for testing; sending also requires the checks below.' : 'Preview only: template is not eligible for test sending.'}</p>
-            <p>Test-send gate: {status.testSendEnabled ? 'On' : 'Off'} · Meta status: {selectedTemplate ? metaStatus(selectedTemplate) : 'MISSING_OR_UNKNOWN'} · {selectedTemplate?.componentsVerified ? 'Components verified' : 'Components unconfirmed'} - {selectedTemplate ? qualityLabel(selectedTemplate) : 'Quality not reported'}</p>
+            <p>Test-send gate: {(status.environment === 'production' ? productionTestOpen : status.testSendEnabled) ? 'On' : 'Off'} · Meta status: {selectedTemplate ? metaStatus(selectedTemplate) : 'MISSING_OR_UNKNOWN'} · {selectedTemplate?.componentsVerified ? 'Components verified' : 'Components unconfirmed'} - {selectedTemplate ? qualityLabel(selectedTemplate) : 'Quality not reported'}</p>
             <p>Language: {selectedTemplate?.language || 'Unknown'} · Category: {selectedTemplate?.category || 'Unknown'} · Backend configuration: {status.configured ? 'Configured' : 'Incomplete'}</p>
             <p>Meta evidence: {selectedTemplate ? evidenceLabel(selectedTemplate) : 'No template selected.'} Last verified: {selectedTemplate?.approvalCheckedAt ? date(selectedTemplate.approvalCheckedAt) : 'Not verified'}</p>
           </div>

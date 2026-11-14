@@ -33,6 +33,8 @@ def configuration_problems(config, production=False):
     except (TypeError, ValueError):
         problems.append("WHATSAPP_WORKER_LEASE_SECONDS")
     if production:
+        if config.get("WHATSAPP_PRODUCTION_TEST_SEND_ENABLED", False) is not False:
+            problems.append("WHATSAPP_PRODUCTION_TEST_SEND_ENABLED")
         if config.get("WHATSAPP_ENVIRONMENT") != "production":
             problems.append("WHATSAPP_ENVIRONMENT")
         for key in ("WHATSAPP_ENABLED", "WHATSAPP_TEST_SEND_ENABLED", "WHATSAPP_MARKETING_ENABLED"):
@@ -85,7 +87,7 @@ def register_commands(app, mongo):
     @click.option("--database", required=True, help="Exact database name, checked against URI and DB_NAME.")
     @click.option("--apply", is_flag=True, help="Create additive indexes; never delete records or change TTL retention.")
     def indexes(database, apply):
-        if any(app.config.get(k) is not False for k in ("WHATSAPP_ENABLED", "WHATSAPP_TEST_SEND_ENABLED", "WHATSAPP_MARKETING_ENABLED")):
+        if app.config.get("WHATSAPP_PRODUCTION_TEST_SEND_ENABLED", False) is not False or any(app.config.get(k) is not False for k in ("WHATSAPP_ENABLED", "WHATSAPP_TEST_SEND_ENABLED", "WHATSAPP_MARKETING_ENABLED")):
             raise click.ClickException("All WhatsApp sending gates must be off for index maintenance.")
         try:
             db = guarded_database(app, mongo, database)

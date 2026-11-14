@@ -76,6 +76,51 @@ def test_send_enabled(config):
     return config.get("WHATSAPP_ENVIRONMENT") == "development" and config.get("WHATSAPP_TEST_SEND_ENABLED") is True
 
 
+def production_test_state(config):
+    """Admin-only state; canonical single recipient and explicit ISO UTC expiry."""
+    recipient = config.get("WHATSAPP_PRODUCTION_TEST_RECIPIENT")
+    expiry = config.get("WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT")
+    expires = None
+    try:
+        if not isinstance(expiry, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)", expiry):
+            raise ValueError()
+        expires = datetime.fromisoformat(expiry.replace("Z", "+00:00"))
+    except ValueError:
+        pass
+    try:
+        valid_recipient = bool(isinstance(recipient, str) and re.fullmatch(r"\+[1-9][0-9]{6,14}", recipient)
+                               and normalize_phone(recipient) == recipient)
+    except ValueError:
+        valid_recipient = False
+    checked_at = now()
+    reason = None
+    if config.get("WHATSAPP_ENVIRONMENT") != "production" or config.get("WHATSAPP_PRODUCTION_TEST_SEND_ENABLED") is not True:
+        reason = "production_test_disabled"
+    elif any(config.get(key) is not False for key in ("WHATSAPP_ENABLED", "WHATSAPP_MARKETING_ENABLED", "WHATSAPP_TEST_SEND_ENABLED")):
+        reason = "production_test_unsafe_gates"
+    elif not valid_recipient:
+        reason = "production_test_recipient_invalid"
+    elif expires is None:
+        reason = "production_test_expiry_invalid"
+    elif expires <= checked_at:
+        reason = "production_test_expired"
+    elif expires > checked_at + timedelta(hours=24):
+        reason = "production_test_expiry_too_far"
+    return {"enabled": reason is None, "recipient": recipient if valid_recipient else "",
+            "expiresAt": expires.isoformat() if expires else None, "reason": reason}
+
+
+def production_test_block(config, recipient):
+    state = production_test_state(config)
+    if not state["enabled"]:
+        return state["reason"]
+    return None if recipient == state["recipient"] else "production_test_recipient_mismatch"
+
+
+def template_test_enabled(config):
+    return test_send_enabled(config) or production_test_state(config)["enabled"]
+
+
 def callback_configuration(config):
     if config.get("WHATSAPP_ENVIRONMENT") != "development":
         return {"environment": "production", "callbackUrl": CALLBACK}
@@ -149,10 +194,16 @@ def _test_template_components(template, supplied):
     return result
 
 
-def send(db, config, recipient, event, parameters, key, *, order_id=None, text=None, test_send=False, consent=False, auth_context=None, consent_check=None, allow_rate_limit_retry=False, button_parameters=None, campaign_context=None, test_parameters=None):
+def send(db, config, recipient, event, parameters, key, *, order_id=None, text=None, test_send=False, consent=False, auth_context=None, consent_check=None, allow_rate_limit_retry=False, button_parameters=None, campaign_context=None, test_parameters=None, production_test=False):
     """Internal-only transport; callers must enforce consent. No arbitrary send API."""
+    if production_test and (not test_send or text is not None or test_parameters is None):
+        return {"status": "skipped", "reason": "invalid_test_type"}
     if test_send:
-        if not test_send_enabled(config):
+        if production_test:
+            blocked = production_test_block(config, recipient)
+            if blocked:
+                return {"status": "skipped", "reason": blocked}
+        elif not test_send_enabled(config):
             return {"status": "skipped", "reason": "test_send_disabled"}
         if consent is not True:
             return {"status": "skipped", "reason": "no_consent"}
@@ -230,7 +281,7 @@ def send(db, config, recipient, event, parameters, key, *, order_id=None, text=N
     record = {"_id": correlation, "recipient": "***" + phone[-4:], "recipientHash": phone_hash,
               "type": event if text is None else "text", "template": template["name"] if text is None else None,
               "orderId": str(order_id) if order_id else None, "status": "sending", "createdAt": now(), "attempts": 0,
-              "testSend": bool(test_send)}
+              "testSend": bool(test_send), "productionTestSend": bool(production_test)}
     try:
         db.whatsapp_messages.insert_one(record)
     except DuplicateKeyError:
@@ -248,7 +299,7 @@ def send(db, config, recipient, event, parameters, key, *, order_id=None, text=N
     for attempt in range(3):
         # A short Retry-After can cross the window boundary. Recheck for every
         # actual request, including retries, rather than trusting preflight.
-        blocked = "test_send_disabled" if test_send and not test_send_enabled(config) else None
+        blocked = production_test_block(config, recipient) if production_test else ("test_send_disabled" if test_send and not test_send_enabled(config) else None)
         if not test_send and not enabled(db, config):
             blocked = "disabled"
         if marketing:
@@ -272,6 +323,11 @@ def send(db, config, recipient, event, parameters, key, *, order_id=None, text=N
             break
         db.whatsapp_messages.update_one({"_id": correlation}, {"$inc": {"attempts": 1}})
         try:
+            if production_test:
+                blocked = production_test_block(config, recipient)
+                if blocked:
+                    result = {"status": "failed", "reason": blocked, "error": {"kind": blocked}, "httpStatus": result.get("httpStatus")}
+                    break
             response = requests.post(
                 f"https://graph.facebook.com/{config['WHATSAPP_API_VERSION']}/{config['WHATSAPP_PHONE_NUMBER_ID']}/messages",
                 headers={"Authorization": "Bearer " + config["WHATSAPP_ACCESS_TOKEN"]},

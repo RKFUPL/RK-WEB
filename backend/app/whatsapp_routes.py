@@ -20,7 +20,8 @@ from .whatsapp_marketing_consent import withdraw_marketing_from_inbound
 from .whatsapp_catalogue import CATALOGUE
 from .whatsapp_definitions import definitions, definition_components, canonical_origin
 from .whatsapp import (configuration_errors, fingerprint, now, registry, send, send_text, notify, notify_admins,
-                       test_send_enabled, callback_configuration, customer_window, CUSTOMER_MESSAGE_TYPES, normalize_phone)
+                       test_send_enabled, template_test_enabled, production_test_state, production_test_block,
+                       callback_configuration, customer_window, CUSTOMER_MESSAGE_TYPES, normalize_phone)
 
 webhook_bp = Blueprint("whatsapp_webhook", __name__)
 admin_bp = Blueprint("whatsapp_admin", __name__)
@@ -91,7 +92,7 @@ def safe_status(db):
         item["testParameterFields"] = test_fields or []
         item["eligibleForTesting"] = bool(ready and test_fields is not None and item["category"] == "UTILITY"
             and item.get("requiresMetaApproval") is True and item.get("approvalSource") == "meta_api_read"
-            and not item.get("statusStale") and test_send_enabled(config))
+            and not item.get("statusStale") and template_test_enabled(config))
         item["eligibleForAutomation"] = bool(item["enabled"] and ready and config.get("WHATSAPP_ENABLED") is True and state.get("enabled") is True
             and (item["category"] != "MARKETING" or config.get("WHATSAPP_MARKETING_ENABLED") is True))
     catalogue = {}
@@ -132,6 +133,7 @@ def safe_status(db):
             "businessAccountId": config.get("WHATSAPP_BUSINESS_ACCOUNT_ID", ""),
             "apiVersion": config.get("WHATSAPP_API_VERSION", ""),
             "testSendEnabled": test_send_enabled(config), **callback_configuration(config),
+            "productionTest": production_test_state(config),
             **{k: state.get(k) for k in ("verifiedAt", "lastWebhook", "lastApiSuccess", "lastError", "subscriptionStatus", "subscriptionCheckedAt")},
             "templates": templates, "catalogue": catalogue, "unmappedTemplates": unmapped,
             "templateStatusSync": sync, "marketingEnabled": config.get("WHATSAPP_MARKETING_ENABLED") is True}
@@ -430,7 +432,12 @@ def test_send():
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict) or payload.get("confirmed") is not True or not re.fullmatch(r"[A-Za-z0-9-]{16,80}", str(payload.get("requestId", ""))):
         return jsonify(error="Confirm recipient consent and provide a request ID."), 400
-    if not test_send_enabled(current_app.config):
+    production_test = current_app.config.get("WHATSAPP_ENVIRONMENT") == "production"
+    if production_test:
+        blocked = production_test_block(current_app.config, payload.get("recipient"))
+        if blocked:
+            return _test_response({"status": "skipped", "reason": blocked})
+    elif not test_send_enabled(current_app.config):
         return _test_response({"status": "skipped", "reason": "test_send_disabled"})
     config, db = current_app.config, database()
     event = payload.get("event")
@@ -450,7 +457,7 @@ def test_send():
         return _test_response({"status": "skipped", "reason": "invalid_recipient"})
     result = send(db, config, payload.get("recipient"), event, {},
                   f"test:{current_user()['_id']}:{payload['requestId']}", test_send=True, consent=True,
-                  test_parameters=payload.get("parameters"))
+                  test_parameters=payload.get("parameters"), production_test=production_test)
     return _test_response(result)
 
 
@@ -465,12 +472,19 @@ def _test_response(result):
         "template_not_approved_or_enabled": "A test requires this exact Utility template to be currently approved by Meta with verified components. Automated mapping enablement is not required.",
         "missing_template_parameters": "Required template parameters are missing or invalid.",
         "recipient_opted_out": "This recipient has opted out. Obtain fresh consent through the account preferences before sending.",
+        "production_test_disabled": "Restricted production template testing is off.",
+        "production_test_unsafe_gates": "Production testing requires automated, marketing and development sending gates to remain off.",
+        "production_test_recipient_invalid": "Configure exactly one valid E.164 production test recipient in the backend.",
+        "production_test_recipient_mismatch": "This recipient is not the configured production test recipient.",
+        "production_test_expiry_invalid": "Configure an explicit ISO 8601 UTC production test expiry in the backend.",
+        "production_test_expired": "Restricted production template testing has expired.",
+        "production_test_expiry_too_far": "The production test expiry must be no more than 24 hours from the current UTC time.",
     }
     if result.get("reason") in explanations:
         result = {**result, "explanation": explanations[result["reason"]]}
     status_code = 200 if result["status"] in {"accepted", "duplicate"} else 502
     if result.get("reason"):
-        status_code = 403 if result["reason"] == "test_send_disabled" else 400 if result["reason"] in {"no_consent", "invalid_recipient", "invalid_text"} else 409
+        status_code = 403 if result["reason"] == "test_send_disabled" or result["reason"].startswith("production_test_") else 400 if result["reason"] in {"no_consent", "invalid_recipient", "invalid_text"} else 409
     if (result.get("error") or {}).get("kind") == "rate_limited":
         status_code = 429
     return jsonify(json_value(result)), status_code
