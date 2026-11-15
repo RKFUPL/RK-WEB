@@ -1,3 +1,21 @@
+# Current order-only production mode
+
+`WHATSAPP_ORDER_NOTIFICATIONS_ENABLED=false` is the new default-off environment gate. ProductionConfig reads it explicitly while continuing to hard-disable broad automation, development test sends and marketing. A separate authenticated admin control, `integrations.whatsapp.orderNotificationsEnabled`, defaults off; both controls must be on. No production environment, Meta setting, live database document or current template mapping was edited by this change. See [activation and rollback requirements](WHATSAPP_DEPLOYMENT.md#order-only-activation-requirements-separate-authorization-required).
+
+Six events may enter order-only automation: order_confirmation, shipped, out_for_delivery, delivered, cancelled and refund_completed. Payment confirmation stays outside this restricted mode so the initial paid-order hook cannot queue both an order confirmation and a payment confirmation. The broader messaging mode retains its existing separately mapped payment-confirmation path. Initial order-only activation must enable only order_confirmation; all other mappings stay disabled until individually authorized. Email confirmation and its independent claim/retry behavior are unchanged.
+
+The existing order service reloads the actual order and requires persisted payment verification time and payment ID for order confirmation, plus its confirmed/progress fulfillment state. The backend checkout verification and signed Razorpay capture handler persist that proof before calling the existing notification hook. No browser total/status authorizes a send. Existing shipment dispatch/AWB proof and signed processed-refund proof remain mandatory. Failed/unverified payments do not queue confirmation; a paid order awaiting staff availability confirmation retains its existing confirmation policy.
+
+Order-only mode additionally requires the saved per-order transactional consent bound to the shipping recipient. Missing or declined order consent cannot inherit profile consent. Profile withdrawal, inactive customer and signed STOP continue blocking delivery. The optional checkout consent starts unchecked; marketing is separate. Eligibility and safe skipped reasons are recorded in the existing order activity.
+
+New outbox jobs contain non-sensitive event and orderNotification tags alongside the encrypted payload. The worker uses the tags to claim only the six order-only events; it excludes payment_confirmation, OTP, marketing, campaigns, free text, admin notifications and optional lifecycle events. It then validates the decrypted event, order binding, exact pinned mapping, persisted parameters, recipient consent and authoritative business state. Legacy untagged and unrelated jobs remain unclaimed in order-only mode. Never bulk-retag or replay them. Existing claim tokens, leases, encryption, permanent event identities, rate-limit backoff and ambiguous-outcome holds are preserved. Dispatch checks and retries recheck both gates, consent, business proof and Meta evidence; turning off the order gate stops subsequent claims.
+
+Order details retain event, masked recipient, consent/eligibility, queue state, safe failure codes and accepted/sent/delivered/read/failed timestamps. Signed webhook receipt processing is unchanged; delivered never implies read. Admin Studio shows backend and admin order controls independently from general messaging and manual test mode. Manual production test expiry remains independent and does not authorize order jobs.
+
+Template eligibility still requires the existing exact catalogue name, language, Utility category, matching component signature and fresh API-read approval. No Meta inventory read or send was performed during implementation; activation requires a successful current provider read. No mapping was automatically enabled. The existing worker/timer files require no command changes.
+
+---
+
 > Historical implementation/submission notes. Current operations and off-gate policy are in [WHATSAPP_DEPLOYMENT.md](WHATSAPP_DEPLOYMENT.md); current verification and remaining blockers are in [WHATSAPP_POST_REMEDIATION_AUDIT.md](WHATSAPP_POST_REMEDIATION_AUDIT.md). Older flags, counts, approval snapshots and activation instructions below are historical. Template definitions are not proof of Meta approval.
 
 # WhatsApp order lifecycle integration

@@ -27,6 +27,15 @@ admin_bp = Blueprint("admin", __name__)
 storefront_lookbooks_bp = Blueprint("storefront_lookbooks", __name__)
 
 
+@admin_bp.before_request
+@limiter.limit("300 per minute")
+def _admin_api_rate_guard():
+    # Keep a baseline for every admin read and mutation after removing the
+    # application-wide public request bucket. Sensitive routes retain tighter
+    # endpoint-specific limits below.
+    return None
+
+
 @admin_bp.get("/integrations/email")
 @requireAdmin
 def email_integration_status():

@@ -7,6 +7,7 @@ import secrets
 
 from bson import ObjectId
 from flask import Blueprint, current_app, jsonify, request
+from .extensions import limiter
 
 from .rbac import database
 from .mail import SENDERS, send_html_email
@@ -96,6 +97,7 @@ def get_feedback(token: str):
 
 
 @feedback_bp.post("/<token>")
+@limiter.limit("10 per hour")
 def submit_feedback(token: str):
     db = database()
     record = _token_record(db, token)

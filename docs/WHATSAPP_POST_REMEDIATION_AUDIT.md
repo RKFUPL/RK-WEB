@@ -136,11 +136,12 @@ WHATSAPP_WORKER_LEASE_SECONDS
 DB_NAME
 MONGO_DB / MONGO_URI
 RATELIMIT_STORAGE_URI
-TRUSTED_PROXY_HOPS
 SECRET_KEY
 JWT_SECRET_KEY
 BACKEND_INTERNAL_URL
 ```
+
+Flask currently ignores client-IP forwarding headers. Do not trust one until the active ingress overwrite and backend-peer restrictions are verified end to end.
 
 Production environment must be production; all three WhatsApp send flags false. ProductionConfig additionally forces the flags off. Keep integration/mapping switches off. Omit development callback in production; preserve the outbox encryption key, App Secret fingerprint bindings and existing SMTP/Razorpay settings. `META_APP_ACCESS_TOKEN` is optional diagnostic-only, not a frontend or normal send variable. `RK_BACKEND_IMAGE`/`RK_FRONTEND_IMAGE` are nonsecret release references for the systemd override.
 

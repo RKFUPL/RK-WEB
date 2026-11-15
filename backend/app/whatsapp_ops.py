@@ -8,7 +8,7 @@ import click
 from pymongo.errors import PyMongoError
 
 from .config import validate_database_maintenance_target
-from .whatsapp import configuration_errors, enabled, process_outbox
+from .whatsapp import configuration_errors, automation_enabled, process_outbox
 from .whatsapp_storage import ensure_indexes, index_problems
 
 
@@ -35,6 +35,8 @@ def configuration_problems(config, production=False):
     if production:
         if config.get("WHATSAPP_PRODUCTION_TEST_SEND_ENABLED", False) is not False:
             problems.append("WHATSAPP_PRODUCTION_TEST_SEND_ENABLED")
+        if config.get("WHATSAPP_ORDER_NOTIFICATIONS_ENABLED", False) is not False:
+            problems.append("WHATSAPP_ORDER_NOTIFICATIONS_ENABLED")
         if config.get("WHATSAPP_ENVIRONMENT") != "production":
             problems.append("WHATSAPP_ENVIRONMENT")
         for key in ("WHATSAPP_ENABLED", "WHATSAPP_TEST_SEND_ENABLED", "WHATSAPP_MARKETING_ENABLED"):
@@ -87,7 +89,7 @@ def register_commands(app, mongo):
     @click.option("--database", required=True, help="Exact database name, checked against URI and DB_NAME.")
     @click.option("--apply", is_flag=True, help="Create additive indexes; never delete records or change TTL retention.")
     def indexes(database, apply):
-        if app.config.get("WHATSAPP_PRODUCTION_TEST_SEND_ENABLED", False) is not False or any(app.config.get(k) is not False for k in ("WHATSAPP_ENABLED", "WHATSAPP_TEST_SEND_ENABLED", "WHATSAPP_MARKETING_ENABLED")):
+        if app.config.get("WHATSAPP_PRODUCTION_TEST_SEND_ENABLED", False) is not False or app.config.get("WHATSAPP_ORDER_NOTIFICATIONS_ENABLED", False) is not False or any(app.config.get(k) is not False for k in ("WHATSAPP_ENABLED", "WHATSAPP_TEST_SEND_ENABLED", "WHATSAPP_MARKETING_ENABLED")):
             raise click.ClickException("All WhatsApp sending gates must be off for index maintenance.")
         try:
             db = guarded_database(app, mongo, database)
@@ -122,7 +124,7 @@ def register_commands(app, mongo):
 
     @app.cli.command("whatsapp-worker")
     def worker():
-        if app.config.get("WHATSAPP_ENABLED") is not True:
+        if app.config.get("WHATSAPP_ENABLED") is not True and app.config.get("WHATSAPP_ORDER_NOTIFICATIONS_ENABLED") is not True:
             emit("whatsapp_worker", status="disabled", processed=0)
             return
         problems = configuration_problems(app.config)
@@ -132,7 +134,7 @@ def register_commands(app, mongo):
         previous = {}
         try:
             db = guarded_database(app, mongo)
-            if not enabled(db, app.config):
+            if not automation_enabled(db, app.config):
                 emit("whatsapp_worker", status="disabled", processed=0)
                 return
             missing = index_problems(db)

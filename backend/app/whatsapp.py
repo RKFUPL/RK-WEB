@@ -72,6 +72,17 @@ def enabled(db, config):
     return config.get("WHATSAPP_ENABLED") is True and (db.integrations.find_one({"_id": "whatsapp"}) or {}).get("enabled") is True
 
 
+def order_notifications_enabled(db, config):
+    return (config.get("WHATSAPP_ORDER_NOTIFICATIONS_ENABLED") is True
+            and (db.integrations.find_one({"_id": "whatsapp"}) or {}).get("orderNotificationsEnabled") is True)
+
+
+def automation_enabled(db, config, event=None):
+    from .whatsapp_orders import ORDER_ONLY_EVENTS
+    return enabled(db, config) or (order_notifications_enabled(db, config)
+                                  and (event is None or event in ORDER_ONLY_EVENTS))
+
+
 def test_send_enabled(config):
     return config.get("WHATSAPP_ENVIRONMENT") == "development" and config.get("WHATSAPP_TEST_SEND_ENABLED") is True
 
@@ -191,7 +202,7 @@ def _test_template_components(template, supplied):
     return result
 
 
-def send(db, config, recipient, event, parameters, key, *, order_id=None, text=None, test_send=False, consent=False, auth_context=None, consent_check=None, allow_rate_limit_retry=False, button_parameters=None, campaign_context=None, test_parameters=None, production_test=False):
+def send(db, config, recipient, event, parameters, key, *, order_id=None, text=None, test_send=False, consent=False, auth_context=None, consent_check=None, allow_rate_limit_retry=False, button_parameters=None, campaign_context=None, test_parameters=None, production_test=False, order_notification=False):
     """Internal-only transport; callers must enforce consent. No arbitrary send API."""
     if production_test and (not test_send or text is not None or test_parameters is None):
         return {"status": "skipped", "reason": "invalid_test_type"}
@@ -206,7 +217,7 @@ def send(db, config, recipient, event, parameters, key, *, order_id=None, text=N
             return {"status": "skipped", "reason": "no_consent"}
         if event != "text" and (event not in registry(config) or registry(config)[event]["category"] != "UTILITY"):
             return {"status": "skipped", "reason": "invalid_test_type"}
-    elif not enabled(db, config):
+    elif not automation_enabled(db, config, event) or (not enabled(db, config) and not (order_notification and order_id and consent_check and text is None)):
         return {"status": "skipped", "reason": "disabled"}
     if configuration_errors(config):
         return {"status": "skipped", "reason": "configuration_incomplete"}
@@ -215,6 +226,8 @@ def send(db, config, recipient, event, parameters, key, *, order_id=None, text=N
     except ValueError:
         return {"status": "skipped", "reason": "invalid_recipient"}
     template = template_registry(db, config).get(event)
+    if order_notification and (not template or template.get("category") != "UTILITY" or event not in template.get("definitionEvents", [])):
+        return {"status": "skipped", "reason": "invalid_order_template"}
     if test_send and text is None and (not template or template.get("category") != "UTILITY"
             or template.get("requiresMetaApproval") is not True
             or template.get("approvalSource") != "meta_api_read"
@@ -297,7 +310,7 @@ def send(db, config, recipient, event, parameters, key, *, order_id=None, text=N
         # A short Retry-After can cross the window boundary. Recheck for every
         # actual request, including retries, rather than trusting preflight.
         blocked = production_test_block(config, recipient) if production_test else ("test_send_disabled" if test_send and not test_send_enabled(config) else None)
-        if not test_send and not enabled(db, config):
+        if not test_send and (not automation_enabled(db, config, event) or (not enabled(db, config) and not (order_notification and order_id and consent_check and text is None))):
             blocked = "disabled"
         if marketing:
             if not marketing_enabled(db, config) or not valid_campaign_delivery(db, config, campaign_context, event, phone, parameters, button_parameters):
@@ -325,6 +338,11 @@ def send(db, config, recipient, event, parameters, key, *, order_id=None, text=N
                 if blocked:
                     result = {"status": "failed", "reason": blocked, "error": {"kind": blocked}, "httpStatus": result.get("httpStatus")}
                     break
+            if not test_send and (not automation_enabled(db, config, event)
+                    or (not enabled(db, config) and not (order_notification and order_id and consent_check and text is None))
+                    or (consent_check is not None and not consent_check())):
+                result = {"status": "failed", "reason": "automation_or_consent_changed", "error": {"kind": "automation_or_consent_changed"}, "httpStatus": result.get("httpStatus")}
+                break
             response = requests.post(
                 f"https://graph.facebook.com/{config['WHATSAPP_API_VERSION']}/{config['WHATSAPP_PHONE_NUMBER_ID']}/messages",
                 headers={"Authorization": "Bearer " + config["WHATSAPP_ACCESS_TOKEN"]},
@@ -457,9 +475,13 @@ def notify(db, event, record, *, key=None, parameters=None, user=None, auth_cont
 
 def _enqueue_notification(db, event, record, *, key=None, parameters=None, user=None, auth_context=None, business_event_key=None, campaign_context=None, button_parameters=None):
     """Independent best-effort channel: no exception can break email/checkout."""
-    if not has_app_context() or current_app.config.get("WHATSAPP_ENABLED") is not True:
+    if not has_app_context():
         return {"status": "skipped", "reason": "disabled"}
     try:
+        if not automation_enabled(db, current_app.config, event):
+            return {"status": "skipped", "reason": "disabled"}
+        if not enabled(db, current_app.config) and (not business_event_key or not record.get("_id")):
+            return {"status": "skipped", "reason": "order_event_required"}
         if user is None:
             identity = record.get("customerId")
             if isinstance(identity, str) and ObjectId.is_valid(identity):
@@ -492,7 +514,7 @@ def _enqueue_notification(db, event, record, *, key=None, parameters=None, user=
         if event in {"shipped", "tracking_update"}:
             fulfillment = record.get("fulfillment") or {}
             params["tracking"] = "; ".join(str(fulfillment.get(k) or "Not provided") for k in ("courier", "trackingNumber", "trackingUrl"))[:500]
-        if not enabled(db, config) or configuration_errors(config):
+        if not automation_enabled(db, config, event) or configuration_errors(config):
             return {"status": "skipped", "reason": "disabled_or_configuration_incomplete"}
         template = template_registry(db, config).get(event)
         if not template or not template["approved"] or not template["enabled"]:
@@ -519,7 +541,7 @@ def _enqueue_notification(db, event, record, *, key=None, parameters=None, user=
         # only in process memory; remove encrypted payloads after processing.
         payload = {"recipient": phone, "event": event, "parameters": params, "key": event_key,
                    "order_id": str(record["_id"]) if record.get("_id") else None,
-                   "userId": str(user["_id"]) if user.get("_id") else None,
+                   "userId": str(user["_id"]) if user and user.get("_id") else None,
                    "authContext": auth_context,
                    "mapping": {k: template[k] for k in ("name", "language", "category", "parameters", "components", "requiresMetaApproval")},
                    "businessEventKey": business_event_key,
@@ -529,6 +551,7 @@ def _enqueue_notification(db, event, record, *, key=None, parameters=None, user=
         try:
             expiry = as_utc_datetime(auth_challenge(db, auth_context).get("otpExpiresAt")) if is_otp else now() + timedelta(days=1)
             db.whatsapp_outbox.insert_one({"_id": queue_id, "status": "pending", "payload": encrypted,
+                                          "event": event, "orderNotification": bool(business_event_key),
                                           "createdAt": now(), "expiresAt": expiry})
         except DuplicateKeyError:
             return {"status": "duplicate", "correlationId": queue_id}
@@ -565,6 +588,9 @@ def recover_outbox(db, config, limit=50):
         {"leaseUntil": {"$exists": False}, "claimedAt": {"$lte": checked - timedelta(seconds=lease_seconds)}},
         {"leaseUntil": {"$exists": False}, "claimedAt": {"$exists": False}},
     ]}
+    if not enabled(db, config) and order_notifications_enabled(db, config):
+        from .whatsapp_orders import ORDER_ONLY_EVENTS
+        stale.update(event={"$in": sorted(ORDER_ONLY_EVENTS)}, orderNotification=True)
     for item in db.whatsapp_outbox.find(stale).limit(limit):
         message = db.whatsapp_messages.find_one({"_id": item["_id"]})
         query = {"_id": item["_id"], "status": "processing", "claimToken": item.get("claimToken"),
@@ -584,7 +610,7 @@ def recover_outbox(db, config, limit=50):
 
 def process_outbox(db, config, limit=50, *, stop_requested=None):
     """Bounded leased batch; SIGTERM finishes the active job before stopping."""
-    if not enabled(db, config) or configuration_errors(config):
+    if not automation_enabled(db, config) or configuration_errors(config):
         return 0
     recover_outbox(db, config, limit=limit)
     lease_seconds = int(config.get("WHATSAPP_WORKER_LEASE_SECONDS", 300))
@@ -593,11 +619,15 @@ def process_outbox(db, config, limit=50, *, stop_requested=None):
         materialize_campaigns(db, config, limit=limit)
     processed = 0
     for _ in range(limit):
-        if stop_requested and stop_requested():
+        if (stop_requested and stop_requested()) or not automation_enabled(db, config):
             break
         claim_token = uuid4().hex
+        claim_query = {"status": "pending", "expiresAt": {"$gt": now()}, "$or": [{"nextAttemptAt": {"$exists": False}}, {"nextAttemptAt": {"$lte": now()}}]}
+        if not enabled(db, config):
+            from .whatsapp_orders import ORDER_ONLY_EVENTS
+            claim_query.update(event={"$in": sorted(ORDER_ONLY_EVENTS)}, orderNotification=True)
         item = db.whatsapp_outbox.find_one_and_update(
-            {"status": "pending", "expiresAt": {"$gt": now()}, "$or": [{"nextAttemptAt": {"$exists": False}}, {"nextAttemptAt": {"$lte": now()}}]},
+            claim_query,
             {"$set": {"status": "processing", "claimedAt": now(), "claimToken": claim_token,
                       "leaseUntil": now() + timedelta(seconds=lease_seconds)}},
             sort=[("createdAt", 1)], return_document=ReturnDocument.AFTER,
@@ -614,6 +644,11 @@ def process_outbox(db, config, limit=50, *, stop_requested=None):
             refund_id = payload.pop("refundId", None)
             mapping = payload.pop("mapping", None)
             business_key = payload.pop("businessEventKey", None)
+            if not enabled(db, config):
+                if (not automation_enabled(db, config, payload["event"]) or not business_key
+                        or not payload.get("order_id") or payload["event"] != item.get("event")
+                        or payload.get("campaign_context") or context):
+                    raise ValueError("order_event_required")
             current_template = template_registry(db, config).get(payload["event"], {})
             if mapping != {k: current_template.get(k) for k in ("name", "language", "category", "parameters", "components", "requiresMetaApproval")}:
                 raise ValueError("template_mapping_changed")
@@ -682,10 +717,19 @@ def process_outbox(db, config, limit=50, *, stop_requested=None):
                     if business_key:
                         if refund_id:
                             latest_record["whatsappRefund"] = next((r for r in latest_record.get("refunds", []) if r.get("id") == refund_id), {})
+                        try:
+                            latest_values = event_values(payload["event"], latest_record)
+                            if current_template.get("catalogue") and payload["parameters"] != {p: latest_values[p] for p in current_template["parameters"]}:
+                                return False
+                            from .whatsapp_definitions import order_button_parameters
+                            if payload.get("button_parameters", {}) != order_button_parameters(current_template, latest_record):
+                                return False
+                        except (ValueError, KeyError):
+                            return False
                         recipient = order_recipient(db, config, latest_record, latest_user)
                         return not recipient["reason"] and recipient["phone"] == payload["recipient"] and business_event_key(latest_record, payload["event"]) == business_key
                     return consent_phone(db, config, latest_user, latest_record) == payload["recipient"]
-                result = send(db, config, **payload, consent_check=still_consented, allow_rate_limit_retry=item.get("retryCount", 0) > 0)
+                result = send(db, config, **payload, order_notification=bool(business_key), consent_check=still_consented, allow_rate_limit_retry=item.get("retryCount", 0) > 0)
             state = result["status"]
             if state == "duplicate":
                 previous = result.get("previousStatus")

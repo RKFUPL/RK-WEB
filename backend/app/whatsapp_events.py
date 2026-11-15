@@ -32,7 +32,9 @@ def event_values(event, record):
     name = str(record.get("customerName") or "").strip()
     values = {"customer_name": name, "order_number": number}
     if event == "order_confirmation":
-        if paid != "paid" or status not in {"confirmed", "processing", "packed", "shipped", "out_for_delivery", "delivered"}:
+        if (paid != "paid" or not (record.get("paymentVerifiedAt") or payment.get("verifiedAt"))
+                or not (record.get("razorpayPaymentId") or payment.get("razorpayPaymentId"))
+                or status not in {"confirmed", "processing", "packed", "shipped", "out_for_delivery", "delivered"}):
             raise ValueError("order_not_confirmed")
         values["order_total"] = money(record.get("total"), record.get("currency", "INR"))
         values["order_date"] = business_date(record.get("createdAt"))

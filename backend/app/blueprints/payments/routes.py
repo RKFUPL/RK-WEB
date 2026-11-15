@@ -28,6 +28,7 @@ from ...payments import RazorpayAPIError, is_configured, razorpay_api_request, v
 from ...product_variants import find_variant, sync_product_variants
 from ...rbac import authenticated_user_id, current_user, database, requireAuth
 from ...time_utils import json_value as serialize_json_value
+from ...extensions import limiter
 
 
 payments_bp = Blueprint("payments", __name__)
@@ -406,6 +407,7 @@ def _validate_payment_entity(order: dict, payment: dict) -> None:
 
 @payments_bp.post("/razorpay/order")
 @requireAuth
+@limiter.limit("10 per minute")
 def create_razorpay_order():
     if not is_configured(current_app.config):
         return jsonify({"error": "Razorpay Test Mode is not configured on the backend."}), 503
@@ -486,6 +488,7 @@ def create_razorpay_order():
 
 @payments_bp.post("/razorpay/verify")
 @requireAuth
+@limiter.limit("20 per minute")
 def verify_razorpay_payment():
     if not is_configured(current_app.config):
         return jsonify({"error": "Razorpay Test Mode is not configured on the backend."}), 503
@@ -525,6 +528,7 @@ def verify_razorpay_payment():
 
 @payments_bp.post("/razorpay/state")
 @requireAuth
+@limiter.limit("20 per minute")
 def update_razorpay_state():
     payload = request.get_json(silent=True) or {}
     order_id = _safe_text(payload.get("orderId"), 64)

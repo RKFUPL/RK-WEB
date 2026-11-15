@@ -6,6 +6,7 @@ import html
 import secrets
 
 from flask import Blueprint, current_app, jsonify, request
+from .extensions import limiter
 from pymongo import ReturnDocument
 
 from .rbac import database
@@ -86,6 +87,7 @@ def get_return_form(token: str):
 
 
 @returns_bp.post("/<token>")
+@limiter.limit("10 per hour")
 def submit_return_form(token: str):
     db = database()
     record = _record(db, token)

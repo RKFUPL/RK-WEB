@@ -163,7 +163,12 @@ def render_order_confirmation(order: dict) -> str:
 def send_order_confirmation(database, order: dict, config, logger, *, force: bool = False) -> bool:
     # Channel claims are independent of email retry/resend claims.
     notify(database, "order_confirmation", order)
-    if order.get("paymentStatus") == "paid":
+    # The restricted order-only gate sends one initial order confirmation. A
+    # separately enabled payment confirmation is not a second initial message.
+    # Preserve the legacy paired flow only when broad messaging is authorized.
+    from .whatsapp_templates import registry
+    if (config.get("WHATSAPP_ENABLED") is True and order.get("paymentStatus") == "paid"
+            and registry(config).get("payment_confirmation", {}).get("enabled") is True):
         notify(database, "payment_confirmation", order)
     notify_admins(database, order, "order_received")
     order_id = order.get("_id")

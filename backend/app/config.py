@@ -35,6 +35,7 @@ class BaseConfig:
     WHATSAPP_DEVELOPMENT_CALLBACK_URL = os.getenv("WHATSAPP_DEVELOPMENT_CALLBACK_URL", "")
     # Backend-only; both the environment gate and admin switch must be enabled.
     WHATSAPP_ENABLED = os.getenv("WHATSAPP_ENABLED", "false").lower() == "true"
+    WHATSAPP_ORDER_NOTIFICATIONS_ENABLED = os.getenv("WHATSAPP_ORDER_NOTIFICATIONS_ENABLED", "false").lower() == "true"
     WHATSAPP_MARKETING_ENABLED = os.getenv("WHATSAPP_MARKETING_ENABLED", "false").lower() == "true"
     WHATSAPP_CANONICAL_URL = os.getenv("WHATSAPP_CANONICAL_URL", "")
     WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "")
@@ -73,9 +74,8 @@ class BaseConfig:
     FX_CACHE_TTL_SECONDS = int(os.getenv("FX_CACHE_TTL_SECONDS", "21600"))
     TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY", "").strip()
     TWELVE_DATA_COMMERCIAL_USE_APPROVED = os.getenv("TWELVE_DATA_COMMERCIAL_USE_APPROVED", "false").strip().lower() == "true"
-    RATELIMIT_DEFAULT = "200 per hour"
+    RATELIMIT_DEFAULT = None
     RATELIMIT_STORAGE_URI = os.getenv("RATELIMIT_STORAGE_URI", "memory://")
-    TRUSTED_PROXY_HOPS = os.getenv("TRUSTED_PROXY_HOPS", "0")
     AUTH_SESSION_DAYS = int(os.getenv("AUTH_SESSION_DAYS", "30"))
     SHARED_SESSION_COOKIE_NAME = os.getenv("SHARED_SESSION_COOKIE_NAME", "rk_shared_session")
     SHARED_SESSION_COOKIE_DOMAIN = os.getenv("SHARED_SESSION_COOKIE_DOMAIN", ".rashikapoor.co.in")

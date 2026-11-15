@@ -14,6 +14,7 @@ from pymongo.errors import DuplicateKeyError
 from .extensions import limiter
 from .rbac import current_user, database, requireAdmin
 from .time_utils import json_value
+from .whatsapp import automation_enabled, order_notifications_enabled
 from .whatsapp_templates import template_registry, components_match, component_signature, meta_status, test_parameter_fields, observation_is_stale
 from .whatsapp_consent import withdraw_from_inbound
 from .whatsapp_marketing_consent import withdraw_marketing_from_inbound
@@ -85,7 +86,7 @@ def safe_status(db):
     state = db.integrations.find_one({"_id": "whatsapp"}) or {}
     missing = configuration_errors(config)
     templates = template_registry(db, config)
-    for item in templates.values():
+    for event, item in templates.items():
         ready = item["approved"] and not missing
         item["mappingEnabled"] = bool(item.get("enabled"))
         test_fields = test_parameter_fields(item) if item.get("componentsVerified") else None
@@ -93,7 +94,7 @@ def safe_status(db):
         item["eligibleForTesting"] = bool(ready and test_fields is not None and item["category"] == "UTILITY"
             and item.get("requiresMetaApproval") is True and item.get("approvalSource") == "meta_api_read"
             and not item.get("statusStale") and template_test_enabled(config))
-        item["eligibleForAutomation"] = bool(item["enabled"] and ready and config.get("WHATSAPP_ENABLED") is True and state.get("enabled") is True
+        item["eligibleForAutomation"] = bool(item["enabled"] and ready and automation_enabled(db, config, event)
             and (item["category"] != "MARKETING" or config.get("WHATSAPP_MARKETING_ENABLED") is True))
     catalogue = {}
     mapped_by_key = {}
@@ -126,6 +127,9 @@ def safe_status(db):
         "evidenceState": "found_not_locally_mapped"}, {"_id": 0, "name": 1, "language": 1, "status": 1,
         "category": 1, "checkedAt": 1, "evidenceState": 1, "qualityRating": 1}).limit(100))
     return {"enabled": config.get("WHATSAPP_ENABLED") is True and state.get("enabled") is True,
+            "orderNotificationsEnabled": order_notifications_enabled(db, config),
+            "orderNotificationsEnvironmentEnabled": config.get("WHATSAPP_ORDER_NOTIFICATIONS_ENABLED") is True,
+            "orderNotificationsAdminEnabled": state.get("orderNotificationsEnabled") is True,
             "environmentEnabled": config.get("WHATSAPP_ENABLED") is True,
             "configured": not missing, "missing": missing,
             "phoneNumberId": config.get("WHATSAPP_PHONE_NUMBER_ID", ""),
@@ -387,11 +391,13 @@ def status():
 @limiter.limit("10 per minute")
 def configure():
     payload = request.get_json(silent=True)
-    if not isinstance(payload, dict) or set(payload) != {"enabled"} or not isinstance(payload["enabled"], bool):
-        return jsonify(error="Only a boolean enabled value is accepted."), 400
-    if payload["enabled"] and (current_app.config.get("WHATSAPP_ENABLED") is not True or configuration_errors(current_app.config)):
+    if not isinstance(payload, dict) or set(payload) not in ({"enabled"}, {"orderNotificationsEnabled"}) or not isinstance(next(iter(payload.values())), bool):
+        return jsonify(error="Only one boolean enabled or orderNotificationsEnabled value is accepted."), 400
+    key = next(iter(payload))
+    gate = "WHATSAPP_ORDER_NOTIFICATIONS_ENABLED" if key == "orderNotificationsEnabled" else "WHATSAPP_ENABLED"
+    if payload[key] and (current_app.config.get(gate) is not True or configuration_errors(current_app.config)):
         return jsonify(error="Complete backend configuration and enable the environment gate first."), 409
-    _state(database(), enabled=payload["enabled"], updatedAt=now(), updatedBy=str(current_user()["_id"]))
+    _state(database(), **{key: payload[key]}, updatedAt=now(), updatedBy=str(current_user()["_id"]))
     return jsonify(json_value(safe_status(database())))
 
 

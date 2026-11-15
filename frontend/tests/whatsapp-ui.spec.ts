@@ -17,7 +17,7 @@ const registeredTemplate = {
   ],
 };
 
-async function mockApi(page: Page, options: { active?: boolean; role?: string; window?: 'open' | 'closed' | 'expired'; invalidRecipient?: boolean; textError?: boolean; localRateLimit?: boolean; gate?: boolean; production?: boolean; catalogue?: boolean; mappingDisabled?: boolean; readReceiptStatus?: 'received' | 'not_received' | 'unknown'; logStatus?: string; registered?: boolean; metaApproved?: boolean; refreshFailure?: boolean; testTemplate?: Record<string, unknown>; productionTest?: { enabled: boolean; expiresAt: string | null } } = {}) {
+async function mockApi(page: Page, options: { active?: boolean; role?: string; window?: 'open' | 'closed' | 'expired'; invalidRecipient?: boolean; textError?: boolean; localRateLimit?: boolean; gate?: boolean; production?: boolean; catalogue?: boolean; mappingDisabled?: boolean; readReceiptStatus?: 'received' | 'not_received' | 'unknown'; logStatus?: string; registered?: boolean; metaApproved?: boolean; refreshFailure?: boolean; testTemplate?: Record<string, unknown>; productionTest?: { enabled: boolean; expiresAt: string | null }; orderGate?: boolean; orderAdmin?: boolean } = {}) {
   const sent: Record<string, unknown>[] = [];
   const filters: string[] = [];
   await page.route('**/*', async route => {
@@ -27,6 +27,9 @@ async function mockApi(page: Page, options: { active?: boolean; role?: string; w
     if (path === '/api/admin/integrations/whatsapp/template-status' && route.request().method() === 'POST' && options.refreshFailure) return route.fulfill({ status: 502, json: { error: 'Unable to read a complete Meta template inventory. Previous verified statuses are retained and marked stale.', status: { ...integration, configured: true, missing: [], templates: { test: { ...registeredTemplate, approved: false, observedStatus: 'APPROVED', qualityRating: 'UNKNOWN', statusStale: true, approvalCheckedAt: '2026-11-13T09:00:00Z', statusEvidence: 'found' }, new_collection_drop: { name: 'rk_new_collection_drop', language: 'en_US', category: 'MARKETING', parameters: ['first_name', 'collection_name'], enabled: false, approved: false, observedStatus: 'PENDING', statusStale: true, approvalCheckedAt: '2026-11-13T09:00:00Z', statusEvidence: 'found' } }, catalogue: {}, templateStatusSync: { lastAttemptAt: '2026-11-13T10:00:00Z', lastSuccessAt: '2026-11-13T09:00:00Z', lastError: 'meta_inventory_unavailable_or_incomplete', outcome: 'failed' }, environment: 'development', testSendEnabled: true } } });
     if (path === '/api/admin/integrations/whatsapp' || path === '/api/admin/integrations/whatsapp/template-status') return route.fulfill({ json: {
       ...integration,
+      orderNotificationsEnvironmentEnabled: !!options.orderGate,
+      orderNotificationsAdminEnabled: !!options.orderAdmin,
+      orderNotificationsEnabled: !!options.orderGate && !!options.orderAdmin,
       ...(options.active ? { configured: true, missing: [], templates: { test: options.registered || options.catalogue ? { ...registeredTemplate, approved: options.metaApproved !== false, eligibleForTesting: options.metaApproved !== false, observedStatus: options.metaApproved === false ? 'PENDING' : 'APPROVED' } : { ...integration.templates.test, enabled: true, approved: true, eligibleForTesting: true, testParameterFields: [], locallyMapped: true, mappingEnabled: false, approvalSource: 'meta_api_read', requiresMetaApproval: true, componentsVerified: true, observedStatus: 'APPROVED' }, ...(options.testTemplate ? { test: { ...registeredTemplate, ...options.testTemplate } } : {}), ...(options.catalogue ? {
         order_confirmation: { name: 'rk_order_confirmation', language: 'en_US', category: 'UTILITY', parameters: ['customer_name', 'order_number', 'order_date', 'order_total'], parameterTypes: ['text', 'text', 'text', 'text'], approvalStatus: 'APPROVED', observedStatus: 'APPROVED', enabled: !options.mappingDisabled, approved: true, eligibleForTesting: true, eligibleForAutomation: !options.mappingDisabled, locallyMapped: true, mappingEnabled: !options.mappingDisabled, approvalSource: 'meta_api_read', requiresMetaApproval: true, componentsVerified: true, templateGroup: 'Transactional', testParameterFields: [{ key: 'body_1', label: 'Body variable 1: customer_name', component: 'body', number: 1 }, { key: 'body_2', label: 'Body variable 2: order_number', component: 'body', number: 2 }, { key: 'body_3', label: 'Body variable 3: order_date', component: 'body', number: 3 }, { key: 'body_4', label: 'Body variable 4: order_total', component: 'body', number: 4 }], components: [{ type: 'HEADER', format: 'TEXT', text: 'Order Confirmed' }, { type: 'BODY', text: 'Dear {{1}}, Order {{2}}, dated {{3}}, total {{4}}.' }], metaComponents: [{ type: 'HEADER', format: 'TEXT', text: 'Order Confirmed' }, { type: 'BODY', text: 'Dear {{1}}, Order {{2}}, dated {{3}}, total {{4}}.' }], schemaVersion: 2 },
         signup_otp: { name: 'rk_authentication_otp', language: 'en_US', category: 'AUTHENTICATION', parameters: ['code'], enabled: true, approved: true, approvalStatus: 'APPROVED' },
@@ -85,13 +88,52 @@ async function openSection(page: Page, name: string) {
   await page.getByRole('tab', { name, exact: true }).click();
 }
 
+test('order automation has its own backend and admin controls while manual tests remain off', async ({ page }) => {
+  await mockApi(page, { active: true, production: true, gate: false, orderGate: true, orderAdmin: true });
+  await page.goto('/admin/integrations/whatsapp');
+  await expect(page.getByText('Order notifications', { exact: true })).toBeVisible();
+  await openSection(page, 'Advanced Settings');
+  const controls = page.getByRole('region', { name: 'Order notification controls' });
+  // The semantic section is a named region; only the dedicated order switch is on.
+  await expect(controls.getByRole('switch', { name: 'Disable order notifications' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('switch', { name: 'Enable WhatsApp messaging', exact: true })).toBeDisabled();
+  await openSection(page, 'Test Messages');
+  await expect(page.getByRole('button', { name: 'Send approved test template', exact: true })).toBeDisabled();
+});
+
+test('admin cannot enable order automation while its backend gate is off', async ({ page }) => {
+  await mockApi(page, { active: true, production: true, gate: false });
+  await page.goto('/admin/integrations/whatsapp');
+  await openSection(page, 'Advanced Settings');
+  await page.getByLabel('I authorize transactional order automation').check();
+  await expect(page.getByRole('switch', { name: 'Enable order notifications', exact: true })).toBeDisabled();
+});
+
+test('order automation authorization updates only its dedicated database control', async ({ page }) => {
+  await mockApi(page, { active: true, production: true, gate: false, orderGate: true });
+  let submitted: Record<string, unknown> | null = null;
+  await page.route('**/api/admin/integrations/whatsapp', async route => {
+    if (route.request().method() !== 'PATCH') return route.fallback();
+    submitted = route.request().postDataJSON();
+    return route.fulfill({ json: { ...integration, configured: true, missing: [], environment: 'production', orderNotificationsEnvironmentEnabled: true, orderNotificationsAdminEnabled: true, orderNotificationsEnabled: true } });
+  });
+  await page.goto('/admin/integrations/whatsapp');
+  await openSection(page, 'Advanced Settings');
+  const toggle = page.getByRole('switch', { name: 'Enable order notifications', exact: true });
+  await expect(toggle).toBeDisabled();
+  await page.getByLabel('I authorize transactional order automation').check();
+  await toggle.click();
+  await expect.poll(() => submitted).toEqual({ orderNotificationsEnabled: true });
+  await expect(page.getByRole('switch', { name: 'Disable order notifications' })).toHaveAttribute('aria-checked', 'true');
+});
+
 test('disabled setup displays configuration and blocks sends', async ({ page }) => {
   const calls = await mockApi(page);
   await page.goto('/admin/integrations/whatsapp');
   await expect(page.getByRole('heading', { name: 'WhatsApp Control Centre', exact: true })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
   await openSection(page, 'Advanced Settings');
-  await expect(page.getByRole('switch')).toBeDisabled();
+  await expect(page.getByRole('switch', { name: 'Enable WhatsApp messaging', exact: true })).toBeDisabled();
   await expect(page.getByText('WHATSAPP_ACCESS_TOKEN', { exact: false })).toBeVisible();
   await openSection(page, 'Test Messages');
   await expect(page.getByRole('button', { name: 'Send approved test template', exact: true })).toBeDisabled();
@@ -372,7 +414,7 @@ test('manual text includes typed content, needs backend window and consent, with
   expect(calls.sent[0].message).toBe('Fixture typed message\nSecond line.');
   expect(calls.sent[0].confirmed).toBe(true);
   await openSection(page, 'Advanced Settings');
-  await expect(page.getByRole('switch')).toBeDisabled();
+  await expect(page.getByRole('switch', { name: 'Enable WhatsApp messaging', exact: true })).toBeDisabled();
   await openSection(page, 'Test Messages');
   await expect(page.getByRole('heading', { name: 'Send one-off approved template test' })).toBeVisible();
 });
@@ -776,7 +818,7 @@ test('template library search, status filters, version nesting, and OTP status u
   await expect(otp).toContainText('account-level restriction on creating Authentication templates');
   await expect(otp).toContainText('Email OTP');
   await page.getByRole('tab', { name: 'Advanced Settings', exact: true }).click();
-  await expect(page.getByRole('switch')).toBeDisabled();
+  await expect(page.getByRole('switch', { name: 'Enable WhatsApp messaging', exact: true })).toBeDisabled();
 });
 
 test('three absent local records are identified as unsubmitted drafts with reasons', async ({ page }) => {

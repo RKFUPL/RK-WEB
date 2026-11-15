@@ -5,7 +5,7 @@ from unittest.mock import ANY, MagicMock, patch
 from bson import ObjectId
 from flask import Flask
 
-from app.catalog import AAKAAR_COLLECTION_SEED, AAKAAR_PRODUCT_SEEDS, ANAMIKA_PRODUCT_SEEDS, HASTAKALA_PRODUCT_SEEDS, NORMAL_COLLECTIONS, PRODUCT_SEEDS, _ensure_compatible_index, _product_seed_document, collection_hero, collection_product_count, collection_product_documents, collection_view, ensure_catalog_seed, is_excluded_collection, is_runway_collection, natural_product_sort_key, product_card_view, product_view
+from app.catalog import AAKAAR_COLLECTION_SEED, AAKAAR_PRODUCT_SEEDS, ANAMIKA_PRODUCT_SEEDS, HASTAKALA_PRODUCT_SEEDS, NORMAL_COLLECTIONS, PRODUCT_SEEDS, _ensure_compatible_index, _product_seed_document, collection_hero, collection_product_count, collection_product_documents, collection_view, ensure_catalog_seed, is_excluded_collection, is_runway_collection, natural_product_sort_key, product_card_view, product_view, public_media_version
 from app.blueprints.catalog.routes import _shop_matches, catalog_bp
 from app.blueprints.staff.routes import _replace_parent_catalog_media, _validated_collection_hero, _variant_gallery_payload
 from app.inventory import DEFAULT_CUSTOM_SIZE_FIELDS, STANDARD_SIZES, custom_size_fields, validate_custom_size
@@ -381,7 +381,8 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content_type, "image/jpeg")
         self.assertEqual(response.data, b"image-bytes")
-        self.assertEqual(response.headers["Cache-Control"], "private, max-age=3600, stale-if-error=86400")
+        self.assertIn("public", response.headers["Cache-Control"])
+        self.assertIn("CDN-Cache-Control", response.headers)
         self.assertTrue(response.headers.get("ETag"))
         download.assert_called_once_with("https://workdrive.zoho.in/file/private123", database, prefer_preview=True)
 
@@ -396,12 +397,77 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(revalidated.headers["ETag"], response.headers["ETag"])
         revalidation_download.assert_not_called()
 
+    def test_versioned_product_media_uses_bounded_cache_and_collapses_same_worker_fetches(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from time import sleep
+        from flask import Flask
+        from app.blueprints.catalog.routes import _public_media_cache, _public_media_cache_lock, catalog_bp
+        from bson import ObjectId
+        app = Flask(__name__)
+        app.config.update(TESTING=True, SECRET_KEY="media-cache-secret", RATELIMIT_DEFAULT=None)
+        app.register_blueprint(catalog_bp, url_prefix="/api/catalog")
+        product_id = ObjectId()
+        product = {"_id": product_id, "status": "active", "isActive": True, "variants": [{"status": "active"}],
+                   "catalogMedia": [{"media_id": "wd-cache", "provider": "zoho_workdrive", "type": "image", "permalink": "https://workdrive.zoho.in/file/cache", "position": 0}]}
+        upstream = MagicMock()
+        upstream.headers = {"Content-Type": "image/jpeg", "Content-Length": "11"}
+        upstream.content = b"image-bytes"
+        database = MagicMock()
+        with _public_media_cache_lock:
+            _public_media_cache.clear()
+        with patch("app.blueprints.catalog.routes.database", return_value=database), \
+             patch("app.blueprints.catalog.routes.product_document", return_value=product), \
+             patch("app.blueprints.catalog.routes.download_file", side_effect=lambda *_args, **_kwargs: (sleep(0.05), WorkDriveDownload(upstream, "cache"))[1]) as download:
+            url = f"/api/catalog/products/{product_id}/media/wd-cache?v={public_media_version(product_id, 'wd-cache', product['catalogMedia'][0])}"
+            def fetch():
+                with app.test_client() as client:
+                    return client.get(url)
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                responses = list(pool.map(lambda _: fetch(), range(4)))
+        assert [response.status_code for response in responses] == [200] * 4
+        assert all(response.data == b"image-bytes" for response in responses)
+        assert all("immutable" in response.headers["Cache-Control"] for response in responses)
+        assert all("max-age=86400" in response.headers["Cloudflare-CDN-Cache-Control"] for response in responses)
+        download.assert_called_once()
+
         with patch("app.blueprints.catalog.routes.database", return_value=database), \
              patch("app.blueprints.catalog.routes.product_document", return_value=product), \
              patch("app.blueprints.catalog.routes.download_file") as download:
             missing = app.test_client().get(f"/api/catalog/products/{product_id}/media/not-attached")
         self.assertEqual(missing.status_code, 404)
         download.assert_not_called()
+
+    def test_public_collection_with_many_image_urls_is_not_limited_by_a_global_default(self):
+        from app.extensions import limiter
+        app = Flask("public_catalog_rate_limit")
+        app.config.update(TESTING=True, SECRET_KEY="catalog-limit-secret", RATELIMIT_ENABLED=True,
+                          RATELIMIT_STORAGE_URI="memory://", RATELIMIT_DEFAULT=None)
+        limiter.init_app(app)
+        app.register_blueprint(catalog_bp, url_prefix="/api/catalog")
+        collection = {"_id": ObjectId(), "slug": "large", "status": "collection", "isActive": True}
+        many_image_products = [{"id": str(ObjectId()), "images": [f"/api/catalog/products/p/media/m{i}?v=hash{i}" for i in range(12)]} for _ in range(80)]
+        with patch("app.blueprints.catalog.routes.database", return_value=MagicMock()), \
+             patch("app.blueprints.catalog.routes.collection_document", return_value=collection), \
+             patch("app.blueprints.catalog.routes.collection_view", return_value={"products": many_image_products}):
+            client = app.test_client()
+            statuses = [client.get("/api/catalog/collections/large").status_code for _ in range(220)]
+        self.assertEqual(set(statuses), {200})
+
+    def test_product_media_distinguishes_workdrive_not_found_unavailable_and_rate_limit(self):
+        from app.workdrive import WorkDriveFileNotFound, WorkDriveUnavailable
+        app = Flask("workdrive_failure_status")
+        app.config.update(TESTING=True, SECRET_KEY="media-status-secret")
+        app.register_blueprint(catalog_bp, url_prefix="/api/catalog")
+        product_id = ObjectId()
+        product = {"_id": product_id, "status": "active", "isActive": True, "catalogMedia": [
+            {"media_id": "wd-errors", "provider": "zoho_workdrive", "permalink": "https://workdrive.zoho.in/file/errors"}]}
+        for error, status in ((WorkDriveFileNotFound("missing"), 404), (WorkDriveUnavailable("offline", "provider_unavailable"), 503), (WorkDriveUnavailable("limited", "rate_limited"), 503)):
+            with patch("app.blueprints.catalog.routes.database", return_value=MagicMock()), \
+                 patch("app.blueprints.catalog.routes.product_document", return_value=product), \
+                 patch("app.blueprints.catalog.routes.download_file", side_effect=error):
+                response = app.test_client().get(f"/api/catalog/products/{product_id}/media/wd-errors?v={public_media_version(product_id, 'wd-errors', product['catalogMedia'][0])}")
+            self.assertEqual(response.status_code, status)
+            self.assertEqual(response.headers["Cache-Control"], "no-store")
 
     def test_normal_collection_seed_order_matches_the_storefront_sequence(self):
         self.assertEqual([collection["name"] for collection in NORMAL_COLLECTIONS], ["Hastakala", "Inaara", "Anamika", "Naqab", "Sandook"])

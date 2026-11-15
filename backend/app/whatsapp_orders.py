@@ -11,6 +11,9 @@ from .whatsapp_events import event_values
 from .whatsapp_templates import template_registry
 
 ORDER_NOTIFICATIONS = {"order_confirmation", "payment_confirmation", "shipped", "out_for_delivery", "delivered", "cancelled", "refund_completed"}
+# Restricted order-only mode deliberately sends a single initial confirmation;
+# payment_confirmation is reserved for the separately enabled broad flow.
+ORDER_ONLY_EVENTS = ORDER_NOTIFICATIONS - {"payment_confirmation"}
 
 
 def order_contact(db, config, order, user):
@@ -45,6 +48,10 @@ def order_recipient(db, config, order, user):
     contact = order_contact(db, config, order, user)
     if contact["reason"]:
         return contact
+    # Order-only automation requires the checkout snapshot's explicit grant.
+    # A missing/declined order grant must never inherit profile consent.
+    if config.get("WHATSAPP_ORDER_NOTIFICATIONS_ENABLED") is True and not order.get("whatsappConsent"):
+        return {**contact, "reason": "missing_or_withdrawn_consent"}
     try:
         consented = consent_phone(db, config, user, order)
     except ValueError:
@@ -72,7 +79,7 @@ def notify_order_whatsapp(db, order_id, event, event_data=None):
     """Reload committed state, authorize its recipient and enqueue once per event."""
     if not has_app_context():
         return {"status": "skipped", "reason": "no_application_context"}
-    from .whatsapp import _enqueue_notification, now, fingerprint, enabled
+    from .whatsapp import _enqueue_notification, now, fingerprint, automation_enabled
     try:
         if event not in ORDER_NOTIFICATIONS or not ObjectId.is_valid(str(order_id)):
             return {"status": "skipped", "reason": "invalid_order_event"}
@@ -102,7 +109,7 @@ def notify_order_whatsapp(db, order_id, event, event_data=None):
                            or not template.get("enabled") or not template.get("approved")):
             result = {"status": "skipped", "reason": "template_not_approved_or_enabled"}
         if not result:
-            if enabled(db, config):
+            if automation_enabled(db, config, event):
                 recipient_hash = fingerprint(recipient["phone"], config)
                 db.whatsapp_order_events.update_one({"_id": audit_id}, {"$setOnInsert": {"createdAt": now()}}, upsert=True)
                 db.whatsapp_order_events.update_one({"_id": audit_id, "recipientHash": {"$exists": False}}, {"$set": {"recipientHash": recipient_hash}})
@@ -133,7 +140,7 @@ def notify_order_whatsapp(db, order_id, event, event_data=None):
 
 def order_whatsapp_activity(db, config, order):
     """Safe staff-only view. Never decrypt queued phones or template parameters."""
-    from .whatsapp import enabled, now
+    from .whatsapp import automation_enabled, now
     from .time_utils import as_utc_datetime
     try:
         identity = order.get("customerId")
@@ -161,8 +168,8 @@ def order_whatsapp_activity(db, config, order):
                 if not message and (not queue or queue.get("status") == "pending" and expiry and expiry <= now()):
                     row.update(status="skipped", reason="queue_expired_or_unavailable")
             activity.append(row)
-        return {"number": contact["phone"], "contactSource": contact["source"], "consent": "granted" if not contact["reason"] else "missing_or_withdrawn",
-                "eligibilityReason": contact["reason"], "automationEnabled": enabled(db, config), "activity": activity,
+        return {"number": "***" + contact["phone"][-4:] if contact["phone"] else None, "contactSource": contact["source"], "consent": "granted" if not contact["reason"] else "missing_or_withdrawn",
+                "eligibilityReason": contact["reason"], "automationEnabled": automation_enabled(db, config, "order_confirmation"), "activity": activity,
                 "templates": [{"event": event, "name": templates[event]["name"], "approved": templates[event]["approved"], "enabled": templates[event]["enabled"],
                                "status": templates[event].get("observedStatus", templates[event]["approvalStatus"])} for event in sorted(ORDER_NOTIFICATIONS)]}
     except Exception:

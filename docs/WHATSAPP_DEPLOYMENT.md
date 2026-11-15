@@ -1,6 +1,22 @@
 # WhatsApp disabled deployment and operations
 
-These are instructions for a future separately authorized VPS/Meta change window. No command in the VPS or Meta sections was executed during local remediation. All real sending gates remain off, including local test sending. The production configuration class forces automated, marketing and development-test flags off in code. A separate default-off, expiring, single-recipient Utility test exception is documented in [WHATSAPP_PRODUCTION_TEST_MODE.md](WHATSAPP_PRODUCTION_TEST_MODE.md); leave it off for this disabled deployment. This runbook supersedes operational instructions in the older implementation notes.
+These are instructions for a future separately authorized VPS/Meta change window. No command in the VPS or Meta sections was executed during local remediation. The production configuration class forces the broad automation, marketing and development-test flags off in code. The new order-only gate defaults off and requires a separate admin database control. The expiring manual Utility test mode remains independent; see [WHATSAPP_PRODUCTION_TEST_MODE.md](WHATSAPP_PRODUCTION_TEST_MODE.md). This runbook supersedes operational instructions in the older implementation notes.
+
+## Order-only activation requirements (separate authorization required)
+
+Deploy first with `WHATSAPP_ORDER_NOTIFICATIONS_ENABLED=false`; no production flag or database document was changed during implementation. ProductionConfig reads this explicit environment flag without relaxing `WHATSAPP_ENABLED=false`, `WHATSAPP_TEST_SEND_ENABLED=false` or `WHATSAPP_MARKETING_ENABLED=false`.
+
+Before a separately authorized activation:
+
+1. Validate the disabled release using the checks below. Verify credentials, real registered Phone Number ID/WABA, webhook subscription/security, shared rate-limit storage, expected database, indexes and stable outbox key. The existing Razorpay backend verification and signed capture webhook remain the only payment-confirmation authorities.
+2. Read the latest complete Meta inventory using the existing guarded `whatsapp-template-refresh` command. Approval must be `APPROVED`, exact `rk_order_confirmation` / `en_US` / `UTILITY`, with matching components and a fresh WABA-scoped API observation. Local/manual approval flags cannot authorize it. Refresh failure, revoked status, mismatched components or evidence older than 24 hours block dispatch.
+3. Merge only the `order_confirmation` mapping's `enabled: true` into the existing `WHATSAPP_TEMPLATES` configuration after review, preserving its exact catalogue/components/parameters and every unrelated mapping. Do not enable other order mappings initially. Keep `payment_confirmation` explicitly disabled to avoid two initial customer messages. Mapping enablement alone never proves approval.
+4. Under separate runtime-change authorization, set `WHATSAPP_ORDER_NOTIFICATIONS_ENABLED=true` and restart the reviewed backend/worker image. Preserve all three broad/development/marketing flags as false. No environment file in this checkout is an activation instruction by itself.
+5. In Admin Studio → Advanced Settings → Transactional order notifications, authorize and enable the dedicated admin order control. It writes only `integrations._id=whatsapp.orderNotificationsEnabled=true` through the authenticated, rate-limited PATCH endpoint; the generic `enabled` field can stay false. Both order controls and each mapping must be enabled. The overview, library automation eligibility and order-detail activity expose the effective state.
+6. Install/verify the existing worker and six-hour template-refresh systemd timers as described below. The worker command is `python -m flask --app wsgi:app whatsapp-worker`; it uses the same encrypted outbox and transport, never a second sender. With only the order gate, it claims only tagged jobs for order_confirmation, shipped, out_for_delivery, delivered, cancelled and refund_completed. Payment confirmation remains outside this mode to prevent a duplicate initial paid-order notification. Encrypted business-event identity and persisted state are checked again; OTP, campaigns, marketing, text, admin notifications and optional lifecycle jobs are excluded. Legacy untagged jobs are not replayed in this mode. Review them individually rather than mass-retagging them.
+7. Monitor safe order activity and actual signed delivery/read/failure receipts. This task sends no real message and establishes no live-provider acceptance evidence. An order needs its saved checkout transactional consent for the actual shipping number; missing/declined/withdrawn consent and STOP skip dispatch. Checkout remains optional and unchecked. Marketing consent does not grant transactional consent.
+
+To stop order dispatch, disable the admin order control and/or set the order environment gate false, then stop the worker timer/service if needed. Gates, consent, business proof and template evidence are rechecked on retries and immediately before dispatch. Requests already received by Meta cannot be recalled. Preserve permanent event/message deduplication records, encryption keys and audit history during rollback; do not bulk-replay skipped or uncertain jobs. Roll back to the recorded image digest only after stopping active workers. `whatsapp-check --production` deliberately validates a fully disabled rollout and rejects an active order flag; run it with sending off before maintenance, not as an active-mode health check.
 
 ## Local startup and validation
 
@@ -11,6 +27,7 @@ Set-Location 'C:\Users\athul\Desktop\RK-WEB-recovery\backend'
 $env:FLASK_ENV = 'development'
 $env:WHATSAPP_ENVIRONMENT = 'development'
 $env:WHATSAPP_ENABLED = 'false'
+$env:WHATSAPP_ORDER_NOTIFICATIONS_ENABLED = 'false'
 $env:WHATSAPP_TEST_SEND_ENABLED = 'false'
 $env:WHATSAPP_MARKETING_ENABLED = 'false'
 python -m flask --app wsgi:app run --host 127.0.0.1 --port 5000
@@ -57,6 +74,7 @@ Verify these names in the existing approved runtime environment; never replace t
 | Names | Required policy |
 | --- | --- |
 | `FLASK_ENV` | Explicit production marker; no conflicting development marker in APP_ENV/ENVIRONMENT. |
+| `WHATSAPP_ORDER_NOTIFICATIONS_ENABLED` | Default false; dedicated order-only environment gate, also requiring admin order control and individually verified/enabled mappings. |
 | `WHATSAPP_ENVIRONMENT` | Production. Environment is never selected from browser/Host headers. |
 | `WHATSAPP_ENABLED`, `WHATSAPP_TEST_SEND_ENABLED`, `WHATSAPP_MARKETING_ENABLED` | All off. Keep database integration and automated template switches off as well. |
 | `WHATSAPP_PRODUCTION_TEST_SEND_ENABLED`, `WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT` | New flag off and expiry blank for a disabled deployment. Any future temporary test requires separate authorization; the administrator manually enters one valid E.164 recipient per request, and an explicit UTC expiry no more than 24 hours ahead is checked at dispatch and retry. See the dedicated guide. |
@@ -70,7 +88,7 @@ Verify these names in the existing approved runtime environment; never replace t
 | `WHATSAPP_WORKER_LEASE_SECONDS` | Valid processing lease from 60–3600 seconds; default 300. This is not a retention/TTL setting. |
 | `DB_NAME`, `MONGO_DB` / `MONGO_URI` | One authoritative URI; MONGO_DB currently takes precedence. Confirm URI database/DB_NAME/expected-target agreement and durable storage/backups. |
 | `RATELIMIT_STORAGE_URI` | Verified shared store; memory storage fails the production readiness check. Existing dependencies support MongoDB. Redis requires its driver if chosen. |
-| `TRUSTED_PROXY_HOPS` | Default zero ignores client-supplied forwarding headers. Opt in only after verifying the real VPS trusted proxy chain and restricting backend ingress. Host/protocol/prefix headers are never trusted by this adapter. |
+| Client-IP forwarding | Flask currently ignores X-Forwarded-For, CF-Connecting-IP and custom client-IP headers. Do not enable trusted-header resolution until the active Nginx config is verified to overwrite caller values from a validated Cloudflare source and backend ingress is restricted to the expected proxy peers. |
 | `SECRET_KEY`, `JWT_SECRET_KEY` | Preserve existing strong application secrets. |
 | `BACKEND_INTERNAL_URL` | Frontend server-to-Flask routing inside Compose. No Meta secret belongs in NEXT_PUBLIC variables. |
 

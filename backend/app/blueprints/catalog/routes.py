@@ -1,5 +1,8 @@
 from datetime import datetime, timezone
 from time import perf_counter
+from collections import OrderedDict
+from threading import Lock
+from time import monotonic
 import html
 import re
 
@@ -32,6 +35,42 @@ from ...workdrive import WorkDriveFileNotFound, WorkDriveUnavailable, download_f
 
 
 catalog_bp = Blueprint("catalog", __name__)
+
+_public_media_cache: OrderedDict[tuple[str, str, str], tuple[float, bytes, str]] = OrderedDict()
+_public_media_cache_lock = Lock()
+_public_media_fetch_locks = tuple(Lock() for _ in range(64))
+_PUBLIC_MEDIA_CACHE_TTL = 900
+_PUBLIC_MEDIA_CACHE_MAX_BYTES = 32 * 1024 * 1024
+_PUBLIC_MEDIA_CACHE_MAX_ITEM = 8 * 1024 * 1024
+
+
+def _cached_public_media(key):
+    item = _public_media_cache.get(key)
+    if not item:
+        return None
+    expires, body, content_type = item
+    if expires <= monotonic():
+        _public_media_cache.pop(key, None)
+        return None
+    _public_media_cache.move_to_end(key)
+    return body, content_type
+
+
+def _store_public_media(key, body, content_type):
+    if len(body) > _PUBLIC_MEDIA_CACHE_MAX_ITEM:
+        return
+    _public_media_cache[key] = (monotonic() + _PUBLIC_MEDIA_CACHE_TTL, body, content_type)
+    _public_media_cache.move_to_end(key)
+    total = sum(len(value[1]) for value in _public_media_cache.values())
+    while total > _PUBLIC_MEDIA_CACHE_MAX_BYTES and _public_media_cache:
+        _, (_, old_body, _) = _public_media_cache.popitem(last=False)
+        total -= len(old_body)
+
+
+def _public_media_fetch_lock(key):
+    # Striping bounds lock memory while allowing unrelated images to download
+    # concurrently. Equal versioned URLs always map to the same lock.
+    return _public_media_fetch_locks[hash(key) % len(_public_media_fetch_locks)]
 
 
 @catalog_bp.get("/currency-context")
@@ -532,7 +571,7 @@ def storefront_product_media(product_id: str, media_id: str):
     db = database()
     product = product_document(db, product_id)
     if not product or not product_has_visible_variants(product):
-        return jsonify({"error": "Product media not found."}), 404
+        return _media_error("Product media not found.", 404)
     media = next(
         (
             item for item in product.get("catalogMedia") or []
@@ -544,36 +583,95 @@ def storefront_product_media(product_id: str, media_id: str):
         None,
     )
     if not media:
-        return jsonify({"error": "Product media not found."}), 404
+        return _media_error("Product media not found.", 404)
     permalink = str(media.get("permalink") or "")
     version = public_media_version(product_id, media_id, media)
+    requested_version = request.args.get("v")
+    if requested_version and requested_version != version:
+        return _media_error("Product media URL version is no longer current.", 404)
+    cache_key = (str(product_id), str(media_id), version)
     if request.if_none_match.contains(version):
         response = Response(status=304)
         response.set_etag(version)
-        response.headers["Cache-Control"] = "private, max-age=3600, stale-if-error=86400"
+        _set_public_media_cache_headers(response, bool(requested_version))
         return response
-    try:
-        download = download_file(permalink, db, prefer_preview=True)
-    except WorkDriveFileNotFound:
-        return jsonify({"error": "Product media not found."}), 404
-    except WorkDriveUnavailable:
-        return jsonify({"error": "Product media is temporarily unavailable."}), 503
-    upstream = download.response
-    content_type = upstream.headers.get("Content-Type", "application/octet-stream").split(";", 1)[0].strip()
-    if not content_type.startswith("image/"):
-        upstream.close()
-        return jsonify({"error": "Product media is not an image."}), 422
-
-    @stream_with_context
-    def content():
-        try:
-            yield from upstream.iter_content(chunk_size=64 * 1024)
-        finally:
-            upstream.close()
-
-    response = Response(content(), content_type=content_type)
-    response.headers["Cache-Control"] = "private, max-age=3600, stale-if-error=86400"
+    body = None
+    content_type = None
+    upstream = None
+    # Cache lookup and bounded fetch share one process lock. This collapses
+    # concurrent WorkDrive requests in a worker without weakening product ACLs:
+    # product visibility and media attachment are rechecked above on every hit.
+    with _public_media_fetch_lock(cache_key):
+        with _public_media_cache_lock:
+            cached = _cached_public_media(cache_key)
+        if cached:
+            body, content_type = cached
+        else:
+            try:
+                download = download_file(permalink, db, prefer_preview=True)
+            except WorkDriveFileNotFound:
+                _log_workdrive_media_failure("file_not_found", 404)
+                return _media_error("Product media not found.", 404)
+            except WorkDriveUnavailable as error:
+                _log_workdrive_media_failure(error.category, 503)
+                return _media_error("Product media is temporarily unavailable.", 503)
+            upstream = download.response
+            content_type = upstream.headers.get("Content-Type", "application/octet-stream").split(";", 1)[0].strip()
+            if not content_type.startswith("image/"):
+                upstream.close()
+                _log_workdrive_media_failure("unsupported_content_type", 422)
+                return _media_error("Product media is not an image.", 422)
+            try:
+                length = int(upstream.headers.get("Content-Length", ""))
+            except (TypeError, ValueError):
+                length = _PUBLIC_MEDIA_CACHE_MAX_ITEM + 1
+            if 0 <= length <= _PUBLIC_MEDIA_CACHE_MAX_ITEM:
+                body = upstream.content
+                upstream.close()
+                if len(body) <= _PUBLIC_MEDIA_CACHE_MAX_ITEM:
+                    with _public_media_cache_lock:
+                        _store_public_media(cache_key, body, content_type)
+                else:
+                    body = None
+    if body is not None:
+        response = Response(body, content_type=content_type)
+    else:
+        @stream_with_context
+        def content():
+            try:
+                yield from upstream.iter_content(chunk_size=64 * 1024)
+            finally:
+                upstream.close()
+        response = Response(content(), content_type=content_type)
+    _set_public_media_cache_headers(response, bool(requested_version))
     response.set_etag(version)
     response.headers["Content-Disposition"] = "inline"
     response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+def _set_public_media_cache_headers(response, versioned):
+    if versioned:
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable, stale-if-error=86400"
+        response.headers["CDN-Cache-Control"] = "public, max-age=86400, stale-while-revalidate=300, stale-if-error=86400"
+        response.headers["Cloudflare-CDN-Cache-Control"] = "public, max-age=86400, stale-while-revalidate=300, stale-if-error=86400"
+    else:
+        response.headers["Cache-Control"] = "public, max-age=0, s-maxage=300, stale-while-revalidate=60"
+        response.headers["CDN-Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"
+        response.headers["Cloudflare-CDN-Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"
+
+
+def _log_workdrive_media_failure(category, status):
+    from ...extensions import resolved_client_address
+    _, source = resolved_client_address(current_app.config, request.remote_addr)
+    current_app.logger.warning("workdrive_media_failure category=public_product_media status=%s failure=%s key_type=not_rate_limited ip_source=%s",
+                               status, category, source)
+
+
+def _media_error(message, status):
+    response = jsonify({"error": message})
+    response.status_code = status
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Cloudflare-CDN-Cache-Control"] = "no-store"
+    response.headers["CDN-Cache-Control"] = "no-store"
     return response

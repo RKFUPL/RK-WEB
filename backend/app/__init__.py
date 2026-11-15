@@ -1,10 +1,11 @@
 from pathlib import Path
 import os
 
-from flask import Flask, current_app, g, request
+from flask import Flask, current_app, g, jsonify, request
 from flask import send_file
 from dotenv import dotenv_values, load_dotenv
 from pymongo.errors import ServerSelectionTimeoutError
+from flask_limiter.errors import RateLimitExceeded
 
 # Resolve the backend environment from the application location rather than
 # the caller's working directory. This keeps local `flask --app wsgi:app run`
@@ -45,14 +46,13 @@ from .blueprints.staff.routes import staff_bp
 from .whatsapp_routes import webhook_bp as whatsapp_webhook_bp, admin_bp as whatsapp_admin_bp
 from .whatsapp import ensure_indexes as ensure_whatsapp_indexes
 from .config import get_config, validate_database_maintenance_target, validate_security_config
-from .extensions import cors, jwt, limiter, mail, mongo, configure_trusted_proxy
+from .extensions import cors, jwt, limiter, mail, mongo
 from .order_fulfillment import migrate_legacy_orders
 
 
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config.from_object(get_config())
-    configure_trusted_proxy(app)
     validate_security_config(app.config)
     if len(str(app.config.get("JWT_SECRET_KEY") or "").encode("utf-8")) < 32:
         app.logger.warning("JWT_SECRET_KEY is shorter than the recommended 32 bytes; rotate it through a controlled session-invalidating change.")
@@ -100,6 +100,21 @@ def create_app() -> Flask:
     limiter.init_app(app)
     mail.init_app(app)
     mongo.init_app(app)
+
+    @app.errorhandler(RateLimitExceeded)
+    def rate_limit_exceeded(error):
+        endpoint = str(request.endpoint or "unknown")
+        category = ("admin" if endpoint.startswith(("admin.", "staff.")) else
+                    "authentication" if endpoint.startswith("auth.") else
+                    "payments" if endpoint.startswith(("payments.", "razorpay_webhook.")) else
+                    "whatsapp" if endpoint.startswith(("whatsapp_admin.", "whatsapp_webhook.")) else
+                    "catalogue" if endpoint.startswith(("catalog.", "content.")) else "api")
+        limit_name = str(getattr(getattr(error, "limit", None), "limit", "unknown"))[:80]
+        key_type = str(getattr(g, "rate_limit_key_type", "unknown"))
+        ip_source = str(getattr(g, "client_ip_resolution_source", "unknown"))
+        current_app.logger.warning("rate_limit_exceeded category=%s key_type=%s ip_source=%s status=429 limit=%s",
+                                   category, key_type, ip_source, limit_name)
+        return jsonify(error="Too many requests. Please try again later."), 429, {"Retry-After": "60", "X-RateLimit-Name": limit_name}
 
     @app.errorhandler(ServerSelectionTimeoutError)
     def mongo_unavailable(_error):

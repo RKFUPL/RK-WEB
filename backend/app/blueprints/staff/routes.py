@@ -28,10 +28,17 @@ from ...order_fulfillment import RETURN_FULFILLMENT_STATUSES, actor_view, migrat
 from ...inventory import default_size_inventory, has_size_system, normalise_size_inventory, total_size_stock
 from ...product_variants import VARIANT_STATUSES, find_variant, normalise_colour, product_with_computed_variants, sync_product_variants
 from ...rbac import current_user, database, effective_permissions, requireStaff
+from ...extensions import limiter
 from ...time_utils import json_value as serialize_json_value
 from ...workdrive import WorkDriveFileNotFound, WorkDriveUnavailable, download_file, is_supported_permalink
 
 staff_bp = Blueprint("staff", __name__)
+
+
+@staff_bp.before_request
+@limiter.limit("300 per minute")
+def _staff_api_rate_guard():
+    return None
 
 
 def _valid_collection_media_url(value: str) -> bool:

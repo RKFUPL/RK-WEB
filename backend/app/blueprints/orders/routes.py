@@ -25,10 +25,23 @@ from ...returns import create_return_request, return_url, send_return_accepted
 from ...rbac import authenticated_user_id, current_user, database, requireCustomer, requirePermission
 from ...whatsapp_orders import order_whatsapp_activity
 from ...time_utils import json_value
+from ...extensions import limiter
 
 
 customer_orders_bp = Blueprint("customer_orders", __name__)
 staff_orders_bp = Blueprint("staff_orders", __name__)
+
+
+@customer_orders_bp.before_request
+@limiter.limit("60 per minute")
+def _customer_order_rate_guard():
+    return None
+
+
+@staff_orders_bp.before_request
+@limiter.limit("300 per minute")
+def _staff_order_rate_guard():
+    return None
 
 
 def _prepare(database_instance) -> None:

@@ -21,6 +21,14 @@ from ...rbac import authenticated_user_id, effective_permissions, requireAuth
 auth_bp = Blueprint("auth", __name__)
 
 
+@auth_bp.before_request
+@limiter.limit("120 per minute")
+def _auth_api_rate_guard():
+    # Endpoint-specific OTP/login/password limits below remain stricter where
+    # needed; retain a bounded baseline for the remaining account mutations.
+    return None
+
+
 def _consume_otp(collection, challenge, code, timestamp, *, user_document=False):
     """Bound attempts atomically and allow only one successful consumer."""
     query = {"_id": challenge["_id"], "otpHash": challenge["otpHash"],

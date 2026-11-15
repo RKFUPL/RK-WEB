@@ -1366,7 +1366,7 @@ class WhatsAppTests(unittest.TestCase):
             self.assertEqual(result.status_code, 200)
         self.assertEqual(self.db.whatsapp_outbox.count_documents({}), 1)
         self.assertEqual(result.json["order"]["fulfillment"]["shippedAt"], details["shippedAt"])
-        self.assertEqual(result.json["order"]["whatsapp"]["number"], self.user["phone"])
+        self.assertEqual(result.json["order"]["whatsapp"]["number"], "***" + self.user["phone"][-4:])
         # URL-only changes do not resend; a legitimate replacement AWB or courier does.
         self.client.patch(path + "/shipment", headers=self.headers, json={**details, "trackingUrl": "https://courier.example/updated"})
         self.assertEqual(self.db.whatsapp_outbox.count_documents({}), 1)

@@ -364,15 +364,52 @@ def test_worker_signal_finishes_current_batch_and_restores_signal_handler(case):
     assert signal.getsignal(signal.SIGTERM) == original
 
 
-def test_forwarded_addresses_are_ignored_until_proxy_trust_is_explicit():
-    from flask import Flask, request
-    from app.extensions import configure_trusted_proxy
-    for hops, expected in ((0, "127.0.0.1"), (1, "198.51.100.10")):
-        app = Flask("proxy" + str(hops)); app.config["TRUSTED_PROXY_HOPS"] = hops
-        configure_trusted_proxy(app)
-        app.add_url_rule("/", view_func=lambda: request.remote_addr)
-        result = app.test_client().get("/", headers={"X-Forwarded-For": "203.0.113.5, 198.51.100.10"})
-        assert result.text == expected
-    app = Flask("invalid_proxy"); app.config["TRUSTED_PROXY_HOPS"] = "untrusted"
-    with pytest.raises(RuntimeError):
-        configure_trusted_proxy(app)
+def test_forwarding_headers_are_ignored_until_server_side_overwrite_is_verified():
+    from app.extensions import resolved_client_address
+    for header in ("203.0.113.44", "203.0.113.44, 198.51.100.20", "not-an-ip", ""):
+        assert resolved_client_address({}, "10.4.2.11", header) == ("10.4.2.11", "direct_peer")
+    assert resolved_client_address({}, "198.51.100.20", "203.0.113.44") == ("198.51.100.20", "direct_peer")
+    assert resolved_client_address({}, None, "203.0.113.44") == ("unknown", "invalid_peer")
+
+
+def test_distinct_visitors_get_distinct_rate_limit_buckets_and_spoofed_headers_are_ignored():
+    from flask import Flask
+    from app.extensions import limiter
+    app = Flask("rate_limit_identity")
+    app.config.update(TESTING=True, SECRET_KEY="test-rate-limit-secret",
+                      RATELIMIT_ENABLED=True, RATELIMIT_STORAGE_URI="memory://", RATELIMIT_DEFAULT=None)
+    limiter.init_app(app)
+
+    @app.get("/sensitive")
+    @limiter.limit("2 per hour")
+    def sensitive():
+        return "ok"
+
+    client = app.test_client()
+    for visitor in ("198.51.100.1", "198.51.100.2", "198.51.100.3"):
+        for _ in range(2):
+            response = client.get("/sensitive", environ_base={"REMOTE_ADDR": visitor}, headers={"X-Forwarded-For": "203.0.113.200"})
+            assert response.status_code == 200
+        response = client.get("/sensitive", environ_base={"REMOTE_ADDR": visitor}, headers={"X-Forwarded-For": "203.0.113.200"})
+        assert response.status_code == 429
+
+
+def test_spoofed_custom_header_cannot_split_or_bypass_the_next_peer_bucket():
+    from flask import Flask
+    from app.extensions import limiter
+    app = Flask("trusted_rate_limit_identity")
+    app.config.update(TESTING=True, SECRET_KEY="test-rate-limit-secret",
+                      RATELIMIT_ENABLED=True, RATELIMIT_STORAGE_URI="memory://", RATELIMIT_DEFAULT=None)
+    limiter.init_app(app)
+
+    @app.get("/sensitive")
+    @limiter.limit("1 per hour")
+    def sensitive():
+        return "ok"
+
+    client = app.test_client()
+    peer = {"REMOTE_ADDR": "10.0.0.2"}
+    assert client.get("/sensitive", environ_base=peer, headers={"X-RK-Verified-Client-IP": "198.51.100.1"}).status_code == 200
+    assert client.get("/sensitive", environ_base=peer, headers={"X-RK-Verified-Client-IP": "198.51.100.2"}).status_code == 429
+    assert client.get("/sensitive", environ_base=peer, headers={"X-Forwarded-For": "203.0.113.5", "CF-Connecting-IP": "198.51.100.3"}).status_code == 429
+    assert client.get("/sensitive", environ_base={"REMOTE_ADDR": "203.0.113.9"}, headers={"X-RK-Verified-Client-IP": "198.51.100.1"}).status_code == 200
