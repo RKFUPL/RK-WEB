@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiBaseUrl } from '@/lib/rbac';
 import { WhatsAppTestMessage, testErrorText, validTestRecipient } from '@/components/admin/whatsapp-test-message';
+import { WhatsAppDiagnostics, type DiagnosticCheck } from '@/components/admin/whatsapp-diagnostics';
 import { WhatsAppCampaigns } from '@/components/admin/whatsapp-campaigns';
 
 type TemplateComponent = { type: string; format?: string; text?: string; buttons?: { type: string; text: string; url?: string }[]; add_security_recommendation?: boolean; code_expiration_minutes?: number };
@@ -13,7 +14,7 @@ type Status = {
   orderNotificationsEnabled?: boolean; orderNotificationsEnvironmentEnabled?: boolean; orderNotificationsAdminEnabled?: boolean; orderNotificationsReason?: string | null;
   phoneNumberId: string; businessPhoneNumber?: string; businessAccountId: string; apiVersion: string; callbackUrl: string;
   environment: 'development' | 'production'; testSendEnabled: boolean;
-  productionTest?: { enabled: boolean; expiresAt?: string | null; reason?: string | null };
+  productionTest?: { enabled: boolean; expiresAt?: string | null; reason?: string | null; providerEligible?: boolean; providerBlock?: string | null; providerEvidenceExpiresAt?: string | null };
   verifiedAt?: string; lastWebhook?: string; lastApiSuccess?: string;
   subscriptionStatus?: string; subscriptionCheckedAt?: string; lastError?: { kind: string; code?: number };
   templates: Record<string, Template>;
@@ -21,6 +22,7 @@ type Status = {
   unmappedTemplates?: { name: string; language: string; category: string; status: string; qualityRating?: string | null; checkedAt?: string; evidenceState: string }[];
   templateStatusSync?: { lastAttemptAt?: string; lastSuccessAt?: string; lastError?: string | null; outcome?: string; pagesRead?: number; recordsRead?: number };
   marketingEnabled?: boolean;
+  diagnosticChecks?: DiagnosticCheck[];
   diagnostics?: { code: string; severity: 'info' | 'warning'; message: string }[];
   phoneCodeVerificationStatus?: string; phoneStatusCheckedAt?: string;
 };
@@ -237,7 +239,8 @@ export default function WhatsAppIntegrationPage() {
   const testParameterFields = selectedTemplate?.testParameterFields ?? [];
   const templateParametersValid = Boolean(selectedTemplate && testParameterFields.every(field => Boolean(templateParameters[field.key]?.trim()) && templateParameters[field.key].length <= 500));
   const productionTestOpen = Boolean(status?.environment === 'production' && status.productionTest?.enabled && status.productionTest.expiresAt && Date.parse(status.productionTest.expiresAt) > testClock);
-  const templateTestGateOpen = status?.environment === 'production' ? productionTestOpen : status?.testSendEnabled;
+  const providerEvidenceOpen = Boolean(status?.productionTest?.providerEligible && status.productionTest.providerEvidenceExpiresAt && Date.parse(status.productionTest.providerEvidenceExpiresAt) > testClock);
+  const templateTestGateOpen = status?.environment === 'production' ? productionTestOpen && providerEvidenceOpen : status?.testSendEnabled;
   const canSendTemplate = Boolean(!busy && confirmed && templateTestGateOpen && status?.configured && validTestRecipient(recipient) && selectedTemplate?.eligibleForTesting && templateParametersValid);
   const catalogRows = Object.values(status?.catalogue ?? {});
   const extraRows = Object.values(status?.templates ?? {}).filter(template => !catalogRows.some(row => row.name === template.name && row.language === template.language)
@@ -258,7 +261,7 @@ export default function WhatsAppIntegrationPage() {
       {sections.map(section => <button key={section.key} id={`whatsapp-tab-${section.key}`} role="tab" aria-selected={activeSection === section.key} aria-controls="whatsapp-panel" className={`shrink-0 rounded-full px-4 py-2 text-sm ${activeSection === section.key ? 'bg-[#211e1a] text-white' : 'border border-black/10 text-gray-700 hover:bg-[#f7f4ef]'}`} onClick={() => setActiveSection(section.key)}>{section.label}</button>)}
     </nav>
     {!status ? <p>Loading WhatsApp configuration…</p> : <div id="whatsapp-panel" role="tabpanel" aria-labelledby={`whatsapp-tab-${activeSection}`} className="min-w-0 space-y-5">
-      {(show('overview') || show('test-messages')) && !!status.diagnostics?.length && <section role="region" className={box} aria-label="Messaging diagnostics"><h2 className="text-lg font-semibold">Messaging diagnostics</h2><p className="mt-2 text-sm text-gray-600">Application gates, Meta account restrictions and receipt evidence are separate checks. Diagnostics do not activate sending or confirm delivery.</p><ul className="mt-3 space-y-3">{status.diagnostics.map(item => <li key={item.code} className={`rounded-lg border p-3 text-sm ${item.severity === 'warning' ? 'border-amber-700/30 bg-amber-50' : 'border-black/10 bg-[#f7f4ef]'}`}><p>{item.message}</p><p className="mt-1 text-xs text-gray-500">Diagnostic: {item.code}</p></li>)}</ul></section>}
+      {(show('overview') || show('test-messages')) && <WhatsAppDiagnostics values={status.diagnosticChecks} notes={status.diagnostics} request={api} onResult={value => setStatus(value as Status)} />}
       {show('overview') && <>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {[
@@ -278,7 +281,7 @@ export default function WhatsAppIntegrationPage() {
       {show('test-messages') && <>
         <WhatsAppTestMessage enabled={status.testSendEnabled} configured={status.configured} request={api} onComplete={() => setLogRevision(value => value + 1)} />
         <section className={`${box} space-y-4`}><div><h2 className="text-xl font-semibold">Send one-off approved template test</h2><p className="mt-1 text-sm text-gray-600">This sends directly through the configured WhatsApp Phone Number ID and writes to test message logs. Automated mapping enablement is separate and is not required. Authentication and marketing templates use their separate eligibility and consent flows.</p></div>
-          {status.environment === 'production' && <div role="region" aria-label="Restricted production test mode" className="space-y-2 rounded-xl border border-amber-700/30 bg-amber-50 p-4 text-sm"><p className="font-semibold">Restricted production template testing: {productionTestOpen ? 'Enabled' : 'Off or expired'}</p><p>Enter one valid E.164 recipient for each manually initiated test · Expires (UTC): {status.productionTest?.expiresAt || 'Not configured'}</p><p>This mode permits approved Utility template tests only. It does not enable free text, Authentication, Marketing or order automation; those retain their separate gates. The backend validates the entered number and rechecks expiry before every dispatch.</p><p>Separate order automation: {status.orderNotificationsEnabled ? 'Enabled' : 'Off'}. The order gate does not enable manual testing.</p>{status.productionTest?.reason && <p>Backend restriction: {status.productionTest.reason}</p>}</div>}
+          {status.environment === 'production' && <div role="region" aria-label="Restricted production test mode" className="space-y-2 rounded-xl border border-amber-700/30 bg-amber-50 p-4 text-sm"><p className="font-semibold">Restricted production template testing: {productionTestOpen ? 'Enabled' : 'Off or expired'}</p><p>Enter one valid E.164 recipient for each manually initiated test · Expires (UTC): {status.productionTest?.expiresAt || 'Not configured'}</p><p>This mode permits approved Utility template tests only. It does not enable free text, Authentication, Marketing or order automation; those retain their separate gates. The backend validates the entered number and rechecks expiry before every dispatch.</p>{status.productionTest?.providerBlock && <p>Provider prerequisite: {status.productionTest.providerBlock.replaceAll('_', ' ')}</p>}<p>Separate order automation: {status.orderNotificationsEnabled ? 'Enabled' : 'Off'}. The order gate does not enable manual testing.</p>{status.productionTest?.reason && <p>Backend restriction: {status.productionTest.reason}</p>}</div>}
           <label className="block max-w-2xl text-sm">Search templates<input aria-label="Search approved templates" className={`${input} mt-1 block w-full`} value={templateSearch} onChange={event => { setTemplateSearch(event.target.value); setTemplateLimit(6); }} placeholder="Search by template name or language" /></label>
           <form className="space-y-4" onSubmit={event => { event.preventDefault(); if (!canSendTemplate) return; if (!requestId.current) requestId.current = crypto.randomUUID(); void action('/test-send', 'POST', { recipient, event: templateEvent, templateName: selectedTemplate?.name, language: selectedTemplate?.language, parameters: templateParameters, confirmed, recipientConsentVerified: confirmed, requestId: requestId.current }); }}>
           <div role="listbox" aria-label="Utility templates" className="space-y-1 rounded-xl border p-2">{testTemplates.map(([event, template]) => <button type="button" role="option" aria-selected={templateEvent === event} key={event} aria-description={template.eligibleForTesting ? 'Select to preview; sending requires the test-send gate, configuration, recipient, consent and valid parameters.' : 'Preview only; this template is not eligible for test sending.'} onClick={() => { setTemplateEvent(event); setTemplateParameters({}); setConfirmed(false); requestId.current = ''; }} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm hover:bg-[#f7f4ef] aria-selected:bg-[#f7f4ef]"><span className="break-all">{template.templateGroup === 'Integration Test' ? 'Integration Test - ' : ''}{template.name || event} · {template.language} · {template.category}{template.locallyMapped ? ` · Automated mapping ${template.mappingEnabled ? 'enabled' : 'disabled'}` : ''}</span><span className={chip(template.eligibleForTesting === true, metaStatus(template))}>{template.eligibleForTesting ? 'Approved · test eligible' : metaStatus(template)}</span></button>)}{!testTemplates.length && <p className="p-3 text-sm text-gray-500">No Utility templates match.</p>}</div>

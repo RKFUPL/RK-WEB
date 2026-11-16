@@ -22,6 +22,12 @@ def case():
         WHATSAPP_MARKETING_ENABLED=False, WHATSAPP_TEST_SEND_ENABLED=False,
         WHATSAPP_PRODUCTION_TEST_SEND_ENABLED=True,
         WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT=(now() + timedelta(hours=1)).isoformat())
+    from app.whatsapp_checks import scope_key
+    evidence = {
+        "billing": {"key": "billing", "status": "NOT VERIFIED", "checkedAt": now(), "_scope": scope_key(instance.app.config), "evidence": {"providerEligibilityVerified": True, "billingLedgerVerified": False}},
+        "sender": {"key": "sender", "status": "VERIFIED", "checkedAt": now(), "_scope": scope_key(instance.app.config), "evidence": {"verification": "VERIFIED", "registration": "CONNECTED"}},
+    }
+    instance.db.integrations.update_one({"_id": "whatsapp"}, {"$set": {"diagnosticChecks": evidence}})
     for mapping in instance.app.config["WHATSAPP_TEMPLATES"].values():
         mapping["enabled"] = False
     try:

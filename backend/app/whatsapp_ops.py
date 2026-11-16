@@ -140,10 +140,13 @@ def register_commands(app, mongo):
             missing = index_problems(db)
             if missing:
                 raise click.ClickException("Worker blocked by unavailable/missing indexes: " + ", ".join(missing))
+            from .whatsapp_checks import record_worker_observation
+            record_worker_observation(db, app.config, "running")
             if threading.current_thread() is threading.main_thread():
                 for sig in (signal.SIGTERM, signal.SIGINT):
                     previous[sig] = signal.signal(sig, lambda *_: stopped.set())
             count = process_outbox(db, app.config, stop_requested=stopped.is_set)
+            record_worker_observation(db, app.config, "stopped" if stopped.is_set() else "complete", count)
             emit("whatsapp_worker", status="stopped" if stopped.is_set() else "complete", processed=count)
         except PyMongoError:
             raise click.ClickException("WhatsApp worker database unavailable; ambiguous claims require reconciliation.") from None

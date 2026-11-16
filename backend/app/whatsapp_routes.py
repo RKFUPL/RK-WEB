@@ -90,6 +90,8 @@ def safe_status(db):
         {"error.code": {"$in": [131042, 131031, 368]}},
         {"failureDetails.errors.code": {"$in": [131042, 131031, 368]}},
     ]}, {"error": 1, "failureDetails": 1}, sort=[("updatedAt", -1)])
+    from .whatsapp_checks import production_provider_block, public_checks, provider_evidence_expiry
+    provider_block = production_provider_block(db, config) if config.get("WHATSAPP_ENVIRONMENT") == "production" else None
     templates = template_registry(db, config)
     for event, item in templates.items():
         ready = item["approved"] and not missing
@@ -98,7 +100,7 @@ def safe_status(db):
         item["testParameterFields"] = test_fields or []
         item["eligibleForTesting"] = bool(ready and test_fields is not None and item["category"] == "UTILITY"
             and item.get("requiresMetaApproval") is True and item.get("approvalSource") == "meta_api_read"
-            and not item.get("statusStale") and template_test_enabled(config))
+            and not item.get("statusStale") and template_test_enabled(config) and provider_block is None)
         item["eligibleForAutomation"] = bool(item["enabled"] and ready and automation_enabled(db, config, event)
             and (item["category"] != "MARKETING" or config.get("WHATSAPP_MARKETING_ENABLED") is True))
     catalogue = {}
@@ -139,11 +141,12 @@ def safe_status(db):
             "environmentEnabled": config.get("WHATSAPP_ENABLED") is True,
             "configured": not missing, "missing": missing,
             "phoneNumberId": config.get("WHATSAPP_PHONE_NUMBER_ID", ""),
-            "businessPhoneNumber": state.get("businessPhoneNumber", ""),
+            "businessPhoneNumber": "***" + str(state["businessPhoneNumber"])[-4:] if state.get("businessPhoneNumber") else "",
             "businessAccountId": config.get("WHATSAPP_BUSINESS_ACCOUNT_ID", ""),
             "apiVersion": config.get("WHATSAPP_API_VERSION", ""),
             "testSendEnabled": test_send_enabled(config), **callback_configuration(config),
-            "productionTest": production_test_state(config),
+            "productionTest": {**production_test_state(config), "providerEligible": provider_block is None, "providerBlock": provider_block, "providerEvidenceExpiresAt": provider_evidence_expiry(db, config) if provider_block is None else None},
+            "diagnosticChecks": public_checks(db, config),
             "diagnostics": application_diagnostics(config, state, recorded_failure),
             "phoneCodeVerificationStatus": state.get("phoneCodeVerificationStatus", "UNKNOWN"),
             "phoneStatusCheckedAt": state.get("phoneStatusCheckedAt"),
@@ -517,6 +520,11 @@ def _test_response(result):
         "production_test_expired": "Restricted production template testing has expired.",
         "production_test_expiry_too_far": "The production test expiry must be no more than 24 hours from the current UTC time.",
     }
+    explanations.update({
+        "production_test_provider_evidence_stale_or_missing": "Refresh sender and Meta eligibility diagnostics. Current account-bound provider evidence is missing or older than 15 minutes.",
+        "production_test_provider_eligibility_unverified": "Meta messaging eligibility is not fully verified as AVAILABLE. Review health and billing restrictions; a card charge or template approval is insufficient.",
+        "production_test_sender_not_verified_or_registered": "The sender requires current VERIFIED ownership and CONNECTED registration evidence before a manual production test.",
+    })
     explanations.update(PRODUCTION_TEST_REASONS)
     if result.get("reason") in explanations:
         result = {**result, "explanation": explanations[result["reason"]]}
@@ -823,3 +831,20 @@ def lifecycle_update():
         current_app.logger.warning("Lifecycle email notification unavailable")
     db.whatsapp_manual_events.update_one({"_id": event_key}, {"$set": {"emailStatus": email_status}})
     return jsonify(updated=True, whatsapp=result, email=email_status)
+
+
+@admin_bp.post("/diagnostics/refresh")
+@requireAdmin
+@limiter.limit("20 per minute")
+def refresh_diagnostics():
+    from .whatsapp_checks import refresh_checks, SCOPES
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or set(payload) != {"scope"} or payload["scope"] not in (*SCOPES, "all"):
+        return jsonify(error="Select one supported diagnostic scope."), 400
+    try:
+        checks = refresh_checks(database(), current_app.config, payload["scope"])
+    except (ValueError, RuntimeError):
+        return jsonify(error="The explicit WhatsApp database guard must match the initialized database before diagnostic refresh."), 409
+    response = jsonify(checks=json_value(checks), status=json_value(safe_status(database())))
+    response.headers["Cache-Control"] = "no-store"
+    return response

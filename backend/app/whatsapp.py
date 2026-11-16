@@ -286,6 +286,11 @@ def send(db, config, recipient, event, parameters, key, *, order_id=None, text=N
                     return {"status": "skipped", "reason": "invalid_button_parameters"}
                 components.append({"type": "button", "sub_type": "url", "index": str(index), "parameters": [{"type": "text", "text": suffix}]})
             content = {"type": "template", "template": {"name": template["name"], "language": {"code": template["language"]}, "components": components}}
+    if production_test:
+        from .whatsapp_checks import production_provider_block
+        blocked = production_provider_block(db, config)
+        if blocked:
+            return {"status": "skipped", "reason": blocked}
     if consent_check is not None and not consent_check():
         return {"status": "skipped", "reason": "no_consent"}
     correlation = hashlib.sha256((key + ":" + phone_hash).encode()).hexdigest()
@@ -339,7 +344,8 @@ def send(db, config, recipient, event, parameters, key, *, order_id=None, text=N
         db.whatsapp_messages.update_one({"_id": correlation}, {"$inc": {"attempts": 1}})
         try:
             if production_test:
-                blocked = production_test_block(config, recipient)
+                from .whatsapp_checks import production_provider_block
+                blocked = production_test_block(config, recipient) or production_provider_block(db, config)
                 if blocked:
                     result = {"status": "failed", "reason": blocked, "error": {"kind": blocked}, "httpStatus": result.get("httpStatus")}
                     break

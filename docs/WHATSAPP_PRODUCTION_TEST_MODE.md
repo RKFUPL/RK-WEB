@@ -2,6 +2,8 @@
 
 Implemented locally; no production environment, Meta settings or messaging gates were changed. The mode defaults off. This does not authorize deployment or a real send.
 
+**Additional current prerequisite:** manual production tests require account-bound sender/provider diagnostic evidence no older than 15 minutes, independently of the maximum 24-hour UTC test window. Health and exact phone/WABA/app entities must be AVAILABLE, ownership VERIFIED and registration CONNECTED. Rechecks occur immediately before dispatch and after retry backoff. Billing ledger clearance is not inferred from a card charge or health request; manual account reconciliation remains required. UNKNOWN/LIMITED evidence cannot authorize a test. Refresh never activates a gate. See [the final production readiness report](WHATSAPP_FINAL_PRODUCTION_READINESS.md) for current evidence, worker/provider blockers and conditional procedures. Historical observations/counts below are not current proof.
+
 Backend environment names and safe defaults:
 
 ```dotenv

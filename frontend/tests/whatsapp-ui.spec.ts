@@ -1,5 +1,76 @@
 ﻿import { expect, test, type Page } from '@playwright/test';
 
+test('all seven diagnostic refresh actions request and display fresh backend evidence', async ({ page }) => {
+  const calls = await mockApi(page);
+  const requested: string[] = [];
+  const scopes = [
+    ['configuration', 'Application configuration'], ['billing', 'Meta billing evidence'],
+    ['sender', 'Sender phone verification'], ['templates', 'Template eligibility'],
+    ['webhook', 'App-level webhook subscription'], ['worker', 'Worker status and configuration'], ['outbox', 'Outbox status'],
+  ];
+  await page.route('**/api/admin/integrations/whatsapp/diagnostics/refresh', route => {
+    const scope = route.request().postDataJSON().scope;
+    requested.push(scope);
+    const keys = scope === 'all' ? scopes.map(([key]) => key) : [scope];
+    return route.fulfill({ json: { status: { ...integration, diagnosticChecks: keys.map(key => ({ key,
+      status: key === 'billing' ? 'UNKNOWN' : key === 'sender' ? 'ACTION REQUIRED' : 'VERIFIED',
+      checkedAt: new Date().toISOString(), source: `Fresh mocked ${key} backend read`,
+      reason: key === 'billing' ? 'Billing ledger could not be verified.' : `Fresh ${key} evidence`,
+      action: `Review ${key} prerequisites`, evidence: { fresh: true },
+    })) } } });
+  });
+  await page.goto('/admin/integrations/whatsapp');
+  const diagnostics = page.getByRole('region', { name: 'Messaging diagnostics' });
+  for (const [scope, title] of scopes) {
+    await diagnostics.getByRole('button', { name: `Refresh ${title}`, exact: true }).click();
+    const card = diagnostics.getByRole('article', { name: `${title} diagnostic` });
+    await expect(card).toContainText(`Fresh mocked ${scope} backend read`);
+    await expect(card).not.toContainText('Not checked');
+  }
+  await diagnostics.getByRole('button', { name: 'Refresh All Diagnostics', exact: true }).click();
+  await expect(diagnostics.getByText('VERIFIED', { exact: true })).toHaveCount(5);
+  await expect(diagnostics.getByText('UNKNOWN', { exact: true })).toHaveCount(1);
+  await expect(diagnostics.getByText('ACTION REQUIRED', { exact: true })).toHaveCount(1);
+  expect(requested).toEqual([...scopes.map(([key]) => key), 'all']);
+  expect(calls.sent).toEqual([]);
+});
+
+test('failed diagnostic refresh shows an error without pretending to verify evidence', async ({ page }) => {
+  await mockApi(page);
+  await page.route('**/api/admin/integrations/whatsapp/diagnostics/refresh', route => route.fulfill({ status: 503, json: { error: 'Fresh evidence unavailable' } }));
+  await page.goto('/admin/integrations/whatsapp');
+  const diagnostics = page.getByRole('region', { name: 'Messaging diagnostics' });
+  await diagnostics.getByRole('button', { name: 'Refresh All Diagnostics' }).click();
+  await expect(diagnostics.getByRole('alert')).toContainText('Fresh evidence unavailable');
+  await expect(diagnostics.getByText('UNKNOWN', { exact: true })).toHaveCount(7);
+});
+
+test('fresh provider evidence is required even with an open production gate and approved template', async ({ page }) => {
+  const calls = await mockApi(page, { active: true, production: true, registered: true,
+    productionTest: { enabled: true, expiresAt: new Date(Date.now()+60_000).toISOString(), providerEligible: false } });
+  await page.goto('/admin/integrations/whatsapp');
+  await openSection(page, 'Test Messages');
+  await page.getByLabel('Consenting test recipient').fill('+14155552671');
+  await page.getByLabel(/I verified that the recipient provided this number/).check();
+  await expect(page.getByRole('button', { name: 'Send approved test template', exact: true })).toBeDisabled();
+  expect(calls.sent).toEqual([]);
+});
+
+for (const mode of ['light', 'dark'] as const) test(`diagnostics remain readable and fit mobile in ${mode} mode`, async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: mode });
+  await mockApi(page);
+  await page.goto('/admin/integrations/whatsapp');
+  await page.evaluate(dark => document.documentElement.classList.toggle('dark', dark), mode === 'dark');
+  const diagnostics = page.getByRole('region', { name: 'Messaging diagnostics' });
+  await expect(diagnostics).toBeVisible();
+  await expect(diagnostics.getByRole('article')).toHaveCount(7);
+  expect(await diagnostics.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(false);
+  const colours = await diagnostics.evaluate(element => ({ background: getComputedStyle(element).backgroundColor, text: getComputedStyle(element).color }));
+  expect(colours.background).not.toEqual(colours.text);
+  await diagnostics.screenshot({ path: `test-results/whatsapp-diagnostics-${mode}.png` });
+});
+
 const integration = {
   enabled: false, environmentEnabled: false, configured: false,
   missing: ['WHATSAPP_ACCESS_TOKEN'], phoneNumberId: '', businessAccountId: '', apiVersion: '',
@@ -17,7 +88,7 @@ const registeredTemplate = {
   ],
 };
 
-async function mockApi(page: Page, options: { active?: boolean; role?: string; window?: 'open' | 'closed' | 'expired'; invalidRecipient?: boolean; textError?: boolean; localRateLimit?: boolean; gate?: boolean; production?: boolean; catalogue?: boolean; mappingDisabled?: boolean; readReceiptStatus?: 'received' | 'not_received' | 'unknown'; logStatus?: string; registered?: boolean; metaApproved?: boolean; refreshFailure?: boolean; testTemplate?: Record<string, unknown>; productionTest?: { enabled: boolean; expiresAt: string | null }; orderGate?: boolean; orderAdmin?: boolean; diagnostics?: { code: string; severity: 'info' | 'warning'; message: string }[] } = {}) {
+async function mockApi(page: Page, options: { active?: boolean; role?: string; window?: 'open' | 'closed' | 'expired'; invalidRecipient?: boolean; textError?: boolean; localRateLimit?: boolean; gate?: boolean; production?: boolean; catalogue?: boolean; mappingDisabled?: boolean; readReceiptStatus?: 'received' | 'not_received' | 'unknown'; logStatus?: string; registered?: boolean; metaApproved?: boolean; refreshFailure?: boolean; testTemplate?: Record<string, unknown>; productionTest?: { enabled: boolean; expiresAt: string | null; providerEligible?: boolean; providerEvidenceExpiresAt?: string }; orderGate?: boolean; orderAdmin?: boolean; diagnostics?: { code: string; severity: 'info' | 'warning'; message: string }[] } = {}) {
   const sent: Record<string, unknown>[] = [];
   const filters: string[] = [];
   await page.route('**/*', async route => {
@@ -46,7 +117,7 @@ async function mockApi(page: Page, options: { active?: boolean; role?: string; w
       } } : {}),
       testSendEnabled: Boolean(options.active && options.gate !== false && !options.production),
       environment: options.production ? 'production' : 'development',
-      productionTest: options.productionTest,
+      productionTest: options.productionTest ? { providerEligible: true, providerEvidenceExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), ...options.productionTest } : undefined,
       diagnostics: options.diagnostics,
       callbackUrl: options.production ? 'https://rashikapoor.co.in/api/webhooks/whatsapp' : options.active ? 'https://fixture-tunnel.example/api/webhooks/whatsapp' : '',
     } });
