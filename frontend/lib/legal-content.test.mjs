@@ -8,8 +8,39 @@ const source = readFileSync(new URL('./legal-content.ts', import.meta.url), 'utf
 const legalPageSource = readFileSync(new URL('../components/site/legal-page.tsx', import.meta.url), 'utf8');
 const contentsNavSource = readFileSync(new URL('../components/site/legal-contents-nav.tsx', import.meta.url), 'utf8');
 const sitemapSource = readFileSync(new URL('../app/sitemap.ts', import.meta.url), 'utf8');
+const privacyPageSource = readFileSync(new URL('../app/privacy-policy/page.tsx', import.meta.url), 'utf8');
+const dataDeletionPageSource = readFileSync(new URL('../app/data-deletion/page.tsx', import.meta.url), 'utf8');
+const siteMetadataSource = readFileSync(new URL('./site-metadata.ts', import.meta.url), 'utf8');
+const footerSource = readFileSync(new URL('../components/home/footer.tsx', import.meta.url), 'utf8');
 const termsSource = source.slice(source.indexOf("terms: { title: 'Terms & Conditions'"), source.indexOf("shippingDelivery: {"));
 const termsTitles = [...termsSource.matchAll(/^\s{4}\['([^']+)',/gm)].map((match) => match[1]);
+
+test('published privacy policy covers implemented WhatsApp data and consent handling', () => {
+  for (const phrase of [
+    'name, email address, telephone number', 'shipping and billing', 'transaction references',
+    'Meta\'s WhatsApp Business Platform', 'Transactional WhatsApp consent is separate from marketing consent',
+    'sent, delivered, read or failed timestamps', 'does not retain the raw incoming message body',
+    'encrypted and removed when queue processing finishes', 'STOP or unsubscribe',
+  ]) assert.ok(source.includes(phrase), `privacy disclosure is missing: ${phrase}`);
+  assert.match(privacyPageSource, /updated="16 November 2026"/);
+});
+
+test('public data deletion route uses the verified contact and explains review safeguards', () => {
+  assert.match(dataDeletionPageSource, /Personal Data Deletion Request/);
+  assert.match(dataDeletionPageSource, /legalIdentity\.customerCareEmail/);
+  assert.match(dataDeletionPageSource, /verify/);
+  assert.match(dataDeletionPageSource, /tax, accounting, security/);
+  assert.match(dataDeletionPageSource, /WhatsApp STOP or unsubscribe request/);
+  assert.match(dataDeletionPageSource, /does not provide an automated account-deletion feature/);
+  assert.match(dataDeletionPageSource, /'\/data-deletion'/);
+  assert.match(footerSource, /href="\/data-deletion"/);
+  assert.match(sitemapSource, /'\/data-deletion'/);
+});
+
+test('legal canonical base defaults to the public Rashi Kapoor domain', () => {
+  assert.match(siteMetadataSource, /NEXT_PUBLIC_SITE_URL \|\| 'https:\/\/rashikapoor\.co\.in'/);
+  assert.match(privacyPageSource, /pageMetadata\([^\n]+, '\/privacy-policy'\)/);
+});
 
 test('Terms retain all 32 sections in their established order', () => {
   assert.deepEqual(termsTitles, [

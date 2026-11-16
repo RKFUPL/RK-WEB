@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 
-export const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://physihome.shop';
+export const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://rashikapoor.co.in';
 
 export function pageMetadata(
   title: string,

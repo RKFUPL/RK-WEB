@@ -20,10 +20,11 @@ test('footer preserves the approved house signature and verified contact identit
   assert.equal(legalIdentity.companyName, 'Rashi Kapoor Fashion Unicus Pvt. Ltd.');
   assert.match(footer, /© 2026 \{legalIdentity\.companyName\}/);
   assert.equal((footer.match(/href="\/privacy-policy"/g) || []).length, 1);
+  assert.equal((footer.match(/href="\/data-deletion"/g) || []).length, 1);
   assert.equal((footer.match(/href="\/legal"/g) || []).length, 1);
   assert.equal((footer.match(/href="\/shipping-returns"/g) || []).length, 1);
-  assert.equal((footer.match(/className="font-semibold text-gold transition hover:text-ivory"/g) || []).length, 3);
-  assert.equal((footer.match(/aria-hidden="true" className="mx-4 text-gold\/45 sm:mx-5">\|<\/span>/g) || []).length, 2);
+  assert.equal((footer.match(/className="font-semibold text-gold transition hover:text-ivory"/g) || []).length, 4);
+  assert.equal((footer.match(/aria-hidden="true" className="mx-4 text-gold\/45 sm:mx-5">\|<\/span>/g) || []).length, 3);
   assert.match(footer, /className="flex flex-wrap items-center gap-y-2"/);
   assert.doesNotMatch(footer, /title: 'Information'/);
 });

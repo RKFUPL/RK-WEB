@@ -201,6 +201,10 @@ export function Footer() {
             </span>
             <span className="flex items-center">
               <span aria-hidden="true" className="mx-4 text-gold/45 sm:mx-5">|</span>
+              <Link href="/data-deletion" className="font-semibold text-gold transition hover:text-ivory">Data Deletion</Link>
+            </span>
+            <span className="flex items-center">
+              <span aria-hidden="true" className="mx-4 text-gold/45 sm:mx-5">|</span>
               <Link href="/legal" className="font-semibold text-gold transition hover:text-ivory">Terms &amp; Legal</Link>
             </span>
           </div>
