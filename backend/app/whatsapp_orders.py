@@ -18,6 +18,11 @@ ORDER_ONLY_EVENTS = ORDER_NOTIFICATIONS - {"payment_confirmation"}
 
 def order_contact(db, config, order, user):
     from .whatsapp import normalize_phone, fingerprint
+    if "whatsappRecipient" in order:
+        try:
+            return {"phone": normalize_phone(order["whatsappRecipient"]), "source": order.get("whatsappRecipientSource", "order_snapshot"), "reason": None}
+        except ValueError:
+            return {"phone": None, "source": order.get("whatsappRecipientSource"), "reason": "invalid_recipient"}
     candidates = [("shipping.phone", (order.get("shipping") or {}).get("phone")),
                   ("shippingAddress.phone", (order.get("shippingAddress") or {}).get("phone")),
                   ("phone", order.get("phone")), ("order_consent.phone", (order.get("whatsappConsent") or {}).get("phone"))]
@@ -127,6 +132,13 @@ def notify_order_whatsapp(db, order_id, event, event_data=None):
         if result.get("correlationId") and result["status"] in {"queued", "duplicate"}:
             values["queueId"] = result["correlationId"]
         db.whatsapp_order_events.update_one({"_id": audit_id}, {"$set": values, "$setOnInsert": {"createdAt": now()}}, upsert=True)
+        if result["status"] not in {"queued", "duplicate"}:
+            db.whatsapp_messages.update_one({"_id": "order-attempt:" + audit_id}, {"$set": {
+                "orderId": str(order["_id"]), "orderNumber": order.get("orderNumber"), "customerId": str(order.get("customerId") or ""),
+                "recipient": "***" + recipient["phone"][-4:] if recipient["phone"] else "Unavailable",
+                "recipientSource": recipient["source"], "type": event, "template": template.get("name"),
+                "status": "skipped", "error": {"kind": reason or "notification_unavailable"}, "updatedAt": now(), "testSend": False,
+            }, "$setOnInsert": {"createdAt": now(), "attempts": 0}}, upsert=True)
         return result
     except Exception:
         try:

@@ -21,6 +21,7 @@ from ...order_fulfillment import (
 )
 from ...whatsapp import notify
 from ...whatsapp import normalize_phone
+from ...checkout_whatsapp import checkout_recipient
 from ...whatsapp_consent import record_consent
 from ...whatsapp_marketing_consent import record_marketing_consent
 from ...order_confirmation import send_order_confirmation
@@ -427,13 +428,18 @@ def create_razorpay_order():
     try:
         display_currency = _display_currency(payload.get("displayCurrency", "INR"))
         shipping = _normalise_shipping(db, user_id, payload.get("shipping") if isinstance(payload.get("shipping"), dict) else {})
-        if payload.get("whatsappTransactionalConsent") is True or payload.get("whatsappMarketingConsent") is True:
-            normalize_phone(shipping.get("phone"))
+        whatsapp = checkout_recipient(db, current_app.config, user, payload, shipping)
+        if payload.get("whatsappMarketingConsent") is True and not whatsapp["phone"]:
+            raise ValueError("Select a valid international WhatsApp number for marketing consent.")
         items, subtotal = _checkout_items(db, payload.get("cart"))
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
 
     existing = db.orders.find_one({"customerId": user_id, "checkoutAttemptId": attempt_id})
+    if existing and (existing.get("whatsappRecipient") != whatsapp["phone"] or (
+            "whatsappTransactionalConsent" in payload and
+            payload["whatsappTransactionalConsent"] != ((existing.get("whatsappConsent") or {}).get("enabled") is True))):
+        return jsonify(error="The WhatsApp recipient or consent changed. Start a new checkout attempt."), 409
     if existing and existing.get("razorpayOrderId"):
         if existing.get("paymentStatus") in {"failed", "cancelled"}:
             existing = db.orders.find_one_and_update(
@@ -447,23 +453,27 @@ def create_razorpay_order():
     order = existing or _new_order_document(user, shipping, items, subtotal, attempt_id, now, display_currency)
     if not existing:
         try:
-            order["_id"] = db.orders.insert_one(order).inserted_id
-            if "whatsappTransactionalConsent" in payload:
-                # Declining this order does not withdraw unrelated account consent.
-                if payload["whatsappTransactionalConsent"]:
-                    consent = record_consent(db, current_app.config, user_id, shipping["phone"], True, "checkout", order_id=order["_id"], update_user=False)
-                else:
-                    consent = {"customerId": str(user_id), "phone": shipping.get("phone"), "category": "transactional", "enabled": False, "status": "declined", "timestamp": now, "source": "checkout", "orderId": str(order["_id"])}
-                    db.whatsapp_consents.insert_one(dict(consent))
-                order["whatsappConsent"] = consent
-                db.orders.update_one({"_id": order["_id"]}, {"$set": {"whatsappConsent": consent}})
+            order["_id"] = ObjectId()
+            if payload.get("whatsappTransactionalConsent") is True:
+                consent = record_consent(db, current_app.config, user_id, whatsapp["phone"], True, "checkout", order_id=order["_id"], update_user=False)
+            elif whatsapp["consent"]:
+                consent = {**whatsapp["consent"], "orderId": str(order["_id"])}
+            else:
+                consent = {"customerId": str(user_id), "phone": whatsapp["phone"], "category": "transactional", "enabled": False, "status": "declined", "timestamp": now, "source": "checkout", "orderId": str(order["_id"])}
+            order.update(whatsappRecipient=whatsapp["phone"], whatsappCountry=whatsapp["country"], whatsappRecipientSource=whatsapp["source"], whatsappConsent=consent)
+            # Recipient and consent are inserted with the order atomically.
+            # No provider order can exist with a half-written recipient snapshot.
+            db.orders.insert_one(order)
+            if payload.get("saveWhatsappAsPrimary") is True:
+                record_consent(db, current_app.config, user_id, whatsapp["phone"], True, "checkout_save_primary")
+                db.users.update_one({"_id": user_id}, {"$set": {"whatsappCountry": whatsapp["country"]}})
             if "whatsappMarketingConsent" in payload:
-                marketing = record_marketing_consent(db, current_app.config, user_id, shipping["phone"], payload["whatsappMarketingConsent"], "checkout", update_user=payload["whatsappMarketingConsent"] is True)
+                marketing = record_marketing_consent(db, current_app.config, user_id, whatsapp["phone"] or shipping["phone"], payload["whatsappMarketingConsent"], "checkout", update_user=payload["whatsappMarketingConsent"] is True)
                 db.orders.update_one({"_id": order["_id"]}, {"$set": {"whatsappMarketingConsent": marketing}})
         except DuplicateKeyError:
             order = db.orders.find_one({"customerId": user_id, "checkoutAttemptId": attempt_id})
-            if not order:
-                return jsonify({"error": "We could not start checkout safely. Please try again."}), 409
+            if not order or order.get("whatsappRecipient") != whatsapp["phone"]:
+                return jsonify({"error": "Checkout changed. Start a new checkout attempt."}), 409
     try:
         razorpay_order = razorpay_api_request(current_app.config, "POST", "/orders", {
             "amount": order["amountPaise"],

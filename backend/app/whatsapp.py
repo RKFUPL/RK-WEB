@@ -26,7 +26,7 @@ from .whatsapp_events import ORDER_EVENTS, event_values
 from .time_utils import as_utc_datetime
 
 CALLBACK = "https://rashikapoor.co.in/api/webhooks/whatsapp"
-STATUSES = ("sending", "accepted", "sent", "delivered", "read", "failed", "unknown")
+STATUSES = ("sending", "accepted", "sent", "delivered", "read", "failed", "unknown", "skipped")
 CUSTOMER_MESSAGE_TYPES = {"text", "image", "audio", "video", "document", "button", "interactive", "location", "contacts", "reaction", "sticker"}
 
 
@@ -170,7 +170,8 @@ def _provider_error(body, status):
     code = code if isinstance(code, int) else None
     subcode = error.get("error_subcode") if isinstance(error, dict) else None
     kind = "invalid_credentials" if code == 190 or status == 401 else "rate_limited" if status == 429 or code in {4, 80007, 130429, 131048, 131056} else "provider_rejected"
-    return {"kind": kind, "code": code, "subcode": subcode if isinstance(subcode, int) else None, "httpStatus": status}
+    from .whatsapp_diagnostics import error_description
+    return {"kind": kind, "code": code, "subcode": subcode if isinstance(subcode, int) else None, "httpStatus": status, "description": error_description(code)}
 
 
 def _test_template_components(template, supplied):
@@ -292,6 +293,10 @@ def send(db, config, recipient, event, parameters, key, *, order_id=None, text=N
               "type": event if text is None else "text", "template": template["name"] if text is None else None,
               "orderId": str(order_id) if order_id else None, "status": "sending", "createdAt": now(), "attempts": 0,
               "testSend": bool(test_send), "productionTestSend": bool(production_test)}
+    if order_id and ObjectId.is_valid(str(order_id)):
+        linked_order = db.orders.find_one({"_id": ObjectId(str(order_id))}) or {}
+        record.update(orderNumber=linked_order.get("orderNumber"), customerId=str(linked_order.get("customerId") or ""),
+                      recipientSource=linked_order.get("whatsappRecipientSource", "legacy_order_contact"))
     try:
         db.whatsapp_messages.insert_one(record)
     except DuplicateKeyError:

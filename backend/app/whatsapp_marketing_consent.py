@@ -57,7 +57,7 @@ def marketing_phone(db, config, user):
         return None
     try:
         phone = normalize_phone(consent.get("phone"))
-        if consent["source"] == "authenticated_profile" and phone != normalize_phone(user.get("phone")):
+        if consent["source"] == "authenticated_profile" and phone != normalize_phone(user.get("whatsappPhone", user.get("phone"))):
             return None
         return None if marketing_suppressed(db, config, phone) else phone
     except ValueError:

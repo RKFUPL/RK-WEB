@@ -75,8 +75,9 @@ def audit_provider(config, app_access_token=None):
                 result[kind] = {"verified": True, "configuredPhoneBelongsToWaba": bool(phone), "codeVerification": phone.get("code_verification_status"), "quality": phone.get("quality_rating")}
             else:
                 entries = [item for item in data if item.get("object") == "whatsapp_business_account" and item.get("active") is True]
+                production_entries = [item for item in entries if item.get("callback_url") == CALLBACK]
                 result[kind] = {"verified": True, "productionCallback": any(item.get("callback_url") == CALLBACK for item in entries),
-                               "messagesField": any("messages" in [field.get("name") if isinstance(field, dict) else field for field in item.get("fields", [])] for item in entries)}
+                               "messagesField": any("messages" in [field.get("name") if isinstance(field, dict) else field for field in item.get("fields", [])] for item in production_entries)}
         except (requests.RequestException, ValueError, TypeError, AttributeError):
             result[kind] = {"verified": False, "reason": "provider_read_failed"}
     return result

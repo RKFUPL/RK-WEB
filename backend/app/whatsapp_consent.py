@@ -17,12 +17,15 @@ def record_consent(db, config, customer_id, phone, enabled, source, *, order_id=
     timestamp = timestamp.replace(microsecond=(timestamp.microsecond // 1000) * 1000)
     record = {"customerId": str(customer_id) if customer_id else None, "phone": phone,
               "category": category, "enabled": enabled is True, "status": "granted" if enabled else "withdrawn",
-              "timestamp": timestamp, "updatedAt": timestamp, "source": source, "version": "transactional-v2",
+              "timestamp": timestamp, "updatedAt": timestamp, "source": source, "version": "transactional-v3",
               "orderId": str(order_id) if order_id else None, "recipientHash": fingerprint(phone, config)}
+    if category == "transactional":
+        from .whatsapp_catalogue import CONSENT_TEXT
+        record["text"] = CONSENT_TEXT
     consent_id = db.whatsapp_consents.insert_one(dict(record)).inserted_id
     if update_user and customer_id:
         identity = ObjectId(str(customer_id))
-        db.users.update_one({"_id": identity}, {"$set": {"whatsappNotifications": enabled is True, "whatsappConsent": record}})
+        db.users.update_one({"_id": identity}, {"$set": {"whatsappNotifications": enabled is True, "whatsappConsent": record, "whatsappPhone": phone}})
     if enabled and category == "transactional":
         db.whatsapp_optouts.update_one({"_id": record["recipientHash"]}, {"$set": {"active": False, "reconsentedAt": timestamp}}, upsert=True)
     elif update_user and category == "transactional":
@@ -74,6 +77,6 @@ def consent_phone(db, config, user, record):
     phone = normalize_phone(consent.get("phone"))
     # Profile consent is invalid after a phone change. Order consent is tied to
     # the explicitly consented checkout number, not an inferred address number.
-    if not record.get("whatsappConsent") and phone != normalize_phone(user.get("phone")):
+    if not record.get("whatsappConsent") and phone != normalize_phone(user.get("whatsappPhone", user.get("phone"))):
         return None
     return None if opted_out(db, config, phone) else phone

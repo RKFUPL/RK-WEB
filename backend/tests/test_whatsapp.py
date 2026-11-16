@@ -191,7 +191,7 @@ class WhatsAppTests(unittest.TestCase):
         saved = self.db.whatsapp_messages.find_one()
         self.assertEqual(saved["status"], "failed")
         self.assertEqual(saved["failedAt"].isoformat(), "2023-11-14T22:13:50+00:00")
-        self.assertEqual(saved["failureDetails"], {"kind": "delivery_failed", "errors": [{"kind": "delivery_failed", "code": 131026, "subcode": 42}]})
+        self.assertEqual(saved["failureDetails"], {"kind": "delivery_failed", "errors": [{"kind": "delivery_failed", "description": "Meta could not deliver this message to the recipient.", "code": 131026, "subcode": 42}]})
         for private_value in ("private-access-token", "private-app-secret", "customer@example.test", "+14155552671"):
             self.assertNotIn(private_value, str(saved))
 
@@ -254,7 +254,7 @@ class WhatsAppTests(unittest.TestCase):
         self.outbound()
         self.signed(self.webhook(statuses=[{"id": "wamid.TEST", "status": "failed", "errors": [{"code": 131026, "message": "private-access-token +14155552671"}]}]))
         saved = self.db.whatsapp_messages.find_one()
-        self.assertEqual(saved["error"], {"kind": "delivery_failed", "errors": [{"kind": "delivery_failed", "code": 131026}]})
+        self.assertEqual(saved["error"], {"kind": "delivery_failed", "errors": [{"kind": "delivery_failed", "description": "Meta could not deliver this message to the recipient.", "code": 131026}]})
         self.assertIn("failedAt", saved)
 
     def test_webhook_before_send_response_uses_correlation(self):
@@ -711,7 +711,7 @@ class WhatsAppTests(unittest.TestCase):
             "message": "private-access-token private-app-secret customer@example.test"}})
         result = self.text_test()
         self.assertEqual(result.status_code, 502)
-        self.assertEqual(result.json["error"], {"kind": "invalid_credentials", "code": 190, "subcode": 463, "httpStatus": 401})
+        self.assertEqual(result.json["error"], {"kind": "invalid_credentials", "code": 190, "subcode": 463, "httpStatus": 401, "description": "Meta access token is invalid or expired."})
         self.assertEqual(result.json["httpStatus"], 401)
         self.assertEqual(self.db.whatsapp_messages.find_one()["status"], "failed")
         for secret in ("private-access-token", "private-app-secret", "customer@example.test"):

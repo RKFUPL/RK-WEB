@@ -17,7 +17,7 @@ const registeredTemplate = {
   ],
 };
 
-async function mockApi(page: Page, options: { active?: boolean; role?: string; window?: 'open' | 'closed' | 'expired'; invalidRecipient?: boolean; textError?: boolean; localRateLimit?: boolean; gate?: boolean; production?: boolean; catalogue?: boolean; mappingDisabled?: boolean; readReceiptStatus?: 'received' | 'not_received' | 'unknown'; logStatus?: string; registered?: boolean; metaApproved?: boolean; refreshFailure?: boolean; testTemplate?: Record<string, unknown>; productionTest?: { enabled: boolean; expiresAt: string | null }; orderGate?: boolean; orderAdmin?: boolean } = {}) {
+async function mockApi(page: Page, options: { active?: boolean; role?: string; window?: 'open' | 'closed' | 'expired'; invalidRecipient?: boolean; textError?: boolean; localRateLimit?: boolean; gate?: boolean; production?: boolean; catalogue?: boolean; mappingDisabled?: boolean; readReceiptStatus?: 'received' | 'not_received' | 'unknown'; logStatus?: string; registered?: boolean; metaApproved?: boolean; refreshFailure?: boolean; testTemplate?: Record<string, unknown>; productionTest?: { enabled: boolean; expiresAt: string | null }; orderGate?: boolean; orderAdmin?: boolean; diagnostics?: { code: string; severity: 'info' | 'warning'; message: string }[] } = {}) {
   const sent: Record<string, unknown>[] = [];
   const filters: string[] = [];
   await page.route('**/*', async route => {
@@ -47,6 +47,7 @@ async function mockApi(page: Page, options: { active?: boolean; role?: string; w
       testSendEnabled: Boolean(options.active && options.gate !== false && !options.production),
       environment: options.production ? 'production' : 'development',
       productionTest: options.productionTest,
+      diagnostics: options.diagnostics,
       callbackUrl: options.production ? 'https://rashikapoor.co.in/api/webhooks/whatsapp' : options.active ? 'https://fixture-tunnel.example/api/webhooks/whatsapp' : '',
     } });
     if (path === '/api/admin/integrations/whatsapp/test-window') {
@@ -379,6 +380,22 @@ test('message logs distinguish an unavailable or unknown read receipt', async ({
   await expect(page.locator('tr').filter({ hasText: 'wamid.fixture' })).toContainText('Read receipt unavailable/unknown');
 });
 
+test('read-only receipt confirms delivery in logs without inventing a delivered timestamp', async ({ page }) => {
+  await mockApi(page);
+  await page.route('**/api/admin/integrations/whatsapp/messages?*', route => route.fulfill({ json: {
+    messages: [{ _id: 'read-only', recipient: '***2671', type: 'order_confirmation', orderId: 'fixture-order',
+      status: 'read', providerId: 'wamid.read-only', createdAt: '2026-11-12T10:00:00Z',
+      readAt: '2026-11-12T10:00:02Z', readReceiptStatus: 'received', deliveryReceiptStatus: 'confirmed_by_read_receipt' }],
+    page: 1, hasMore: false,
+  } }));
+  await page.goto('/admin/integrations/whatsapp');
+  await openSection(page, 'Message Logs');
+  const row = page.locator('tr').filter({ hasText: 'wamid.read-only' });
+  await expect(row).toContainText('Read receipt received');
+  await expect(row).toContainText('Confirmed by read receipt; exact delivery time unavailable');
+  await expect(row).not.toContainText('No delivery receipt received yet');
+});
+
 test('mobile admin renders without horizontal overflow', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockApi(page);
@@ -585,14 +602,15 @@ test('signup requests WhatsApp OTP and transactional consent separately and opti
   await page.goto('/account');
   await page.getByRole('button', { name: 'Create an account', exact: true }).click();
   const otpConsent = page.getByLabel('I request this verification code on WhatsApp');
-  const transactionalConsent = page.getByLabel('I agree to receive account verification and transactional WhatsApp messages');
+  const transactionalConsent = page.getByLabel('I agree to receive transactional WhatsApp messages');
   await expect(otpConsent).not.toBeChecked();
   await expect(transactionalConsent).not.toBeChecked();
   await page.getByLabel('First name', { exact: true }).fill('Fixture');
   await page.getByLabel('Last name', { exact: true }).fill('Customer');
   await page.getByLabel('Username', { exact: true }).fill('fixture.signup');
   await page.getByLabel('Email', { exact: true }).fill('signup@example.test');
-  await page.getByLabel('Phone number', { exact: true }).fill('+14155552671');
+  await page.getByLabel('Country and dialling code', { exact: true }).selectOption('US');
+  await page.getByLabel('Mobile number', { exact: true }).fill('4155552671');
   await page.getByLabel('Date of birth', { exact: true }).fill('1990-01-01');
   await page.getByRole('combobox', { name: 'Gender', exact: true }).selectOption('female');
   await page.getByRole('combobox', { name: 'Region', exact: true }).selectOption('asia-india');
@@ -614,7 +632,7 @@ test('checkout keeps WhatsApp consent optional and sends the explicit choice', a
   });
   await page.route('**/*', async route => {
     const url = new URL(route.request().url());
-    if (url.pathname === '/api/auth/me') return route.fulfill({ json: { user: { id: 'fixture', email: 'customer@example.test', role: 'customer', isActive: true } } });
+    if (url.pathname === '/api/auth/me') return route.fulfill({ json: { user: { id: 'fixture', email: 'customer@example.test', role: 'customer', isActive: true, whatsappPhone: '+14155552671', whatsappConsentValid: false } } });
     if (url.pathname === '/api/auth/addresses') return route.fulfill({ json: { addresses: [{ id: 'fixture-address', fullName: 'Fixture Customer', phone: '+14155552671', line1: '1 Fixture Street', city: 'Mumbai', state: 'Maharashtra', postalCode: '400001', country: 'India', isDefault: true }] } });
     if (url.pathname === '/api/payments/razorpay/order') {
       requests.push(route.request().postDataJSON());
@@ -625,7 +643,7 @@ test('checkout keeps WhatsApp consent optional and sends the explicit choice', a
     return route.continue();
   });
   await page.goto('/checkout');
-  const consent = page.getByLabel('I agree to receive account verification and transactional WhatsApp messages');
+  const consent = page.getByLabel('I agree to receive transactional WhatsApp messages');
   const marketing = page.getByLabel('I agree to receive optional WhatsApp collection launches');
   await expect(marketing).not.toBeChecked();
   await expect(consent).not.toBeChecked();
@@ -912,4 +930,70 @@ test('profile can withdraw marketing without withdrawing transactional preferenc
   await expect.poll(() => submitted).not.toBeNull();
   expect(submitted!.whatsappMarketingNotifications).toBe(false);
   expect(submitted!.whatsappNotifications).toBe(true);
+});
+
+
+for (const save of [false, true]) {
+  test(`checkout alternate WhatsApp snapshot is independent of saved delivery phone; save primary ${save}`, async ({ page }) => {
+    let submitted: Record<string, unknown> | null = null;
+    await page.addInitScript(() => {
+      localStorage.setItem('rk_access_token', 'fixture-token');
+      localStorage.setItem('rk_shopping_bag', JSON.stringify({ currency: 'INR', items: [{ productId: 'fixture-product', variantId: 'fixture-colour', sku: 'RK-1-RED', name: 'Fixture garment', price: 1250, quantity: 1, size: 'M' }] }));
+    });
+    await page.route('**/*', async route => {
+      const url = new URL(route.request().url());
+      if (url.pathname === '/api/auth/me') return route.fulfill({ json: { user: { id: 'fixture', role: 'customer', email: 'fixture@example.test', whatsappPhone: '+14155552671', whatsappConsentValid: true } } });
+      if (url.pathname === '/api/auth/addresses') return route.fulfill({ json: { addresses: [{ id: 'saved-address', fullName: 'Fixture Customer', phone: '9619888755', line1: 'Fixture Street', city: 'Mumbai', state: 'Maharashtra', country: 'India', postalCode: '400001', isDefault: true }] } });
+      if (url.pathname === '/api/payments/razorpay/order') {
+        submitted = route.request().postDataJSON();
+        return route.fulfill({ status: 502, json: { error: 'Mock payment provider unavailable.' } });
+      }
+      if (url.pathname.startsWith('/api/')) return route.fulfill({ json: {} });
+      if (url.origin !== 'http://127.0.0.1:3210') return route.fulfill({ status: 204, body: '' });
+      return route.continue();
+    });
+    await page.goto('/checkout');
+    const consent = page.getByLabel('I agree to receive transactional WhatsApp messages');
+    await expect(page.getByText('Registered WhatsApp number: +14155552671')).toBeVisible();
+    await expect(consent).toHaveCount(0);
+    await page.getByLabel('Use a different WhatsApp number for this order').check();
+    await page.getByLabel('Country and dialling code', { exact: true }).selectOption('GB');
+    await page.getByLabel('Mobile number', { exact: true }).fill('123');
+    await page.getByRole('button', { name: /^Pay / }).click();
+    expect(submitted).toBeNull();
+    await expect(page.getByText('Enter a valid WhatsApp number with its country code. Your delivery details have been kept.')).toBeVisible();
+    await page.getByLabel('Mobile number', { exact: true }).fill('02079460018');
+    await expect(consent).not.toBeChecked();
+    await consent.check();
+    if (save) await page.getByLabel('Save this number as my primary WhatsApp number for future orders.').check();
+    await page.getByRole('button', { name: /^Pay / }).click();
+    await expect.poll(() => submitted).not.toBeNull();
+    expect(submitted!.whatsappRecipient).toBe('+442079460018');
+    expect(submitted!.whatsappCountry).toBe('GB');
+    expect(submitted!.saveWhatsappAsPrimary).toBe(save);
+    expect(submitted!.whatsappTransactionalConsent).toBe(true);
+    expect((submitted!.shipping as { phone: string }).phone).toBe('9619888755');
+    await expect(page.getByRole('textbox', { name: 'Full name' })).toHaveValue('Fixture Customer');
+  });
+}
+
+
+test('production diagnostics explain restrictions without enabling template sending', async ({ page }) => {
+  const calls = await mockApi(page, { active: true, production: true,
+    productionTest: { enabled: false, expiresAt: null }, diagnostics: [
+      { code: 'production_test_disabled', severity: 'warning', message: 'Manual production testing is off. Configure WHATSAPP_PRODUCTION_TEST_SEND_ENABLED and a short UTC expiry in the backend.' },
+      { code: 'meta_billing_issue_recorded', severity: 'warning', message: 'Recorded Meta billing restriction. A card charge does not confirm billing clearance.' },
+      { code: 'meta_phone_not_verified', severity: 'warning', message: 'Meta reports phone verification NOT_VERIFIED.' },
+      { code: 'meta_waba_not_subscribed', severity: 'warning', message: 'Confirm the WABA app subscription and messages webhook field.' },
+    ] });
+  await page.goto('/admin/integrations/whatsapp');
+  await openSection(page, 'Test Messages');
+  const diagnostics = page.getByRole('region', { name: 'Messaging diagnostics' });
+  await expect(diagnostics).toContainText('WHATSAPP_PRODUCTION_TEST_SEND_ENABLED');
+  await expect(diagnostics).toContainText('NOT_VERIFIED');
+  await expect(diagnostics).toContainText('card charge does not confirm billing clearance');
+  await expect(diagnostics).toContainText('messages webhook field');
+  await expect(page.getByLabel('Selected template eligibility diagnostics')).toContainText('application test-send gate is off or expired');
+  await expect(page.getByRole('button', { name: 'Send approved test template', exact: true })).toBeDisabled();
+  expect(calls.sent).toHaveLength(0);
 });

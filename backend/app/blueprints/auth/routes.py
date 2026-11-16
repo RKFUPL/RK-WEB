@@ -12,6 +12,7 @@ from pymongo import ReturnDocument
 from ...extensions import limiter, mongo
 from ...whatsapp import notify, notify_auth_otp, normalize_phone, enabled
 from ...whatsapp_templates import template_registry
+from ...phone_numbers import customer_phone
 from ...whatsapp_consent import record_consent
 from ...whatsapp_marketing_consent import record_marketing_consent
 from ...whatsapp_catalogue import OTP_EXPIRY_MINUTES
@@ -146,6 +147,14 @@ def _deliver_otp(channel, event, user, challenge, code, purpose, email):
     return delivery, success
 
 
+def _profile_whatsapp_consent_valid(user):
+    from ...whatsapp_consent import consent_phone
+    try:
+        return bool(consent_phone(_database(), current_app.config, user, {}))
+    except ValueError:
+        return False
+
+
 def _public_user(user: dict) -> dict:
     first_name = user.get("firstName") or str(user.get("displayName") or "").split(" ")[0]
     last_name = user.get("lastName") or " ".join(str(user.get("displayName") or "").split(" ")[1:])
@@ -156,6 +165,9 @@ def _public_user(user: dict) -> dict:
         "username": user.get("username"),
         "displayName": canonical_name,
         "phone": user.get("phone"),
+        "phoneCountry": user.get("phoneCountry"),
+        "whatsappPhone": user.get("whatsappPhone", user.get("phone")),
+        "whatsappCountry": user.get("whatsappCountry", user.get("phoneCountry")),
         "gender": user.get("gender"),
         "role": user.get("role", "customer"),
         "permissions": effective_permissions(user),
@@ -171,6 +183,7 @@ def _public_user(user: dict) -> dict:
         "newsletter": user.get("newsletter", False),
         "marketingEmails": user.get("marketingEmails", False),
         "whatsappNotifications": user.get("whatsappNotifications", False),
+        "whatsappConsentValid": _profile_whatsapp_consent_valid(user),
         "whatsappMarketingNotifications": user.get("whatsappMarketingNotifications", False),
         "whatsappMarketingPhone": (user.get("whatsappMarketingConsent") or {}).get("phone"),
         "must_change_password": bool(user.get("mustChangePassword", False)),
@@ -283,11 +296,10 @@ def signup_request_otp():
     if not re.fullmatch(r"[a-zA-Z0-9_.-]{3,30}", username):
         return jsonify({"error": "Username must be 3-30 characters and use letters, numbers, dots, dashes, or underscores."}), 400
 
-    if payload.get("whatsappOtpConsent") is True or payload.get("whatsappTransactionalConsent") is True:
-        try:
-            phone = normalize_phone(phone)
-        except ValueError:
-            return jsonify(error="WhatsApp consent requires a valid international phone number."), 400
+    try:
+        phone, phone_country = customer_phone(phone, payload.get("phoneCountry"))
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
 
     users = _database().users
     email_exists = users.find_one({"email": email})
@@ -315,6 +327,7 @@ def signup_request_otp():
             "firstName": first_name,
             "lastName": last_name,
             "phone": phone,
+            "phoneCountry": phone_country,
             "dob": dob,
             "gender": gender,
             "region": region,
@@ -358,6 +371,9 @@ def signup_verify_otp():
         "firstName": first_name,
         "lastName": last_name,
         "phone": challenge.get("phone"),
+        "phoneCountry": challenge.get("phoneCountry"),
+        "whatsappPhone": challenge.get("phone"),
+        "whatsappCountry": challenge.get("phoneCountry"),
         "dob": challenge.get("dob"),
         "gender": challenge.get("gender"),
         "region": challenge.get("region", "asia-india"),
@@ -588,23 +604,34 @@ def update_profile():
     if not updates:
         return jsonify({"error": "No profile changes were submitted."}), 400
 
+    primary_phone = current.get("whatsappPhone", current.get("phone"))
+    if "whatsappPhone" in payload:
+        try:
+            primary_phone, primary_country = customer_phone(payload["whatsappPhone"], payload.get("whatsappCountry"))
+        except ValueError as error:
+            return jsonify(error=str(error)), 400
+        updates.update(whatsappPhone=primary_phone, whatsappCountry=primary_country)
+    elif updates.get("phone", current.get("phone")) != current.get("phone"):
+        # Compatibility for older profile clients with a single phone field.
+        primary_phone = updates["phone"]
+    primary_changed = primary_phone != current.get("whatsappPhone", current.get("phone"))
     consent_requested = payload.get("whatsappNotifications")
     marketing_requested = payload.get("whatsappMarketingNotifications")
-    marketing_phone_changed = updates.get("phone", current.get("phone")) != current.get("phone")
+    marketing_phone_changed = primary_changed
     marketing_needs_grant = marketing_requested is True and (current.get("whatsappMarketingNotifications") is not True or marketing_phone_changed)
     if marketing_needs_grant:
         try:
-            normalize_phone(updates.get("phone", current.get("phone")))
+            normalize_phone(primary_phone)
         except ValueError:
             return jsonify(error="Marketing WhatsApp consent requires a valid international phone number."), 400
     if consent_requested is not None:
         try:
-            consent_phone = normalize_phone(updates.get("phone", current.get("phone")))
+            consent_phone = normalize_phone(primary_phone)
         except ValueError:
             if consent_requested:
                 return jsonify(error="WhatsApp preferences require a valid international phone number."), 400
-            consent_phone = str(updates.get("phone", current.get("phone")) or "")
-    elif "phone" in updates and updates["phone"] != current.get("phone"):
+            consent_phone = str(primary_phone or "")
+    elif primary_changed:
         updates["whatsappNotifications"] = False
         updates["whatsappConsent"] = {"enabled": False, "source": "phone_changed"}
     now = datetime.now(timezone.utc)
@@ -613,7 +640,7 @@ def update_profile():
     if consent_requested is not None:
         record_consent(_database(), current_app.config, user_id, consent_phone, consent_requested, "authenticated_profile")
     old_marketing_phone = (current.get("whatsappMarketingConsent") or {}).get("phone") or current.get("phone")
-    new_phone = updates.get("phone", current.get("phone"))
+    new_phone = primary_phone
     if marketing_requested is not None:
         if marketing_requested is False:
             record_marketing_consent(_database(), current_app.config, user_id, old_marketing_phone, False, "authenticated_profile")
@@ -621,7 +648,7 @@ def update_profile():
             if old_marketing_phone and old_marketing_phone != new_phone:
                 record_marketing_consent(_database(), current_app.config, user_id, old_marketing_phone, False, "phone_changed")
             record_marketing_consent(_database(), current_app.config, user_id, new_phone, True, "authenticated_profile")
-    elif "phone" in updates and updates["phone"] != current.get("phone"):
+    elif primary_changed:
         record_marketing_consent(_database(), current_app.config, user_id, old_marketing_phone, False, "phone_changed")
     _database().profile_update_logs.insert_one({"user": user_id, "changedFields": sorted(updates.keys()), "timestamp": now})
     user = _database().users.find_one({"_id": user_id})

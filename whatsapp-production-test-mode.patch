@@ -1,0 +1,696 @@
+diff --git a/backend/.env.example b/backend/.env.example
+index d29c2e4..30e0c74 100644
+--- a/backend/.env.example
++++ b/backend/.env.example
+@@ -32,6 +32,11 @@ WHATSAPP_ENVIRONMENT=production
+ WHATSAPP_ENABLED=false
+ # Local admin test sends only. Ignored by the production configuration class.
+ WHATSAPP_TEST_SEND_ENABLED=false
++# Temporary production Utility tests only: one exact E.164 recipient and ISO UTC
++# expiry (YYYY-MM-DDTHH:MM:SSZ). Missing/invalid/expired settings block dispatch.
++WHATSAPP_PRODUCTION_TEST_SEND_ENABLED=false
++WHATSAPP_PRODUCTION_TEST_RECIPIENT=
++WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT=
+ # Additional campaign gate; also requires normal automation + database integration gates.
+ WHATSAPP_MARKETING_ENABLED=false
+ # Explicit canonical domain for approved dynamic template URL definitions.
+diff --git a/backend/app/config.py b/backend/app/config.py
+index 8104021..fd9293b 100644
+--- a/backend/app/config.py
++++ b/backend/app/config.py
+@@ -29,6 +29,10 @@ class BaseConfig:
+     # Resolved by the application config class, never from a browser/Host header.
+     WHATSAPP_ENVIRONMENT = whatsapp_environment()
+     WHATSAPP_TEST_SEND_ENABLED = os.getenv("WHATSAPP_TEST_SEND_ENABLED", "false").lower() == "true"
++    # Separate temporary production Utility-template tests; never enables automation.
++    WHATSAPP_PRODUCTION_TEST_SEND_ENABLED = os.getenv("WHATSAPP_PRODUCTION_TEST_SEND_ENABLED", "false").lower() == "true"
++    WHATSAPP_PRODUCTION_TEST_RECIPIENT = os.getenv("WHATSAPP_PRODUCTION_TEST_RECIPIENT", "")
++    WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT = os.getenv("WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT", "")
+     WHATSAPP_DEVELOPMENT_CALLBACK_URL = os.getenv("WHATSAPP_DEVELOPMENT_CALLBACK_URL", "")
+     # Backend-only; both the environment gate and admin switch must be enabled.
+     WHATSAPP_ENABLED = os.getenv("WHATSAPP_ENABLED", "false").lower() == "true"
+diff --git a/backend/app/whatsapp.py b/backend/app/whatsapp.py
+index 5b474e0..57dc684 100644
+--- a/backend/app/whatsapp.py
++++ b/backend/app/whatsapp.py
+@@ -76,6 +76,48 @@ def test_send_enabled(config):
+     return config.get("WHATSAPP_ENVIRONMENT") == "development" and config.get("WHATSAPP_TEST_SEND_ENABLED") is True
+ 
+ 
++def production_test_state(config):
++    """Admin-only state; canonical single recipient and explicit ISO UTC expiry."""
++    recipient = config.get("WHATSAPP_PRODUCTION_TEST_RECIPIENT")
++    expiry = config.get("WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT")
++    expires = None
++    try:
++        if not isinstance(expiry, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)", expiry):
++            raise ValueError()
++        expires = datetime.fromisoformat(expiry.replace("Z", "+00:00"))
++    except ValueError:
++        pass
++    try:
++        valid_recipient = bool(isinstance(recipient, str) and re.fullmatch(r"\+[1-9][0-9]{6,14}", recipient)
++                               and normalize_phone(recipient) == recipient)
++    except ValueError:
++        valid_recipient = False
++    reason = None
++    if config.get("WHATSAPP_ENVIRONMENT") != "production" or config.get("WHATSAPP_PRODUCTION_TEST_SEND_ENABLED") is not True:
++        reason = "production_test_disabled"
++    elif any(config.get(key) is not False for key in ("WHATSAPP_ENABLED", "WHATSAPP_MARKETING_ENABLED", "WHATSAPP_TEST_SEND_ENABLED")):
++        reason = "production_test_unsafe_gates"
++    elif not valid_recipient:
++        reason = "production_test_recipient_invalid"
++    elif expires is None:
++        reason = "production_test_expiry_invalid"
++    elif expires <= now():
++        reason = "production_test_expired"
++    return {"enabled": reason is None, "recipient": recipient if valid_recipient else "",
++            "expiresAt": expires.isoformat() if expires else None, "reason": reason}
++
++
++def production_test_block(config, recipient):
++    state = production_test_state(config)
++    if not state["enabled"]:
++        return state["reason"]
++    return None if recipient == state["recipient"] else "production_test_recipient_mismatch"
++
++
++def template_test_enabled(config):
++    return test_send_enabled(config) or production_test_state(config)["enabled"]
++
++
+ def callback_configuration(config):
+     if config.get("WHATSAPP_ENVIRONMENT") != "development":
+         return {"environment": "production", "callbackUrl": CALLBACK}
+@@ -149,10 +191,16 @@ def _test_template_components(template, supplied):
+     return result
+ 
+ 
+-def send(db, config, recipient, event, parameters, key, *, order_id=None, text=None, test_send=False, consent=False, auth_context=None, consent_check=None, allow_rate_limit_retry=False, button_parameters=None, campaign_context=None, test_parameters=None):
++def send(db, config, recipient, event, parameters, key, *, order_id=None, text=None, test_send=False, consent=False, auth_context=None, consent_check=None, allow_rate_limit_retry=False, button_parameters=None, campaign_context=None, test_parameters=None, production_test=False):
+     """Internal-only transport; callers must enforce consent. No arbitrary send API."""
++    if production_test and (not test_send or text is not None or test_parameters is None):
++        return {"status": "skipped", "reason": "invalid_test_type"}
+     if test_send:
+-        if not test_send_enabled(config):
++        if production_test:
++            blocked = production_test_block(config, recipient)
++            if blocked:
++                return {"status": "skipped", "reason": blocked}
++        elif not test_send_enabled(config):
+             return {"status": "skipped", "reason": "test_send_disabled"}
+         if consent is not True:
+             return {"status": "skipped", "reason": "no_consent"}
+@@ -230,7 +278,7 @@ def send(db, config, recipient, event, parameters, key, *, order_id=None, text=N
+     record = {"_id": correlation, "recipient": "***" + phone[-4:], "recipientHash": phone_hash,
+               "type": event if text is None else "text", "template": template["name"] if text is None else None,
+               "orderId": str(order_id) if order_id else None, "status": "sending", "createdAt": now(), "attempts": 0,
+-              "testSend": bool(test_send)}
++              "testSend": bool(test_send), "productionTestSend": bool(production_test)}
+     try:
+         db.whatsapp_messages.insert_one(record)
+     except DuplicateKeyError:
+@@ -248,7 +296,7 @@ def send(db, config, recipient, event, parameters, key, *, order_id=None, text=N
+     for attempt in range(3):
+         # A short Retry-After can cross the window boundary. Recheck for every
+         # actual request, including retries, rather than trusting preflight.
+-        blocked = "test_send_disabled" if test_send and not test_send_enabled(config) else None
++        blocked = production_test_block(config, recipient) if production_test else ("test_send_disabled" if test_send and not test_send_enabled(config) else None)
+         if not test_send and not enabled(db, config):
+             blocked = "disabled"
+         if marketing:
+@@ -272,6 +320,11 @@ def send(db, config, recipient, event, parameters, key, *, order_id=None, text=N
+             break
+         db.whatsapp_messages.update_one({"_id": correlation}, {"$inc": {"attempts": 1}})
+         try:
++            if production_test:
++                blocked = production_test_block(config, recipient)
++                if blocked:
++                    result = {"status": "failed", "reason": blocked, "error": {"kind": blocked}, "httpStatus": result.get("httpStatus")}
++                    break
+             response = requests.post(
+                 f"https://graph.facebook.com/{config['WHATSAPP_API_VERSION']}/{config['WHATSAPP_PHONE_NUMBER_ID']}/messages",
+                 headers={"Authorization": "Bearer " + config["WHATSAPP_ACCESS_TOKEN"]},
+diff --git a/backend/app/whatsapp_ops.py b/backend/app/whatsapp_ops.py
+index 9e4784c..aff8c6d 100644
+--- a/backend/app/whatsapp_ops.py
++++ b/backend/app/whatsapp_ops.py
+@@ -33,6 +33,8 @@ def configuration_problems(config, production=False):
+     except (TypeError, ValueError):
+         problems.append("WHATSAPP_WORKER_LEASE_SECONDS")
+     if production:
++        if config.get("WHATSAPP_PRODUCTION_TEST_SEND_ENABLED", False) is not False:
++            problems.append("WHATSAPP_PRODUCTION_TEST_SEND_ENABLED")
+         if config.get("WHATSAPP_ENVIRONMENT") != "production":
+             problems.append("WHATSAPP_ENVIRONMENT")
+         for key in ("WHATSAPP_ENABLED", "WHATSAPP_TEST_SEND_ENABLED", "WHATSAPP_MARKETING_ENABLED"):
+@@ -85,7 +87,7 @@ def register_commands(app, mongo):
+     @click.option("--database", required=True, help="Exact database name, checked against URI and DB_NAME.")
+     @click.option("--apply", is_flag=True, help="Create additive indexes; never delete records or change TTL retention.")
+     def indexes(database, apply):
+-        if any(app.config.get(k) is not False for k in ("WHATSAPP_ENABLED", "WHATSAPP_TEST_SEND_ENABLED", "WHATSAPP_MARKETING_ENABLED")):
++        if app.config.get("WHATSAPP_PRODUCTION_TEST_SEND_ENABLED", False) is not False or any(app.config.get(k) is not False for k in ("WHATSAPP_ENABLED", "WHATSAPP_TEST_SEND_ENABLED", "WHATSAPP_MARKETING_ENABLED")):
+             raise click.ClickException("All WhatsApp sending gates must be off for index maintenance.")
+         try:
+             db = guarded_database(app, mongo, database)
+diff --git a/backend/app/whatsapp_routes.py b/backend/app/whatsapp_routes.py
+index 0ced5e3..1bd846c 100644
+--- a/backend/app/whatsapp_routes.py
++++ b/backend/app/whatsapp_routes.py
+@@ -20,7 +20,8 @@ from .whatsapp_marketing_consent import withdraw_marketing_from_inbound
+ from .whatsapp_catalogue import CATALOGUE
+ from .whatsapp_definitions import definitions, definition_components, canonical_origin
+ from .whatsapp import (configuration_errors, fingerprint, now, registry, send, send_text, notify, notify_admins,
+-                       test_send_enabled, callback_configuration, customer_window, CUSTOMER_MESSAGE_TYPES, normalize_phone)
++                       test_send_enabled, template_test_enabled, production_test_state, production_test_block,
++                       callback_configuration, customer_window, CUSTOMER_MESSAGE_TYPES, normalize_phone)
+ 
+ webhook_bp = Blueprint("whatsapp_webhook", __name__)
+ admin_bp = Blueprint("whatsapp_admin", __name__)
+@@ -91,7 +92,7 @@ def safe_status(db):
+         item["testParameterFields"] = test_fields or []
+         item["eligibleForTesting"] = bool(ready and test_fields is not None and item["category"] == "UTILITY"
+             and item.get("requiresMetaApproval") is True and item.get("approvalSource") == "meta_api_read"
+-            and not item.get("statusStale") and test_send_enabled(config))
++            and not item.get("statusStale") and template_test_enabled(config))
+         item["eligibleForAutomation"] = bool(item["enabled"] and ready and config.get("WHATSAPP_ENABLED") is True and state.get("enabled") is True
+             and (item["category"] != "MARKETING" or config.get("WHATSAPP_MARKETING_ENABLED") is True))
+     catalogue = {}
+@@ -132,6 +133,7 @@ def safe_status(db):
+             "businessAccountId": config.get("WHATSAPP_BUSINESS_ACCOUNT_ID", ""),
+             "apiVersion": config.get("WHATSAPP_API_VERSION", ""),
+             "testSendEnabled": test_send_enabled(config), **callback_configuration(config),
++            "productionTest": production_test_state(config),
+             **{k: state.get(k) for k in ("verifiedAt", "lastWebhook", "lastApiSuccess", "lastError", "subscriptionStatus", "subscriptionCheckedAt")},
+             "templates": templates, "catalogue": catalogue, "unmappedTemplates": unmapped,
+             "templateStatusSync": sync, "marketingEnabled": config.get("WHATSAPP_MARKETING_ENABLED") is True}
+@@ -430,7 +432,12 @@ def test_send():
+     payload = request.get_json(silent=True)
+     if not isinstance(payload, dict) or payload.get("confirmed") is not True or not re.fullmatch(r"[A-Za-z0-9-]{16,80}", str(payload.get("requestId", ""))):
+         return jsonify(error="Confirm recipient consent and provide a request ID."), 400
+-    if not test_send_enabled(current_app.config):
++    production_test = current_app.config.get("WHATSAPP_ENVIRONMENT") == "production"
++    if production_test:
++        blocked = production_test_block(current_app.config, payload.get("recipient"))
++        if blocked:
++            return _test_response({"status": "skipped", "reason": blocked})
++    elif not test_send_enabled(current_app.config):
+         return _test_response({"status": "skipped", "reason": "test_send_disabled"})
+     config, db = current_app.config, database()
+     event = payload.get("event")
+@@ -450,7 +457,7 @@ def test_send():
+         return _test_response({"status": "skipped", "reason": "invalid_recipient"})
+     result = send(db, config, payload.get("recipient"), event, {},
+                   f"test:{current_user()['_id']}:{payload['requestId']}", test_send=True, consent=True,
+-                  test_parameters=payload.get("parameters"))
++                  test_parameters=payload.get("parameters"), production_test=production_test)
+     return _test_response(result)
+ 
+ 
+@@ -465,12 +472,18 @@ def _test_response(result):
+         "template_not_approved_or_enabled": "A test requires this exact Utility template to be currently approved by Meta with verified components. Automated mapping enablement is not required.",
+         "missing_template_parameters": "Required template parameters are missing or invalid.",
+         "recipient_opted_out": "This recipient has opted out. Obtain fresh consent through the account preferences before sending.",
++        "production_test_disabled": "Restricted production template testing is off.",
++        "production_test_unsafe_gates": "Production testing requires automated, marketing and development sending gates to remain off.",
++        "production_test_recipient_invalid": "Configure exactly one valid E.164 production test recipient in the backend.",
++        "production_test_recipient_mismatch": "This recipient is not the configured production test recipient.",
++        "production_test_expiry_invalid": "Configure an explicit ISO 8601 UTC production test expiry in the backend.",
++        "production_test_expired": "Restricted production template testing has expired.",
+     }
+     if result.get("reason") in explanations:
+         result = {**result, "explanation": explanations[result["reason"]]}
+     status_code = 200 if result["status"] in {"accepted", "duplicate"} else 502
+     if result.get("reason"):
+-        status_code = 403 if result["reason"] == "test_send_disabled" else 400 if result["reason"] in {"no_consent", "invalid_recipient", "invalid_text"} else 409
++        status_code = 403 if result["reason"] == "test_send_disabled" or result["reason"].startswith("production_test_") else 400 if result["reason"] in {"no_consent", "invalid_recipient", "invalid_text"} else 409
+     if (result.get("error") or {}).get("kind") == "rate_limited":
+         status_code = 429
+     return jsonify(json_value(result)), status_code
+diff --git a/backend/app/whatsapp_templates.py b/backend/app/whatsapp_templates.py
+index c71b7de..4c31db0 100644
+--- a/backend/app/whatsapp_templates.py
++++ b/backend/app/whatsapp_templates.py
+@@ -222,7 +222,7 @@ def registry(config):
+         valid = valid and entry.get("parameterTypes", types) == types
+         valid = valid and all(button.get("url") for button in (spec or {}).get("buttons", []))
+         if local_test:
+-            valid = valid and event == "test" and config.get("WHATSAPP_ENVIRONMENT") == "development"
++            valid = valid and event == "test"
+             valid = valid and language == LOCAL_TEST_TEMPLATE["language"] and category == LOCAL_TEST_TEMPLATE["category"]
+             valid = valid and not parameters and entry.get("components", LOCAL_TEST_TEMPLATE["components"]) == LOCAL_TEST_TEMPLATE["components"]
+         # Retain legacy configuration syntax only as local metadata.
+diff --git a/backend/tests/test_whatsapp_production_test.py b/backend/tests/test_whatsapp_production_test.py
+new file mode 100644
+index 0000000..ebc1424
+--- /dev/null
++++ b/backend/tests/test_whatsapp_production_test.py
+@@ -0,0 +1,236 @@
++"""Restricted production tests. In-memory DB and mocked Meta only."""
++from datetime import timedelta
++import os
++import runpy
++from pathlib import Path
++from unittest.mock import patch
++
++import pytest
++
++import test_whatsapp as fixtures
++from app.whatsapp import now, send, send_text, process_outbox, production_test_state, test_send_enabled as development_gate
++from app.whatsapp_campaigns import marketing_enabled
++
++PATH = "/api/admin/integrations/whatsapp/test-send"
++
++
++@pytest.fixture
++def case():
++    instance = fixtures.WhatsAppTests(methodName="runTest")
++    instance.setUp()
++    instance.app.config.update(WHATSAPP_ENVIRONMENT="production", WHATSAPP_ENABLED=False,
++        WHATSAPP_MARKETING_ENABLED=False, WHATSAPP_TEST_SEND_ENABLED=False,
++        WHATSAPP_PRODUCTION_TEST_SEND_ENABLED=True,
++        WHATSAPP_PRODUCTION_TEST_RECIPIENT=instance.user["phone"],
++        WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT=(now() + timedelta(hours=1)).isoformat())
++    for mapping in instance.app.config["WHATSAPP_TEMPLATES"].values():
++        mapping["enabled"] = False
++    try:
++        yield instance
++    finally:
++        instance.doCleanups()
++
++
++def payload(case, **changes):
++    return {"event": "order_confirmation", "templateName": "rk_order_confirmation", "language": "en_US",
++            "recipient": case.user["phone"], "parameters": {"body_1": "Fixture", "body_2": "RK-1", "body_3": "2026-11-15", "body_4": "INR 1.00"},
++            "confirmed": True, "requestId": "restricted-production-test-123456", **changes}
++
++
++def submit(case, **changes):
++    return case.client.post(PATH, headers=case.headers, json=payload(case, **changes))
++
++
++def test_allowed_utility_uses_shared_transport_logs_and_receipts_without_order_queue(case):
++    result = submit(case)
++    assert result.status_code == 200
++    assert result.json["providerId"] == "wamid.TEST"
++    assert case.http.call_args.args[0].endswith("/12345/messages")
++    assert case.http.call_args.kwargs["json"]["to"] == case.user["phone"][1:]
++    record = case.db.whatsapp_messages.find_one({})
++    assert record["testSend"] is True and record["productionTestSend"] is True
++    assert record["httpStatus"] == 200
++    assert case.db.whatsapp_outbox.count_documents({}) == 0
++    assert case.db.whatsapp_order_events.count_documents({}) == 0
++    for status in ("delivered", "read"):
++        assert case.signed(case.webhook(statuses=[case.provider_status(status)])).status_code == 200
++    record = case.db.whatsapp_messages.find_one({})
++    assert record["status"] == "read" and record["deliveredAt"] and record["readAt"]
++    assert submit(case).json["status"] == "duplicate"
++    assert case.http.call_count == 1
++
++
++@pytest.mark.parametrize("recipient", ["+14155552672", "14155552671", "+1 415 555 2671", "", None])
++def test_only_exact_configured_recipient_is_allowed(case, recipient):
++    assert submit(case, recipient=recipient).status_code == 403
++    case.http.assert_not_called()
++
++
++@pytest.mark.parametrize("key,value", [
++    ("WHATSAPP_PRODUCTION_TEST_SEND_ENABLED", False),
++    ("WHATSAPP_PRODUCTION_TEST_RECIPIENT", ""),
++    ("WHATSAPP_PRODUCTION_TEST_RECIPIENT", "+123"),
++    ("WHATSAPP_PRODUCTION_TEST_RECIPIENT", "+1 415 555 2671"),
++    ("WHATSAPP_PRODUCTION_TEST_RECIPIENT", "+14155552671,+14155552672"),
++    ("WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT", ""),
++    ("WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT", "invalid"),
++    ("WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT", "2099-01-01T00:00:00"),
++    ("WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT", "2099-01-01T05:30:00+05:30"),
++    ("WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT", "2099-99-99T00:00:00Z"),
++    ("WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT", "2020-01-01T00:00:00Z"),
++    ("WHATSAPP_ENABLED", True), ("WHATSAPP_MARKETING_ENABLED", True), ("WHATSAPP_TEST_SEND_ENABLED", True),
++])
++def test_missing_invalid_expired_or_unsafe_configuration_is_closed(case, key, value):
++    case.app.config[key] = value
++    assert submit(case).status_code == 403
++    case.http.assert_not_called()
++
++
++def test_expiry_boundary_and_explicit_utc_z(case):
++    moment = now()
++    case.app.config["WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT"] = moment.isoformat().replace("+00:00", "Z")
++    with patch("app.whatsapp.now", return_value=moment):
++        assert submit(case).status_code == 403
++    case.app.config["WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT"] = (moment + timedelta(seconds=1)).isoformat().replace("+00:00", "Z")
++    with patch("app.whatsapp.now", return_value=moment):
++        assert submit(case).status_code == 200
++
++
++@pytest.mark.parametrize("event,name", [("new_collection_drop", "rk_new_collection_drop"), ("signup_otp", "rk_authentication_otp")])
++def test_marketing_and_authentication_cannot_use_production_template_tests(case, event, name):
++    assert submit(case, event=event, templateName=name).status_code == 400
++    assert send(case.db, case.app.config, case.user["phone"], event, {}, "forbidden", test_send=True,
++                production_test=True, test_parameters={}, consent=True)["status"] == "skipped"
++    case.http.assert_not_called()
++
++
++@pytest.mark.parametrize("change", [{"status": "PENDING"}, {"status": "REJECTED"}, {"componentsVerified": False},
++                                    {"checkedAt": now() - timedelta(days=2)}, {"businessAccountId": "999"}])
++def test_ineligible_template_evidence_cannot_send(case, change):
++    case.db.whatsapp_template_status.update_one({"name": "rk_order_confirmation"}, {"$set": change})
++    assert submit(case).status_code == 409
++    case.http.assert_not_called()
++
++
++def test_missing_template_evidence_and_exact_identity_and_parameters(case):
++    assert submit(case, language="en_GB").status_code == 400
++    assert submit(case, templateName="another_template").status_code == 400
++    assert submit(case, parameters={}).status_code == 409
++    case.db.whatsapp_template_status.delete_many({})  # In-memory test fixture only.
++    assert submit(case).status_code == 409
++    case.http.assert_not_called()
++
++
++@pytest.mark.parametrize("mutation", ["expiry", "recipient", "gate", "approval"])
++def test_restrictions_rechecked_after_retry_backoff(case, mutation):
++    case.http.return_value = case.response(429, {"error": {"code": 130429}}, {"Retry-After": "1"})
++    def change(_):
++        if mutation == "expiry":
++            case.app.config["WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT"] = "2020-01-01T00:00:00Z"
++        elif mutation == "recipient":
++            case.app.config["WHATSAPP_PRODUCTION_TEST_RECIPIENT"] = "+14155552672"
++        elif mutation == "gate":
++            case.app.config["WHATSAPP_PRODUCTION_TEST_SEND_ENABLED"] = False
++        else:
++            case.db.whatsapp_template_status.update_one({"name": "rk_order_confirmation"}, {"$set": {"status": "PENDING"}})
++    with patch("app.whatsapp.time.sleep", side_effect=change):
++        assert submit(case).status_code in {403, 409}
++    assert case.http.call_count == 1
++
++
++def test_restrictions_rechecked_immediately_before_dispatch(case):
++    original = case.db.whatsapp_messages.update_one
++    def expire(*args, **kwargs):
++        result = original(*args, **kwargs)
++        case.app.config["WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT"] = "2020-01-01T00:00:00Z"
++        return result
++    with patch.object(case.db.whatsapp_messages, "update_one", side_effect=expire):
++        assert submit(case).status_code == 403
++    case.http.assert_not_called()
++
++
++def test_free_text_and_automation_and_campaigns_stay_disabled(case):
++    assert not development_gate(case.app.config)
++    assert send_text(case.db, case.app.config, case.user["phone"], "fixture", "text", consent=True, test_send=True)["reason"] == "test_send_disabled"
++    assert send(case.db, case.app.config, case.user["phone"], "text", {}, "text2", text="fixture", test_send=True,
++                production_test=True, test_parameters={}, consent=True)["reason"] == "invalid_test_type"
++    result = case.client.post("/api/admin/integrations/whatsapp/test-message", headers=case.headers,
++        json={"recipient": case.user["phone"], "message": "fixture", "confirmed": True, "requestId": "restricted-free-text-123456"})
++    assert result.status_code == 403
++    assert case.outbound()["reason"] == "disabled"
++    assert process_outbox(case.db, case.app.config) == 0
++    assert not marketing_enabled(case.db, case.app.config)
++    case.http.assert_not_called()
++
++
++def test_consent_admin_authorization_and_rate_limit_retained(case):
++    assert submit(case, confirmed=False).status_code == 400
++    case.admin["role"] = "customer"
++    assert submit(case).status_code == 403
++    case.admin["role"] = "admin"
++    case.app.config["RATELIMIT_ENABLED"] = True
++    # The same shared limiter applies to the production endpoint.
++    from app.extensions import limiter
++    from flask import Flask
++    from flask_jwt_extended import JWTManager
++    from app.whatsapp_routes import admin_bp
++    previous = limiter.enabled
++    app = Flask("restricted-production-rate-test")
++    app.config.update(case.app.config, RATELIMIT_ENABLED=True, RATELIMIT_STORAGE_URI="memory://")
++    JWTManager(app)
++    limiter.init_app(app)
++    app.register_blueprint(admin_bp, url_prefix="/api/admin/integrations/whatsapp")
++    try:
++        limiter.reset()
++        results = [app.test_client().post(PATH, headers=case.headers, json=payload(case, requestId=f"restricted-rate-request-{i:016d}")) for i in range(4)]
++        assert results[-1].status_code == 429
++    finally:
++        limiter.enabled = previous
++
++
++def test_admin_status_separates_template_mode_from_development_free_text_gate(case):
++    status = case.client.get("/api/admin/integrations/whatsapp", headers=case.headers).json
++    assert status["testSendEnabled"] is False
++    assert status["productionTest"]["enabled"] is True
++    assert status["productionTest"]["recipient"] == case.user["phone"]
++    assert status["templates"]["order_confirmation"]["eligibleForTesting"] is True
++    assert status["templates"]["order_confirmation"]["eligibleForAutomation"] is False
++    assert status["enabled"] is False and status["marketingEnabled"] is False
++
++
++def test_real_config_defaults_off_and_old_production_gates_stay_hard_off():
++    path = Path(__file__).parents[1] / "app" / "config.py"
++    with patch.dict(os.environ, {}, clear=True):
++        production = runpy.run_path(str(path))["ProductionConfig"]
++        assert production.WHATSAPP_PRODUCTION_TEST_SEND_ENABLED is False
++        assert production.WHATSAPP_PRODUCTION_TEST_RECIPIENT == ""
++        assert production.WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT == ""
++    with patch.dict(os.environ, {key: "true" for key in ("WHATSAPP_PRODUCTION_TEST_SEND_ENABLED", "WHATSAPP_ENABLED", "WHATSAPP_MARKETING_ENABLED", "WHATSAPP_TEST_SEND_ENABLED")}, clear=True):
++        production = runpy.run_path(str(path))["ProductionConfig"]
++        assert production.WHATSAPP_PRODUCTION_TEST_SEND_ENABLED is True
++        assert production.WHATSAPP_ENABLED is False
++        assert production.WHATSAPP_MARKETING_ENABLED is False
++        assert production.WHATSAPP_TEST_SEND_ENABLED is False
++
++
++def test_production_flag_cannot_enable_development_sending(case):
++    case.app.config["WHATSAPP_ENVIRONMENT"] = "development"
++    assert not production_test_state(case.app.config)["enabled"]
++    assert submit(case).status_code == 403
++    case.http.assert_not_called()
++
++
++def test_explicit_integration_template_mapping_needs_real_component_evidence_in_production(case):
++    from app.whatsapp_routes import refresh_template_observations
++    entry = case.local_registered_template()
++    entry["enabled"] = False
++    with patch("app.whatsapp_routes.requests.get", return_value=case.response(200, {"data": [{**entry, "status": "APPROVED"}]})):
++        refresh_template_observations(case.db, case.app.config)
++    result = submit(case, event="test", templateName=entry["name"], parameters={})
++    assert result.status_code == 200
++    assert case.http.call_args.kwargs["json"]["template"] == {"name": entry["name"], "language": {"code": "en_US"}, "components": []}
++
++
++def test_normal_disabled_release_preflight_rejects_an_enabled_temporary_mode(case):
++    from app.whatsapp_ops import configuration_problems
++    assert "WHATSAPP_PRODUCTION_TEST_SEND_ENABLED" in configuration_problems(case.app.config, production=True)
+diff --git a/docs/WHATSAPP_DEPLOYMENT.md b/docs/WHATSAPP_DEPLOYMENT.md
+index e4387a0..879080a 100644
+--- a/docs/WHATSAPP_DEPLOYMENT.md
++++ b/docs/WHATSAPP_DEPLOYMENT.md
+@@ -1,6 +1,6 @@
+ # WhatsApp disabled deployment and operations
+ 
+-These are instructions for a future separately authorized VPS/Meta change window. No command in the VPS or Meta sections was executed during local remediation. All real sending gates remain off, including local test sending. The production configuration class also forces all send flags off in code. This runbook supersedes operational instructions in the older implementation notes.
++These are instructions for a future separately authorized VPS/Meta change window. No command in the VPS or Meta sections was executed during local remediation. All real sending gates remain off, including local test sending. The production configuration class forces automated, marketing and development-test flags off in code. A separate default-off, expiring, single-recipient Utility test exception is documented in [WHATSAPP_PRODUCTION_TEST_MODE.md](WHATSAPP_PRODUCTION_TEST_MODE.md); leave it off for this disabled deployment. This runbook supersedes operational instructions in the older implementation notes.
+ 
+ ## Local startup and validation
+ 
+@@ -59,6 +59,7 @@ Verify these names in the existing approved runtime environment; never replace t
+ | `FLASK_ENV` | Explicit production marker; no conflicting development marker in APP_ENV/ENVIRONMENT. |
+ | `WHATSAPP_ENVIRONMENT` | Production. Environment is never selected from browser/Host headers. |
+ | `WHATSAPP_ENABLED`, `WHATSAPP_TEST_SEND_ENABLED`, `WHATSAPP_MARKETING_ENABLED` | All off. Keep database integration and automated template switches off as well. |
++| `WHATSAPP_PRODUCTION_TEST_SEND_ENABLED`, `WHATSAPP_PRODUCTION_TEST_RECIPIENT`, `WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT` | New flag off, recipient/expiry blank for a disabled deployment. Any future temporary test requires separate authorization and the single-recipient UTC-expiry restrictions in the dedicated guide. |
+ | `WHATSAPP_API_VERSION` | Explicit provider-supported version; current configured v26.0 metadata GETs were verified. No guessed default/version upgrade. |
+ | `WHATSAPP_BUSINESS_ACCOUNT_ID`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_ID` | Exact intended app/WABA/registered business-number relationship, independently verified. |
+ | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | Backend-only runtime secrets with correct permissions and lifetime. |
+diff --git a/docs/WHATSAPP_PRODUCTION_TEST_MODE.md b/docs/WHATSAPP_PRODUCTION_TEST_MODE.md
+new file mode 100644
+index 0000000..8ac249b
+--- /dev/null
++++ b/docs/WHATSAPP_PRODUCTION_TEST_MODE.md
+@@ -0,0 +1,37 @@
++# Restricted temporary production template tests
++
++Implemented locally; no production environment, Meta settings or messaging gates were changed. The mode defaults off. This does not authorize deployment or a real send.
++
++Backend environment names and safe defaults:
++
++```dotenv
++WHATSAPP_PRODUCTION_TEST_SEND_ENABLED=false
++WHATSAPP_PRODUCTION_TEST_RECIPIENT=
++WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT=
++```
++
++A separately authorized temporary configuration must supply exactly one canonical, valid E.164 recipient and a future ISO 8601 UTC timestamp, including seconds and either `Z` or `+00:00`. Naive timestamps, nonzero offsets, invalid dates, multiple recipients, formatted/noncanonical numbers, missing values and expired timestamps fail closed. Use a short deliberate test window; the implementation does not invent an expiry or extend it automatically. Reaching the expiry stops new dispatches and retries, including already-open admin forms. It cannot cancel a request Meta has already received.
++
++The environment must be production and these three settings remain hard-disabled by ProductionConfig:
++
++```dotenv
++WHATSAPP_ENABLED=false
++WHATSAPP_MARKETING_ENABLED=false
++WHATSAPP_TEST_SEND_ENABLED=false
++```
++
++The temporary mode refuses dispatch if any of those old gates is on. The development-only switch and free-text test endpoint retain their old behavior. `test_send_enabled()` is still development-only. Only the admin `POST /api/admin/integrations/whatsapp/test-send` endpoint opts into restricted production sending through the existing transport. No second client, queue or order-event path is introduced.
++
++Every send requires active admin authorization, explicit recipient consent, canonical recipient equality, the existing shared test rate limit and request-ID deduplication. The exact configured Utility template name/language, fresh WABA-bound Meta APPROVED evidence, verified components and all component parameters are mandatory. Local mapping enablement and local approval flags do not authorize sending. Marketing/Authentication templates and free text cannot use the mode. STOP suppression remains enforced. The transport checks recipient/expiry at entry, on every retry and immediately before the provider request. Template evidence and suppression are rechecked for retries.
++
++No template mapping or Meta template was changed. Explicitly configured `3p_direct_integration_test_template` mappings can now validate in production against the same exact static contract and fresh provider evidence. Its development default remains development-only; production does not automatically acquire that mapping or approval.
++
++The admin status response keeps `testSendEnabled` development-only and exposes a separate `productionTest` object to authenticated admins with effective enablement, recipient, UTC expiry and safe blocking reason. Test Messages displays this restriction, allows preview independently of sending, and disables sends for a wrong recipient, expired mode or ineligible template. A page timer updates expiry without a reload. Backend checks remain authoritative. Tokens, App Secrets and encryption keys are never returned.
++
++Results use the existing WhatsApp message log, `testSend=true`, `productionTestSend=true`, configured Phone Number ID, Meta message ID and safe API status/error fields. Existing delivery/read/failure webhooks correlate normally. No order notification is enqueued or real order lifecycle event triggered. Ambiguous outcomes retain existing no-blind-retry behavior.
++
++To end a separately authorized test window, turn the new flag off and remove its recipient/expiry through the approved runtime configuration process. No admin toggle can enable or extend it. Do not copy local environment files onto the server. The ordinary disabled-release readiness and index-maintenance commands refuse an enabled temporary production flag; conduct those operations with all sending gates off. This narrow test mode does not satisfy outstanding deployment, webhook, WABA subscription or production-readiness blockers documented in the audits.
++
++Automated tests mock every Meta request and use an in-memory database. Run from `backend/`: `python -m pytest -q`. Run from `frontend/`: `npm run typecheck`, `npm run build`, then `npm run test:whatsapp-ui`.
++
++Local validation on 2026-11-15: full backend **496 passed, 1 skipped**, with two existing mongomock deprecation warnings; the skip is the real Nginx test because Nginx is unavailable. WhatsApp browser suite **46 passed**. TypeScript and the production build passed (62 generated pages). The Node suite retains the pre-existing homepage assertion expecting contiguous `Where the art of` across a `<br />`; its test and component both match HEAD. Git whitespace and secret-content scans passed. No real Meta requests, production environment edits, commits, pushes or deployments were performed for this change.
+diff --git a/frontend/app/admin/integrations/whatsapp/page.tsx b/frontend/app/admin/integrations/whatsapp/page.tsx
+index 2bb43a9..dbcacd6 100644
+--- a/frontend/app/admin/integrations/whatsapp/page.tsx
++++ b/frontend/app/admin/integrations/whatsapp/page.tsx
+@@ -12,6 +12,7 @@ type Status = {
+   enabled: boolean; environmentEnabled: boolean; configured: boolean; missing: string[];
+   phoneNumberId: string; businessPhoneNumber?: string; businessAccountId: string; apiVersion: string; callbackUrl: string;
+   environment: 'development' | 'production'; testSendEnabled: boolean;
++  productionTest?: { enabled: boolean; recipient: string; expiresAt?: string | null; reason?: string | null };
+   verifiedAt?: string; lastWebhook?: string; lastApiSuccess?: string;
+   subscriptionStatus?: string; subscriptionCheckedAt?: string; lastError?: { kind: string; code?: number };
+   templates: Record<string, Template>;
+@@ -149,6 +150,7 @@ export default function WhatsAppIntegrationPage() {
+   const [logRevision, setLogRevision] = useState(0);
+   const [recipient, setRecipient] = useState('');
+   const [confirmed, setConfirmed] = useState(false);
++  const [testClock, setTestClock] = useState(() => Date.now());
+   const [templateEvent, setTemplateEvent] = useState('test');
+   const [templateParameters, setTemplateParameters] = useState<Record<string, string>>({});
+   const [templateWindow, setTemplateWindow] = useState<{ open: boolean; lastIncomingAt?: string } | null>(null);
+@@ -184,6 +186,12 @@ export default function WhatsAppIntegrationPage() {
+     try { setStatus(await api()); } catch (error) { setNotice(error instanceof Error ? error.message : 'Unable to load connection status.'); }
+   }, [api]);
+   useEffect(() => { void load(); }, [load]);
++  useEffect(() => {
++    if (!status?.productionTest?.enabled) return;
++    setTestClock(Date.now());
++    const timer = setInterval(() => setTestClock(Date.now()), 1000);
++    return () => clearInterval(timer);
++  }, [status?.productionTest?.enabled, status?.productionTest?.expiresAt]);
+   useEffect(() => {
+     setTemplateWindow(null);
+     if (!validTestRecipient(recipient)) return;
+@@ -224,7 +232,9 @@ export default function WhatsAppIntegrationPage() {
+   const selectedTemplate = status?.templates[templateEvent];
+   const testParameterFields = selectedTemplate?.testParameterFields ?? [];
+   const templateParametersValid = Boolean(selectedTemplate && testParameterFields.every(field => Boolean(templateParameters[field.key]?.trim()) && templateParameters[field.key].length <= 500));
+-  const canSendTemplate = Boolean(!busy && confirmed && status?.testSendEnabled && status.configured && validTestRecipient(recipient) && selectedTemplate?.eligibleForTesting && templateParametersValid);
++  const productionTestOpen = Boolean(status?.environment === 'production' && status.productionTest?.enabled && status.productionTest.expiresAt && Date.parse(status.productionTest.expiresAt) > testClock);
++  const templateTestGateOpen = status?.environment === 'production' ? productionTestOpen && recipient === status.productionTest?.recipient : status?.testSendEnabled;
++  const canSendTemplate = Boolean(!busy && confirmed && templateTestGateOpen && status?.configured && validTestRecipient(recipient) && selectedTemplate?.eligibleForTesting && templateParametersValid);
+   const catalogRows = Object.values(status?.catalogue ?? {});
+   const extraRows = Object.values(status?.templates ?? {}).filter(template => !catalogRows.some(row => row.name === template.name && row.language === template.language)
+     && template.name !== 'rk_test');
+@@ -262,6 +272,7 @@ export default function WhatsAppIntegrationPage() {
+       {show('test-messages') && <>
+         <WhatsAppTestMessage enabled={status.testSendEnabled} configured={status.configured} request={api} onComplete={() => setLogRevision(value => value + 1)} />
+         <section className={`${box} space-y-4`}><div><h2 className="text-xl font-semibold">Send one-off approved template test</h2><p className="mt-1 text-sm text-gray-600">This sends directly through the configured WhatsApp Phone Number ID and writes to test message logs. Automated mapping enablement is separate and is not required. Authentication and marketing templates use their separate eligibility and consent flows.</p></div>
++          {status.environment === 'production' && <div role="region" aria-label="Restricted production test mode" className="space-y-2 rounded-xl border border-amber-700/30 bg-amber-50 p-4 text-sm"><p className="font-semibold">Restricted production template testing: {productionTestOpen ? 'Enabled' : 'Off or expired'}</p><p>Only permitted recipient: {status.productionTest?.recipient || 'Not configured'} · Expires (UTC): {status.productionTest?.expiresAt || 'Not configured'}</p><p>Approved Utility templates only. Free-text, Authentication, Marketing and automated messaging remain unavailable. The backend rechecks the recipient and expiry before every dispatch.</p>{status.productionTest?.reason && <p>Backend restriction: {status.productionTest.reason}</p>}</div>}
+           <label className="block max-w-2xl text-sm">Search templates<input aria-label="Search approved templates" className={`${input} mt-1 block w-full`} value={templateSearch} onChange={event => { setTemplateSearch(event.target.value); setTemplateLimit(6); }} placeholder="Search by template name or language" /></label>
+           <form className="space-y-4" onSubmit={event => { event.preventDefault(); if (!canSendTemplate) return; if (!requestId.current) requestId.current = crypto.randomUUID(); void action('/test-send', 'POST', { recipient, event: templateEvent, templateName: selectedTemplate?.name, language: selectedTemplate?.language, parameters: templateParameters, confirmed, requestId: requestId.current }); }}>
+           <div role="listbox" aria-label="Utility templates" className="space-y-1 rounded-xl border p-2">{testTemplates.map(([event, template]) => <button type="button" role="option" aria-selected={templateEvent === event} key={event} aria-description={template.eligibleForTesting ? 'Select to preview; sending requires the test-send gate, configuration, recipient, consent and valid parameters.' : 'Preview only; this template is not eligible for test sending.'} onClick={() => { setTemplateEvent(event); setTemplateParameters({}); setConfirmed(false); requestId.current = ''; }} className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm hover:bg-[#f7f4ef] aria-selected:bg-[#f7f4ef]"><span className="break-all">{template.templateGroup === 'Integration Test' ? 'Integration Test - ' : ''}{template.name || event} · {template.language} · {template.category}{template.locallyMapped ? ` · Automated mapping ${template.mappingEnabled ? 'enabled' : 'disabled'}` : ''}</span><span className={chip(template.eligibleForTesting === true, metaStatus(template))}>{template.eligibleForTesting ? 'Approved · test eligible' : metaStatus(template)}</span></button>)}{!testTemplates.length && <p className="p-3 text-sm text-gray-500">No Utility templates match.</p>}</div>
+@@ -273,7 +284,7 @@ export default function WhatsAppIntegrationPage() {
+           <p className="rounded-lg bg-[#f7f4ef] p-3 text-sm">Final confirmation: one-off template test to <strong>{recipient || 'enter an E.164 recipient number'}</strong>. This does not create or update an order.</p><label className="flex gap-2 text-sm"><input required type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />I confirm this test recipient opted in and authorize one one-off test send.</label>
+           <div role="region" aria-label="Selected template eligibility" className="space-y-2 rounded-xl border p-4 text-sm">
+             <p className="font-semibold">{selectedTemplate?.eligibleForTesting ? 'Template eligible for testing; sending also requires the checks below.' : 'Preview only: template is not eligible for test sending.'}</p>
+-            <p>Test-send gate: {status.testSendEnabled ? 'On' : 'Off'} · Meta status: {selectedTemplate ? metaStatus(selectedTemplate) : 'MISSING_OR_UNKNOWN'} · {selectedTemplate?.componentsVerified ? 'Components verified' : 'Components unconfirmed'} - {selectedTemplate ? qualityLabel(selectedTemplate) : 'Quality not reported'}</p>
++            <p>Test-send gate: {(status.environment === 'production' ? productionTestOpen : status.testSendEnabled) ? 'On' : 'Off'} · Meta status: {selectedTemplate ? metaStatus(selectedTemplate) : 'MISSING_OR_UNKNOWN'} · {selectedTemplate?.componentsVerified ? 'Components verified' : 'Components unconfirmed'} - {selectedTemplate ? qualityLabel(selectedTemplate) : 'Quality not reported'}</p>
+             <p>Language: {selectedTemplate?.language || 'Unknown'} · Category: {selectedTemplate?.category || 'Unknown'} · Backend configuration: {status.configured ? 'Configured' : 'Incomplete'}</p>
+             <p>Meta evidence: {selectedTemplate ? evidenceLabel(selectedTemplate) : 'No template selected.'} Last verified: {selectedTemplate?.approvalCheckedAt ? date(selectedTemplate.approvalCheckedAt) : 'Not verified'}</p>
+           </div>
+diff --git a/frontend/tests/whatsapp-ui.spec.ts b/frontend/tests/whatsapp-ui.spec.ts
+index 2ef8caf..3526816 100644
+--- a/frontend/tests/whatsapp-ui.spec.ts
++++ b/frontend/tests/whatsapp-ui.spec.ts
+@@ -17,7 +17,7 @@ const registeredTemplate = {
+   ],
+ };
+ 
+-async function mockApi(page: Page, options: { active?: boolean; role?: string; window?: 'open' | 'closed' | 'expired'; invalidRecipient?: boolean; textError?: boolean; localRateLimit?: boolean; gate?: boolean; production?: boolean; catalogue?: boolean; mappingDisabled?: boolean; readReceiptStatus?: 'received' | 'not_received' | 'unknown'; logStatus?: string; registered?: boolean; metaApproved?: boolean; refreshFailure?: boolean; testTemplate?: Record<string, unknown> } = {}) {
++async function mockApi(page: Page, options: { active?: boolean; role?: string; window?: 'open' | 'closed' | 'expired'; invalidRecipient?: boolean; textError?: boolean; localRateLimit?: boolean; gate?: boolean; production?: boolean; catalogue?: boolean; mappingDisabled?: boolean; readReceiptStatus?: 'received' | 'not_received' | 'unknown'; logStatus?: string; registered?: boolean; metaApproved?: boolean; refreshFailure?: boolean; testTemplate?: Record<string, unknown>; productionTest?: { enabled: boolean; recipient: string; expiresAt: string | null } } = {}) {
+   const sent: Record<string, unknown>[] = [];
+   const filters: string[] = [];
+   await page.route('**/*', async route => {
+@@ -43,6 +43,7 @@ async function mockApi(page: Page, options: { active?: boolean; role?: string; w
+       } } : {}),
+       testSendEnabled: Boolean(options.active && options.gate !== false && !options.production),
+       environment: options.production ? 'production' : 'development',
++      productionTest: options.productionTest,
+       callbackUrl: options.production ? 'https://rashikapoor.co.in/api/webhooks/whatsapp' : options.active ? 'https://fixture-tunnel.example/api/webhooks/whatsapp' : '',
+     } });
+     if (path === '/api/admin/integrations/whatsapp/test-window') {
+@@ -251,6 +252,66 @@ test('sending requires explicit consent and shows Meta ID; filters request logs'
+   await expect.poll(() => calls.filters.some(value => value.includes('type=test'))).toBe(true);
+ });
+ 
++test('restricted production mode allows only the configured Utility recipient with consent', async ({ page }) => {
++  const calls = await mockApi(page, { active: true, production: true, registered: true,
++    productionTest: { enabled: true, recipient: '+14155552671', expiresAt: '2099-01-01T00:00:00+00:00' } });
++  await page.goto('/admin/integrations/whatsapp');
++  await openSection(page, 'Test Messages');
++  const mode = page.getByRole('region', { name: 'Restricted production test mode' });
++  await expect(mode).toContainText('Enabled');
++  await expect(mode).toContainText('Only permitted recipient: +14155552671');
++  await expect(mode).toContainText('Expires (UTC): 2099-01-01T00:00:00+00:00');
++  const send = page.getByRole('button', { name: 'Send approved test template', exact: true });
++  await page.getByLabel('Consenting test recipient').fill('+14155552672');
++  await page.getByLabel('I confirm this test recipient opted in').check();
++  await expect(send).toBeDisabled();
++  await page.getByLabel('Consenting test recipient').fill('+14155552671');
++  await expect(send).toBeDisabled();
++  await page.getByLabel('I confirm this test recipient opted in').check();
++  await expect(send).toBeEnabled();
++  await expect(page.getByRole('button', { name: 'Send Test Message', exact: true })).toBeDisabled();
++  await send.click();
++  expect(calls.sent).toHaveLength(1);
++  expect(calls.sent[0]).toMatchObject({ recipient: '+14155552671', templateName: registeredTemplate.name, language: 'en_US', confirmed: true });
++});
++
++for (const scenario of [
++  { name: 'missing settings', mode: { enabled: false, recipient: '', expiresAt: null }, template: {} },
++  { name: 'expired mode', mode: { enabled: true, recipient: '+14155552671', expiresAt: '2020-01-01T00:00:00Z' }, template: {} },
++  { name: 'missing expiry', mode: { enabled: true, recipient: '+14155552671', expiresAt: null }, template: {} },
++  { name: 'stale template', mode: { enabled: true, recipient: '+14155552671', expiresAt: '2099-01-01T00:00:00Z' }, template: { eligibleForTesting: false, statusStale: true } },
++  { name: 'unverified components', mode: { enabled: true, recipient: '+14155552671', expiresAt: '2099-01-01T00:00:00Z' }, template: { eligibleForTesting: false, componentsVerified: false } },
++]) {
++  test(`restricted production ${scenario.name} blocks sending`, async ({ page }) => {
++    const calls = await mockApi(page, { active: true, production: true, catalogue: true, productionTest: scenario.mode, testTemplate: scenario.template });
++    await page.goto('/admin/integrations/whatsapp');
++    await openSection(page, 'Test Messages');
++    await expect(page.getByRole('option', { name: /rk_authentication_otp/ })).toHaveCount(0);
++    await expect(page.getByRole('option', { name: /rk_new_collection_drop/ })).toHaveCount(0);
++    await page.getByLabel('Consenting test recipient').fill('+14155552671');
++    await page.getByLabel('I confirm this test recipient opted in').check();
++    await expect(page.getByRole('button', { name: 'Send approved test template', exact: true })).toBeDisabled();
++    expect(calls.sent).toHaveLength(0);
++  });
++}
++
++test('restricted production expiry disables an already valid form while the page remains open', async ({ page }) => {
++  const moment = Date.now();
++  await page.clock.install({ time: moment });
++  const calls = await mockApi(page, { active: true, production: true, registered: true,
++    productionTest: { enabled: true, recipient: '+14155552671', expiresAt: new Date(moment + 60_000).toISOString() } });
++  await page.goto('/admin/integrations/whatsapp');
++  await openSection(page, 'Test Messages');
++  await page.getByLabel('Consenting test recipient').fill('+14155552671');
++  await page.getByLabel('I confirm this test recipient opted in').check();
++  const send = page.getByRole('button', { name: 'Send approved test template', exact: true });
++  await expect(send).toBeEnabled();
++  await page.clock.fastForward(61_000);
++  await expect(send).toBeDisabled();
++  await expect(page.getByRole('region', { name: 'Restricted production test mode' })).toContainText('Off or expired');
++  expect(calls.sent).toHaveLength(0);
++});
++
+ test('message logs state when no read receipt has arrived yet', async ({ page }) => {
+   await mockApi(page);
+   await page.goto('/admin/integrations/whatsapp');

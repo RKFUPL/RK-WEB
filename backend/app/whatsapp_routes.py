@@ -82,9 +82,14 @@ def _safe_template_components(value):
 
 
 def safe_status(db):
+    from .whatsapp_diagnostics import application_diagnostics
     config = current_app.config
     state = db.integrations.find_one({"_id": "whatsapp"}) or {}
     missing = configuration_errors(config)
+    recorded_failure = db.whatsapp_messages.find_one({"$or": [
+        {"error.code": {"$in": [131042, 131031, 368]}},
+        {"failureDetails.errors.code": {"$in": [131042, 131031, 368]}},
+    ]}, {"error": 1, "failureDetails": 1}, sort=[("updatedAt", -1)])
     templates = template_registry(db, config)
     for event, item in templates.items():
         ready = item["approved"] and not missing
@@ -127,9 +132,10 @@ def safe_status(db):
         "evidenceState": "found_not_locally_mapped"}, {"_id": 0, "name": 1, "language": 1, "status": 1,
         "category": 1, "checkedAt": 1, "evidenceState": 1, "qualityRating": 1}).limit(100))
     return {"enabled": config.get("WHATSAPP_ENABLED") is True and state.get("enabled") is True,
-            "orderNotificationsEnabled": order_notifications_enabled(db, config),
+            "orderNotificationsEnabled": not missing and order_notifications_enabled(db, config),
             "orderNotificationsEnvironmentEnabled": config.get("WHATSAPP_ORDER_NOTIFICATIONS_ENABLED") is True,
             "orderNotificationsAdminEnabled": state.get("orderNotificationsEnabled") is True,
+            "orderNotificationsReason": "configuration_incomplete" if missing else "backend_order_gate_disabled" if config.get("WHATSAPP_ORDER_NOTIFICATIONS_ENABLED") is not True else "admin_order_control_disabled" if state.get("orderNotificationsEnabled") is not True else None,
             "environmentEnabled": config.get("WHATSAPP_ENABLED") is True,
             "configured": not missing, "missing": missing,
             "phoneNumberId": config.get("WHATSAPP_PHONE_NUMBER_ID", ""),
@@ -138,6 +144,9 @@ def safe_status(db):
             "apiVersion": config.get("WHATSAPP_API_VERSION", ""),
             "testSendEnabled": test_send_enabled(config), **callback_configuration(config),
             "productionTest": production_test_state(config),
+            "diagnostics": application_diagnostics(config, state, recorded_failure),
+            "phoneCodeVerificationStatus": state.get("phoneCodeVerificationStatus", "UNKNOWN"),
+            "phoneStatusCheckedAt": state.get("phoneStatusCheckedAt"),
             **{k: state.get(k) for k in ("verifiedAt", "lastWebhook", "lastApiSuccess", "lastError", "subscriptionStatus", "subscriptionCheckedAt")},
             "templates": templates, "catalogue": catalogue, "unmappedTemplates": unmapped,
             "templateStatusSync": sync, "marketingEnabled": config.get("WHATSAPP_MARKETING_ENABLED") is True}
@@ -186,6 +195,8 @@ def _safe_status_errors(errors):
         subcode = error.get("error_subcode")
         if isinstance(code, int) and not isinstance(code, bool) and 0 <= code <= 2_147_483_647:
             item["code"] = code
+            from .whatsapp_diagnostics import error_description
+            item["description"] = error_description(code)
         if isinstance(subcode, int) and not isinstance(subcode, bool) and 0 <= subcode <= 2_147_483_647:
             item["subcode"] = subcode
         safe.append(item)
@@ -411,12 +422,14 @@ def test_connection():
     try:
         base = f"https://graph.facebook.com/{config['WHATSAPP_API_VERSION']}"
         headers = {"Authorization": "Bearer " + config["WHATSAPP_ACCESS_TOKEN"]}
-        phone = requests.get(f"{base}/{config['WHATSAPP_PHONE_NUMBER_ID']}", headers=headers, timeout=(3.05, 10), allow_redirects=False)
+        phone = requests.get(f"{base}/{config['WHATSAPP_PHONE_NUMBER_ID']}", params={"fields": "display_phone_number,code_verification_status,quality_rating"}, headers=headers, timeout=(3.05, 10), allow_redirects=False)
         phone.raise_for_status()
         phone_data = phone.json()
         display_phone_number = phone_data.get("display_phone_number", "") if isinstance(phone_data, dict) else ""
         if not isinstance(display_phone_number, str) or len(display_phone_number) > 40:
             display_phone_number = ""
+        verification = phone_data.get("code_verification_status") if isinstance(phone_data, dict) else None
+        verification = verification if isinstance(verification, str) and verification in {"VERIFIED", "NOT_VERIFIED", "EXPIRED"} else "UNKNOWN"
         subscribed = requests.get(f"{base}/{config['WHATSAPP_BUSINESS_ACCOUNT_ID']}/subscribed_apps", headers=headers, timeout=(3.05, 10), allow_redirects=False)
         subscribed.raise_for_status()
         data = subscribed.json()["data"]
@@ -424,6 +437,7 @@ def test_connection():
             raise ValueError()
         attached = any(str((item.get("whatsapp_business_api_data") or {}).get("id")) == str(config["WHATSAPP_APP_ID"]) for item in data if isinstance(item, dict))
         _state(db, lastApiSuccess=now(), lastError=None, businessPhoneNumber=display_phone_number,
+               phoneCodeVerificationStatus=verification, phoneStatusCheckedAt=now(),
                subscriptionStatus="subscribed" if attached else "not_subscribed", subscriptionCheckedAt=now())
         return jsonify(json_value(safe_status(db)))
     except (requests.RequestException, ValueError, KeyError, TypeError):
@@ -485,6 +499,7 @@ def test_send():
 
 
 def _test_response(result):
+    from .whatsapp_diagnostics import PRODUCTION_TEST_REASONS
     explanations = {
         "test_send_disabled": "Local test sending is off. Enable WHATSAPP_TEST_SEND_ENABLED only in the development backend.",
         "no_consent": "Confirm that this recipient consented before sending.",
@@ -502,6 +517,7 @@ def _test_response(result):
         "production_test_expired": "Restricted production template testing has expired.",
         "production_test_expiry_too_far": "The production test expiry must be no more than 24 hours from the current UTC time.",
     }
+    explanations.update(PRODUCTION_TEST_REASONS)
     if result.get("reason") in explanations:
         result = {**result, "explanation": explanations[result["reason"]]}
     status_code = 200 if result["status"] in {"accepted", "duplicate"} else 502
@@ -653,7 +669,7 @@ def logs():
         page = max(1, min(10000, int(request.args.get("page", "1"))))
     except ValueError:
         return jsonify(error="Invalid page"), 400
-    projection = {k: 1 for k in ("recipient", "type", "template", "orderId", "status", "createdAt", "acceptedAt", "sentAt", "deliveredAt", "readAt", "failedAt", "error", "failureDetails", "statusHistory", "providerId", "httpStatus", "testSend", "attempts")}
+    projection = {k: 1 for k in ("recipient", "type", "template", "orderId", "orderNumber", "customerId", "recipientSource", "apiResponse", "status", "createdAt", "acceptedAt", "sentAt", "deliveredAt", "readAt", "failedAt", "error", "failureDetails", "statusHistory", "providerId", "httpStatus", "testSend", "attempts")}
     records = list(database().whatsapp_messages.find(query, projection).sort("createdAt", -1).skip((page - 1) * 50).limit(51))
     for record in records:
         if record.get("readAt") or record.get("status") == "read":

@@ -1,7 +1,7 @@
 """Submission specifications, not evidence of Meta approval. No credentials here."""
 
 OTP_EXPIRY_MINUTES = 10
-CONSENT_TEXT = "I agree to receive account verification and transactional WhatsApp messages from Rashi Kapoor, including order confirmations, payment updates, shipping, delivery and refund notifications, at the WhatsApp number provided. I can opt out at any time."
+CONSENT_TEXT = "I agree to receive transactional WhatsApp messages from Rashi Kapoor, including order confirmations, payment updates, shipping, delivery and refund notifications, at the WhatsApp number provided. I can opt out at any time."
 
 
 def utility(name, events, parameters, body, handler):

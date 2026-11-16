@@ -4,6 +4,9 @@ import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
 import { brandLogoUrl } from '@/lib/home-content';
 import { apiBaseUrl } from '@/lib/rbac';
+import { InternationalPhone } from '@/components/commerce/international-phone';
+import { canonicalPhone } from '@/lib/phone-number';
+import type { CountryCode } from 'libphonenumber-js';
 import { whatsappConsentText } from '@/lib/whatsapp-consent';
 
 type AccountUser = { id: string; email: string; username?: string; displayName?: string; role: 'customer' | 'staff' | 'admin' };
@@ -82,6 +85,7 @@ export default function AccountPage() {
   const [identifier, setIdentifier] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [phoneCountry, setPhoneCountry] = useState<CountryCode>('IN');
   const [region, setRegion] = useState('');
   const [username, setUsername] = useState('');
   const [firstName, setFirstName] = useState('');
@@ -140,7 +144,7 @@ export default function AccountPage() {
     (['firstName', 'lastName', 'username', 'email', 'phone', 'dob', 'gender', 'region', 'password', 'confirmPassword'] as SignupField[]).forEach((field) => {
       const values: Record<SignupField, string> = { firstName, lastName, username, email, phone, dob, gender, region, password, confirmPassword };
       const value = values[field];
-      const error = signupFieldError(field, value);
+      const error = field === 'phone' ? (canonicalPhone(phone, phoneCountry) ? '' : 'Enter a valid WhatsApp number for the selected country.') : signupFieldError(field, value);
       if (error) nextErrors[field] = error;
     });
     if (password && confirmPassword && password !== confirmPassword) nextErrors.confirmPassword = 'Passwords do not match.';
@@ -200,7 +204,7 @@ export default function AccountPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ firstName, lastName, username, email, phone, dob, gender, region, password, whatsappOtpConsent, whatsappTransactionalConsent, otpChannel }),
+        body: JSON.stringify({ firstName, lastName, username, email, phone: canonicalPhone(phone, phoneCountry), phoneCountry, dob, gender, region, password, whatsappOtpConsent, whatsappTransactionalConsent, otpChannel }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? 'Unable to send signup code.');
@@ -332,6 +336,7 @@ export default function AccountPage() {
                     {(['firstName', 'lastName', 'username', 'email', 'phone', 'dob'] as const).map((field) => {
                       const labels = { firstName: 'First name', lastName: 'Last name', username: 'Username', email: 'Email', phone: 'Phone number', dob: 'Date of birth' };
                       const values = { firstName, lastName, username, email, phone, dob };
+                      if (field === 'phone') return <div key={field}><InternationalPhone label="Primary WhatsApp number (required)" value={phone} country={phoneCountry} onChange={(value, country) => { setPhone(value); setPhoneCountry(country); setWhatsappTransactionalConsent(false); setWhatsappOtpConsent(false); }} disabled={otpStep} />{fieldErrors.phone && <span role="alert" className="text-xs text-red-600">{fieldErrors.phone}</span>}</div>;
                       return <label key={field} className={`group relative block text-xs uppercase tracking-[0.25em] ${fieldErrors[field] ? 'text-red-600' : 'text-charcoal/55'}`}>{labels[field]}<input type={field === 'email' ? 'email' : field === 'dob' ? 'date' : 'text'} max={field === 'dob' ? new Date().toISOString().slice(0, 10) : undefined} required value={values[field]} onChange={(event) => updateSignupField(field, event.target.value)} onBlur={() => setFieldErrors((current) => ({ ...current, [field]: signupFieldError(field, values[field]) || undefined }))} disabled={otpStep} aria-invalid={Boolean(fieldErrors[field])} className={`mt-3 w-full border-b bg-transparent px-0 py-3 text-base normal-case tracking-normal outline-none focus:border-gold ${fieldErrors[field] ? 'border-red-500' : 'border-black/15'}`} />{fieldErrors[field] ? <span className="mt-1 block text-[10px] normal-case tracking-normal text-red-600">{fieldErrors[field]}</span> : null}</label>;
                     })}
                     <label className={`block text-xs uppercase tracking-[0.25em] ${fieldErrors.gender ? 'text-red-600' : 'text-charcoal/55'}`}>Gender<select required value={gender} onChange={(event) => updateSignupField('gender', event.target.value)} disabled={otpStep} className={`mt-3 w-full border-b bg-transparent px-0 py-3 text-base normal-case tracking-normal outline-none focus:border-gold ${fieldErrors.gender ? 'border-red-500' : 'border-black/15'}`}><option value="">Select</option><option value="female">Female</option><option value="male">Male</option><option value="prefer-not-to-say">Prefer not to say</option></select>{fieldErrors.gender ? <span className="mt-1 block text-[10px] normal-case tracking-normal text-red-600">{fieldErrors.gender}</span> : null}</label>

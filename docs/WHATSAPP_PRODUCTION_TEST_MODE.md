@@ -29,8 +29,216 @@ The admin status response keeps `testSendEnabled` development-only and exposes a
 
 Results use the existing WhatsApp message log, `testSend=true`, `productionTestSend=true`, configured Phone Number ID, Meta message ID and safe API status/error fields. Existing delivery/read/failure webhooks correlate normally. No order notification is enqueued or real order lifecycle event triggered. Ambiguous outcomes retain existing no-blind-retry behavior.
 
-To end a separately authorized test window, turn the new flag off and remove its recipient/expiry through the approved runtime configuration process. No admin toggle can enable or extend it. Do not copy local environment files onto the server. The ordinary disabled-release readiness and index-maintenance commands refuse an enabled temporary production flag; conduct those operations with all sending gates off. This narrow test mode does not satisfy outstanding deployment, webhook, WABA subscription or production-readiness blockers documented in the audits.
+To end a separately authorized test window, turn the new flag off and clear its expiry through the approved runtime configuration process. No admin toggle can enable or extend it. Do not copy local environment files onto the server. The ordinary disabled-release readiness and index-maintenance commands refuse an enabled temporary production flag; conduct those operations with all sending gates off. This narrow test mode does not satisfy outstanding deployment, webhook, WABA subscription or production-readiness blockers documented in the audits.
 
 Automated tests mock every Meta request and use an in-memory database. Run from `backend/`: `python -m pytest -q`. Run from `frontend/`: `npm run typecheck`, `npm run build`, then `npm run test:whatsapp-ui`.
 
 Local validation on 2026-11-15 after enforcing the maximum window: full backend **498 passed, 1 skipped**, with two existing mongomock deprecation warnings; the skip is the real Nginx test because Nginx is unavailable. WhatsApp browser suite **46 passed**. TypeScript and the production build passed (62 generated pages). The frontend Node suite retains the pre-existing homepage assertion expecting contiguous `Where the art of` across a `<br />`; its test and component both match HEAD. Git whitespace and secret-content scans passed. No real Meta requests, production environment edits, commits, pushes or deployments were performed for this change.
+
+
+## Production diagnosis: 16 November 2026
+
+A read-only inspection of the running backend at 11:42:37 UTC confirmed:
+
+```dotenv
+WHATSAPP_ENVIRONMENT=production
+WHATSAPP_PRODUCTION_TEST_SEND_ENABLED=false
+WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT=
+WHATSAPP_ENABLED=false
+WHATSAPP_TEST_SEND_ENABLED=false
+WHATSAPP_MARKETING_ENABLED=false
+WHATSAPP_ORDER_NOTIFICATIONS_ENABLED=true
+```
+
+These values were read, not changed. `production_test_state()` evaluates the
+production environment/switch first, so this produces `production_test_disabled`.
+It is **not** an expiry-only error: enabling the switch without setting the empty
+expiry would next produce `production_test_expiry_invalid`. No test request reaches
+Meta while this application gate is closed. The active order worker and order
+environment gate are independent and do not enable one-off testing.
+
+The backend reads the two manual-test variables in `backend/app/config.py` through
+`os.getenv`. ProductionConfig deliberately keeps the three general/development/
+marketing gates false; it does not force the separate production test switch off.
+Base Compose supplies `/opt/apps/rashi-kapoor/rk-web/.env` through `env_file` on the
+VPS, and the service's runtime process environment takes precedence. Configure the
+protected server runtime source through its authorized operator, not frontend
+variables, a local `.env`, a browser header, a database mapping switch or Meta.
+No admin PATCH endpoint enables this temporary mode.
+
+A container must be **recreated** to receive changed Compose environment values;
+`docker restart` or a browser refresh does not inject a changed host environment.
+Preserve the exact reviewed backend image and all existing secrets, especially
+`WHATSAPP_OUTBOX_KEY` and `WHATSAPP_APP_SECRET`.
+
+### Distinct sending paths
+
+| Path | Authority and scope |
+| --- | --- |
+| Manual production Utility test | Separate opt-in production test switch plus explicit UTC expiry. Admin-only `/api/admin/integrations/whatsapp/test-send`, one recipient/request, fresh exact approval/components and explicit consent attestation. No order ID, order transition, order event or automated outbox enqueue. |
+| Automated transactional orders | Backend `WHATSAPP_ORDER_NOTIFICATIONS_ENABLED` plus admin order control, individually enabled approved mappings, verified payment/events and exact persisted recipient consent. Uses the persistent encrypted outbox/worker. Does not authorize a manual test. |
+| General automation and WhatsApp OTP | General backend/admin gates plus the exact Authentication template, live OTP challenge and separate explicit OTP request where applicable. The production general gate stays false. Transactional signup consent does not request an OTP. |
+| Marketing | Separate marketing enablement, general messaging authority, approved Marketing templates, active marketing consent and campaign/suppression validation. Manual Utility testing cannot activate it. |
+| Development free text | Development environment and development test gate, consent and verified 24-hour customer service window. Not available through production testing. |
+
+### Meta evidence is independent of application gates
+
+- The supplied billing observations report an earlier account restriction, a
+  successful Visa charge and a remaining INR 0.93 balance. No fresh billing-ledger
+  read was performed; the exact cause of that remaining balance is **unconfirmed**.
+  Do not assume rounding, settlement delay, new usage, wrong account allocation or
+  successful restriction clearance. Match the charge to this exact WABA/payment
+  account, review the current balance and restriction state, and ask Meta billing
+  support to reconcile an inconsistency. Do not repeatedly charge the card to
+  diagnose it. The application cannot clear a Meta restriction.
+- The read-only Meta audit confirmed `rk_order_confirmation`, `en_US`, `UTILITY`,
+  `APPROVED` and matching components. Quality `UNKNOWN`/pending is separate from
+  approval; it is not a reason to reclassify an approved template as pending.
+- The sender returned `codeVerification=NOT_VERIFIED`. Ownership verification and
+  Cloud API registration are separate from template approval. Review ownership
+  verification in WhatsApp Manager and registration for the exact Phone Number ID
+  through the approved API process. Do not automatically register/deregister the
+  number or request verification codes as part of this diagnostic repair.
+- App membership in the WABA and the configured Phone Number ID's membership were
+  confirmed by read-only Meta requests. The app-level active production callback
+  and its `messages` field remain unverified without appropriate app-token access
+  or a dashboard inspection. A WABA membership check alone does not establish them.
+- A closed 24-hour customer service window blocks free text, not a correctly
+  approved/eligible template. It does not remove billing or sender restrictions.
+- HTTP 200/WAMID means accepted/submitted. Delivery/read/failure must be reconciled
+  from signed `messages` webhooks. A successful connection GET or payment receipt
+  is not message delivery evidence.
+
+Official references: [Meta error codes](https://developers.facebook.com/documentation/business-messaging/whatsapp/support/error-codes)
+identify billing/business eligibility error 131042, registration errors 131045,
+133006 and 133010, and the template alternative for a closed service window.
+[Meta registration](https://developers.facebook.com/documentation/business-messaging/whatsapp/business-phone-numbers/registration)
+distinguishes ownership verification from the API registration operation.
+
+### Newly added local diagnostics
+
+The admin status response exposes safe diagnostic codes/messages. Test connection
+requests and records only allowlisted phone verification metadata and a timestamp,
+plus the existing WABA subscription result. A successful GET does not clear
+historical billing failure evidence used in diagnostics: relevant existing message
+failures are read separately. A recorded failure is labelled historical evidence,
+not proof of the current unpaid balance or a new send restriction. Unknown billing
+and webhook evidence are labelled unknown. No new billing verification or approval
+flag is invented. The UI shows selected template category, approval, evidence
+freshness, component verification and application test gate independently.
+
+These messages do not modify `eligibleForTesting`, consent/suppression, recipient
+normalization, expiry checks, rate limits, request IDs, encryption, retry rules or
+provider policy. No Meta-specific restriction is bypassed. `NOT_VERIFIED` remains a
+warning requiring operator investigation, not a fabricated claim that the backend
+knows registration or billing has been repaired.
+
+### One controlled short test: procedure requiring explicit authorization
+
+1. **Resolve provider blockers first.** Confirm the correct WABA's billing/account
+   restriction is cleared and ownership/Cloud API registration is valid. Verify
+   the production callback, `messages` subscription and exact current template.
+   Do not treat a charged Visa transaction alone as resolution. No code change or
+   general messaging toggle substitutes for these checks.
+2. **Agree on isolation.** The worker is already active and the order gate is on.
+   Obtain explicit authorization for a maintenance pause before claiming the test
+   is the only possible outgoing message. An authorized operator may stop the
+   timer with `sudo systemctl stop rk-whatsapp-worker.timer`, then let the active
+   bounded worker finish naturally. Verify `systemctl is-active rk-whatsapp-worker.service`
+   reports inactive and `docker ps --filter name=rk-whatsapp-worker --format '{{.Names}}'`
+   is empty. Do not force-reset in-flight claims. Review the existing backlog before
+   any later resume. The production test gate itself does not require the separate
+   order flag to change; any order-gate change needs its own authorization.
+3. **Select only an authorized business-owned/tester recipient.** Retain evidence
+   that the person provided this WhatsApp number and agreed to this message.
+   The checkbox records an operator attestation, not independent proof of consent.
+   There is no configured-recipient variable or hidden allowlist; the operator
+   enters one normalized E.164 number per request. Existing STOP blocks still apply.
+4. **Authorize a 15-minute backend test window.** On the VPS, generate a fresh UTC
+   expiry immediately before configuration:
+
+   ```sh
+   date -u -d '+15 minutes' '+%Y-%m-%dT%H:%M:%SZ'
+   ```
+
+   In the protected production runtime configuration, set only the intended test
+   switch/expiry through the approved operator process:
+
+   ```dotenv
+   WHATSAPP_PRODUCTION_TEST_SEND_ENABLED=true
+   WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT=<fresh UTC timestamp from the command above>
+   WHATSAPP_ENABLED=false
+   WHATSAPP_TEST_SEND_ENABLED=false
+   WHATSAPP_MARKETING_ENABLED=false
+   ```
+
+   Do not paste the angle-bracket placeholder literally. The expiry must be strictly
+   after server UTC now and no more than 24 hours ahead. It must include `Z` or
+   `+00:00`; missing, malformed, naive, non-UTC, equal-to-now, expired or farther
+   future values fail closed. Nothing extends it automatically.
+5. **Recreate only the approved backend after authorization.** In an authorized
+   server shell with access to the existing protected image-reference file:
+
+   ```sh
+   cd /opt/apps/rashi-kapoor/rk-web
+   set -a
+   . /etc/rk-whatsapp/images.env
+   set +a
+   docker compose -f docker-compose.yml -f deploy/docker-compose.release.yml up -d --no-build --pull never --no-deps --force-recreate backend
+   ```
+
+   This is a procedure, not an action performed by this repair. Confirm the selected
+   image is the reviewed image and preserve all keys; do not rebuild or pull an
+   arbitrary image to change a gate. The current SSH account cannot read the
+   protected image file without additional access. Verify backend health and the
+   admin response: `productionTest.enabled=true`, the exact new UTC expiry and
+   no application blocking reason. Do not use the general Enable WhatsApp button
+   or switch automated mappings on to make a test eligible.
+6. **Initiate one test through Test Messages.** Select the exact freshly verified
+   Utility template/language; an automated mapping can remain disabled. Preview its
+   approved components and enter all exact parameters. Use clearly labelled test
+   content, not an invented real order. Confirm the intended recipient and its
+   documented consent, then click Send once. Preserve the same request ID for any
+   retry/reconciliation; a new request ID represents a new send request. Do not
+   create an order or trigger a payment/order lifecycle event for this test.
+7. **Inspect the result rather than retrying blindly.** The log must have
+   `testSend=true`, `productionTestSend=true`, `orderId=null`, HTTP status and WAMID
+   if accepted. Match subsequent sent/delivered/read/failed receipts by WAMID.
+   Error 131042 or another provider restriction requires provider remediation;
+   changing gates, recipients or templates is not a bypass. Ambiguous outcomes
+   retain the existing reconciliation policy. Expiry is rechecked at dispatch
+   and after rate-limit backoff.
+8. **Close the window.** Set `WHATSAPP_PRODUCTION_TEST_SEND_ENABLED=false`, clear
+   the expiry through the same authorized process, and recreate the backend again.
+   Verify `production_test_disabled` and the Send button disabled. Keep the worker
+   paused until a separately authorized backlog review/resume. Do not enable broad
+   automation, OTP or marketing as part of ending the test.
+
+No step above was executed to enable testing, pause/start services, register a
+number, charge a payment method or send a real message. Diagnostics were implemented
+locally; the only new production inspection read the existing switch/expiry and
+other non-secret gate states. Earlier read-only Meta findings are identified above.
+
+
+### Validation of the diagnostic update
+
+- Full backend suite: **578 passed, 1 skipped**, two existing mongomock warnings.
+- WhatsApp browser suite: **53 passed**. All sends/provider API interactions in
+  these automated tests are mocked.
+- Frontend node tests: **158 passed, 1 pre-existing homepage-copy failure** already
+  reproduced at the base revision in WHATSAPP_RELEASE_REVIEW.md.
+- TypeScript, production frontend build (63 static pages), secret scans and
+  whitespace checks passed.
+- New regression coverage checks the disabled-switch explanation, historical
+  billing evidence after a successful connection GET, unverified phone and missing
+  WABA diagnostics, closed-window approved-template sending, no order mutation,
+  and the disabled browser Send button despite visible diagnostics.
+
+Files changed for this diagnostic update (earlier checkout/release work preserved):
+
+- `backend/app/whatsapp_diagnostics.py`
+- `backend/app/whatsapp_routes.py`
+- `backend/tests/test_whatsapp_diagnostics.py`
+- `frontend/app/admin/integrations/whatsapp/page.tsx`
+- `frontend/tests/whatsapp-ui.spec.ts`
+- `docs/WHATSAPP_PRODUCTION_TEST_MODE.md`

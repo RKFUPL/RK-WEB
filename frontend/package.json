@@ -17,6 +17,7 @@
     "clsx": "^2.1.1",
     "framer-motion": "^12.23.12",
     "gsap": "^3.13.0",
+    "libphonenumber-js": "^1.13.16",
     "lucide-react": "^0.541.0",
     "next": "15.5.28",
     "react": "^19.1.1",
