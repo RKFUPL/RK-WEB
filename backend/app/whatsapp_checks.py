@@ -117,18 +117,41 @@ def _sender(db, config):
             values[field] = _get(config, config['WHATSAPP_PHONE_NUMBER_ID'], field).get(field)
         except (requests.RequestException, ValueError, TypeError, KeyError):
             values[field] = None
-    verification = _enum(values['code_verification_status'], {'VERIFIED', 'NOT_VERIFIED', 'EXPIRED'})
+    # This is the sender's OTP code status; it is not the WABA's business
+    # verification and does not itself mean a connected sender is unregistered.
+    code_verification = _enum(values['code_verification_status'], {'VERIFIED', 'NOT_VERIFIED', 'EXPIRED'})
     registration = _enum(values['status'], {'CONNECTED', 'PENDING', 'DISCONNECTED', 'UNREGISTERED', 'FLAGGED', 'RESTRICTED', 'BANNED'})
-    status = 'VERIFIED' if verification == 'VERIFIED' and registration == 'CONNECTED' else 'ACTION REQUIRED' if verification in {'NOT_VERIFIED', 'EXPIRED'} else 'UNKNOWN'
+    try:
+        business = _get(config, config['WHATSAPP_BUSINESS_ACCOUNT_ID'],
+                        'business_verification_status,whatsapp_business_manager_messaging_limit')
+    except (requests.RequestException, ValueError, TypeError, KeyError):
+        business = {}
+    business_verification = _enum(business.get('business_verification_status').upper() if isinstance(business.get('business_verification_status'), str) else None,
+        {'EXPIRED', 'FAILED', 'INELIGIBLE', 'NOT_VERIFIED', 'PENDING', 'PENDING_NEED_MORE_INFO',
+         'PENDING_SUBMISSION', 'REJECTED', 'REVOKED', 'VERIFIED'})
+    messaging_tier = _enum(business.get('whatsapp_business_manager_messaging_limit').upper() if isinstance(business.get('whatsapp_business_manager_messaging_limit'), str) else None,
+        {'TIER_50', 'TIER_250', 'TIER_2K', 'TIER_10K', 'TIER_100K', 'TIER_UNLIMITED', 'UNTIERED'})
+    status = ('VERIFIED' if registration == 'CONNECTED' and code_verification == 'VERIFIED' else
+              'UNKNOWN' if registration == 'CONNECTED' else
+              'ACTION REQUIRED' if registration == 'PENDING' else
+              'UNKNOWN' if registration == 'UNKNOWN' else 'BLOCKED')
     if registration in {'DISCONNECTED', 'UNREGISTERED', 'BANNED', 'RESTRICTED'}:
         status = 'BLOCKED'
     digits = ''.join(c for c in str(values.get('display_phone_number') or '') if c.isdigit())
-    return _result('sender', status, 'Ownership verification and Cloud API registration are separate: verification=' + verification + ', registration=' + registration + '.',
-        'WhatsApp Manager > Account tools > Phone numbers: inspect this exact sender. Complete ownership verification or an authorized API registration only when required; do not register/deregister during diagnostics.',
-        'Fresh Meta Phone Number ID GETs', {'phoneNumberId': str(config['WHATSAPP_PHONE_NUMBER_ID']), 'phoneMasked': '***' + digits[-4:] if digits else 'Unknown',
-        'verification': verification, 'registration': registration, 'apiAccessible': any(value is not None for value in values.values()),
+    return _result('sender', status, 'Sender API status is ' + registration + '. Phone ownership OTP code status is ' + code_verification + '; these fields conflict when the sender is CONNECTED but its code status says NOT_VERIFIED. Business verification and messaging eligibility are separate fields.',
+        'Review the CONNECTED sender and OTP code status together in WhatsApp Manager. Do not remove, re-add or request another code for a CONNECTED sender solely from this conflicting read. Use the WABA field for business verification and health_status for messaging eligibility.',
+        'Fresh Meta Phone Number ID and configured WABA GETs', {'phoneNumberId': str(config['WHATSAPP_PHONE_NUMBER_ID']), 'phoneMasked': '***' + digits[-4:] if digits else 'Unknown',
+        'senderStatus': registration, 'codeVerificationStatus': code_verification,
+        'codeVerificationMeaning': 'Phone number OTP-code state; not business verification or, by itself, registration state.',
+        'phoneOwnershipOtpStatus': code_verification,
+        'senderConnectionAndOtpEvidence': 'CONNECTED plus NOT_VERIFIED is an inconsistent read; it does not establish disconnection or justify re-registration.',
+        'businessVerificationStatus': business_verification,
+        'messagingLimitTier': messaging_tier,
+        'messagingLimitDescription': '250 unique recipients per rolling 24 hours' if messaging_tier == 'TIER_250' else 'Meta messaging capacity tier; not a sender-disconnection signal.',
+        'apiAccessible': any(value is not None for value in values.values()),
         'displayNameStatus': _enum(values['name_status'], {'APPROVED', 'AVAILABLE_WITHOUT_REVIEW', 'PENDING_REVIEW', 'DECLINED', 'EXPIRED'}),
-        'quality': _enum(values['quality_rating'], {'GREEN', 'YELLOW', 'RED'})})
+        'qualityRating': _enum(values['quality_rating'], {'GREEN', 'YELLOW', 'RED', 'HIGH', 'MEDIUM', 'LOW'}),
+        'qualityDisplay': {'GREEN': 'HIGH', 'YELLOW': 'MEDIUM', 'RED': 'LOW'}.get(values['quality_rating'], _enum(values['quality_rating'], {'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'}))})
 
 
 def _webhook(db, config):
@@ -253,8 +276,10 @@ def production_provider_block(db, config):
     if not (rows['billing'].get('evidence') or {}).get('providerEligibilityVerified'):
         return 'production_test_provider_eligibility_unverified'
     sender = rows['sender'].get('evidence') or {}
-    if sender.get('verification') != 'VERIFIED' or sender.get('registration') != 'CONNECTED':
-        return 'production_test_sender_not_verified_or_registered'
+    if sender.get('businessVerificationStatus') != 'VERIFIED':
+        return 'production_test_business_verification_unverified'
+    if sender.get('registration') != 'CONNECTED':
+        return 'production_test_sender_not_connected'
     return None
 
 

@@ -8,7 +8,7 @@ export type DiagnosticCheck = {
 };
 const checks = [
   ['configuration', 'Application configuration'], ['billing', 'Meta billing evidence'],
-  ['sender', 'Sender phone verification'], ['templates', 'Template eligibility'],
+  ['sender', 'Sender and business status'], ['templates', 'Template eligibility'],
   ['webhook', 'App-level webhook subscription'], ['worker', 'Worker status and configuration'], ['outbox', 'Outbox status'],
 ] as const;
 const colour = (status: string) => status === 'VERIFIED' ? 'border-green-700/30 bg-green-50 text-green-950 dark:bg-green-950 dark:text-green-100'
@@ -41,6 +41,16 @@ export function WhatsAppDiagnostics({ values = [], notes = [], request, onResult
       return <article key={key} aria-label={`${title} diagnostic`} className="min-w-0 space-y-3 rounded-xl border border-black/10 p-4 dark:border-white/20">
         <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{title}</h3><span className={`rounded-full border px-2 py-1 text-xs ${colour(status)}`}>{status}</span></div>
         <p className="break-words text-sm">{result?.reason || 'Not checked. Request fresh evidence from the backend.'}</p>
+        {key === 'sender' && <dl aria-label="Sender status details" className="grid gap-x-4 gap-y-2 rounded-lg bg-stone-50 p-3 text-sm dark:bg-stone-800 sm:grid-cols-2">
+          <div><dt className="text-xs opacity-70">Sender API status</dt><dd>{String(result?.evidence?.senderStatus || 'UNKNOWN')}</dd></div>
+          <div><dt className="text-xs opacity-70">Phone ownership OTP code status</dt><dd>{String(result?.evidence?.codeVerificationStatus || 'UNKNOWN')}</dd></div>
+          <div><dt className="text-xs opacity-70">WABA business verification</dt><dd>{String(result?.evidence?.businessVerificationStatus || 'UNKNOWN')}</dd></div>
+          <div><dt className="text-xs opacity-70">Quality rating</dt><dd>{String(result?.evidence?.qualityRating || 'UNKNOWN')} ({String(result?.evidence?.qualityDisplay || 'UNKNOWN')})</dd></div>
+          <div><dt className="text-xs opacity-70">Messaging capacity tier</dt><dd>{String(result?.evidence?.messagingLimitTier || 'UNKNOWN')}</dd></div>
+          <div><dt className="text-xs opacity-70">Capacity</dt><dd>{String(result?.evidence?.messagingLimitDescription || 'Not reported')}</dd></div>
+          <div><dt className="text-xs opacity-70">Phone Number ID</dt><dd>{String(result?.evidence?.phoneNumberId || 'Not reported')}</dd></div>
+          <div><dt className="text-xs opacity-70">Business phone</dt><dd>{String(result?.evidence?.phoneMasked || 'Not reported')}</dd></div>
+        </dl>}
         <dl className="space-y-1 text-xs opacity-75"><div><dt className="inline font-medium">Last checked: </dt><dd className="inline">{result?.checkedAt ? new Date(result.checkedAt).toLocaleString() : 'Not checked'}</dd></div><div><dt className="inline font-medium">Evidence source: </dt><dd className="inline break-words">{result?.source || 'None'}</dd></div></dl>
         <p className="break-words text-sm"><strong>Next action: </strong>{result?.action || 'Refresh this check; follow its precise backend/provider instructions.'}</p>
         {!!result?.evidence && <details><summary className="cursor-pointer text-xs underline">View diagnostic evidence</summary><pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-stone-100 p-3 text-xs text-stone-800 dark:bg-stone-800 dark:text-stone-100">{JSON.stringify(result.evidence, null, 2)}</pre></details>}

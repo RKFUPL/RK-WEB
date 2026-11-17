@@ -92,14 +92,29 @@ def test_billing_unknown_replaces_previous_success_but_never_infers_ledger_clear
     assert 'private-provider-detail' not in str(checks.public_checks(case.db, case.app.config))
 
 
-@pytest.mark.parametrize('verification,registration,expected', [('VERIFIED','CONNECTED','VERIFIED'), ('NOT_VERIFIED','CONNECTED','ACTION REQUIRED'), ('VERIFIED','UNREGISTERED','BLOCKED'), (None,None,'UNKNOWN')])
-def test_sender_distinguishes_ownership_registration_and_unknown(case, verification, registration, expected):
-    values = {'code_verification_status':verification, 'status':registration, 'display_phone_number':'+14155552671'}
-    with patch.object(checks, '_get', side_effect=lambda config,path,fields: {fields:values.get(fields)}):
+@pytest.mark.parametrize('code_status,registration,business_status,quality,tier,expected', [
+    ('VERIFIED','CONNECTED','verified','GREEN','TIER_250','VERIFIED'),
+    ('NOT_VERIFIED','CONNECTED','VERIFIED','GREEN','TIER_250','UNKNOWN'),
+    ('VERIFIED','UNREGISTERED','VERIFIED','HIGH','TIER_250','BLOCKED'),
+    (None,None,None,None,None,'UNKNOWN')])
+def test_sender_separates_code_business_registration_quality_and_capacity(case, code_status, registration, business_status, quality, tier, expected):
+    values = {'code_verification_status':code_status, 'status':registration, 'display_phone_number':'+14155552671', 'quality_rating':quality}
+    def get(_config,path,fields):
+        if path == case.app.config['WHATSAPP_BUSINESS_ACCOUNT_ID']:
+            return {'business_verification_status':business_status,'whatsapp_business_manager_messaging_limit':tier}
+        return {fields:values.get(fields)}
+    with patch.object(checks, '_get', side_effect=get):
         result = checks._sender(case.db, case.app.config)
     assert result['status'] == expected
     assert result['evidence']['phoneMasked'] == '***2671'
     assert '+14155552671' not in str(result)
+    if code_status == 'NOT_VERIFIED' and registration == 'CONNECTED':
+        assert result['evidence']['codeVerificationStatus'] == 'NOT_VERIFIED'
+        assert result['evidence']['phoneOwnershipOtpStatus'] == 'NOT_VERIFIED'
+        assert 'inconsistent read' in result['evidence']['senderConnectionAndOtpEvidence']
+        assert result['evidence']['businessVerificationStatus'] == 'VERIFIED'
+        assert result['evidence']['messagingLimitTier'] == 'TIER_250'
+        assert result['evidence']['qualityDisplay'] == 'HIGH'
 
 
 @pytest.mark.parametrize('membership,callback,field,expected', [(True,True,True,'VERIFIED'), (False,True,True,'BLOCKED'), (True,False,True,'BLOCKED'), (True,True,False,'BLOCKED')])
@@ -137,7 +152,7 @@ def test_outbox_snapshot_counts_without_claiming_or_reading_payloads(case):
 def test_manual_test_rechecks_provider_proofs_before_dispatch_and_retry(case,mutation):
     def change(*_):
         path,value={'stale':('sender.checkedAt',now()-timedelta(minutes=16)), 'scope':('sender._scope','other'),
-                    'sender':('sender.evidence.verification','NOT_VERIFIED'), 'billing':('billing.evidence.providerEligibilityVerified',False)}[mutation]
+                    'sender':('sender.evidence.registration','UNREGISTERED'), 'billing':('billing.evidence.providerEligibilityVerified',False)}[mutation]
         case.db.integrations.update_one({'_id':'whatsapp'},{'$set':{'diagnosticChecks.'+path:value}})
     case.http.return_value=case.response(429,{'error':{'code':130429}},{'Retry-After':'1'})
     with patch('app.whatsapp.time.sleep',side_effect=change):
@@ -157,6 +172,20 @@ def test_provider_evidence_is_rechecked_after_claim_immediately_before_post(case
     with patch.object(case.db.whatsapp_messages,'update_one',side_effect=revoke):
         assert submit(case).status_code in {403,409}
     case.http.assert_not_called()
+
+
+def test_code_verification_field_alone_does_not_override_connected_sender_or_provider_health(case):
+    case.db.integrations.update_one({'_id':'whatsapp'}, {'$set': {
+        'diagnosticChecks.sender.evidence.codeVerificationStatus':'NOT_VERIFIED',
+        'diagnosticChecks.sender.evidence.registration':'CONNECTED',
+        'diagnosticChecks.sender.evidence.businessVerificationStatus':'VERIFIED',
+    }})
+    assert checks.production_provider_block(case.db, case.app.config) is None
+    # Meta's separate messaging health remains a required provider prerequisite.
+    case.db.integrations.update_one({'_id':'whatsapp'}, {'$set': {
+        'diagnosticChecks.billing.evidence.providerEligibilityVerified':False,
+    }})
+    assert checks.production_provider_block(case.db, case.app.config) == 'production_test_provider_eligibility_unverified'
 
 
 @pytest.mark.parametrize('mutation', ['pending', 'language', 'components'])

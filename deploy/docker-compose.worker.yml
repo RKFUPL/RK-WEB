@@ -1,0 +1,5 @@
+# Compose 2.24.4+ / production Compose 5.5.0. Apply AFTER the release override.
+# Worker/refresh use only the locally available reviewed backend image.
+services:
+  backend:
+    build: !reset null

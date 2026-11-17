@@ -1,6 +1,6 @@
 # WhatsApp checkout repair: final release review
 
-**Historical observations below.** See [the final production readiness report](WHATSAPP_FINAL_PRODUCTION_READINESS.md) for later 16 November reads: worker failed/exit 1, current worker image/key parity unverified, fresh app-level subscription confirmed, provider prerequisites and current validation. Earlier worker success is not current proof.
+**Historical observations below.** See [the final production readiness report](WHATSAPP_FINAL_PRODUCTION_READINESS.md) for later 17 November reads: business verification VERIFIED, CONNECTED sender with conflicting OTP-code status, tier 250, phone health LIMITED, worker failed/exit 1, current worker image/key parity unverified, fresh app-level subscription confirmed, provider prerequisites and current validation. Earlier worker success is not current proof.
 
 Review base: `ce01b83` (the committed privacy/deletion release). The checkout
 repair remains uncommitted. This includes local validation and a subsequent

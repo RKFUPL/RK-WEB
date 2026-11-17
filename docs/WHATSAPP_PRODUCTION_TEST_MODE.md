@@ -2,7 +2,9 @@
 
 Implemented locally; no production environment, Meta settings or messaging gates were changed. The mode defaults off. This does not authorize deployment or a real send.
 
-**Additional current prerequisite:** manual production tests require account-bound sender/provider diagnostic evidence no older than 15 minutes, independently of the maximum 24-hour UTC test window. Health and exact phone/WABA/app entities must be AVAILABLE, ownership VERIFIED and registration CONNECTED. Rechecks occur immediately before dispatch and after retry backoff. Billing ledger clearance is not inferred from a card charge or health request; manual account reconciliation remains required. UNKNOWN/LIMITED evidence cannot authorize a test. Refresh never activates a gate. See [the final production readiness report](WHATSAPP_FINAL_PRODUCTION_READINESS.md) for current evidence, worker/provider blockers and conditional procedures. Historical observations/counts below are not current proof.
+**Current sender interpretation (17 November):** Fresh WABA evidence reports business verification `verified` and tier `TIER_250`; the Phone Number ID reports `status=CONNECTED`, `code_verification_status=NOT_VERIFIED`, and quality `GREEN` (Manager displays HIGH). Meta documents code verification as the phone ownership OTP flow and `CONNECTED` as the status required for Cloud API send/receive. These fields conflict. Diagnostics show each independently and mark the combined sender check UNKNOWN; they do not infer disconnection or recommend removing/re-registering the number from this mismatch. Fresh phone health is still LIMITED, and billing clearance is not verified. Those remain separate blockers. The 250 tier is active capacity, not a sending restriction. See [the final production readiness report](WHATSAPP_FINAL_PRODUCTION_READINESS.md).
+
+**Additional current prerequisite:** manual production tests require account-bound sender/provider diagnostic evidence no older than 15 minutes, independently of the maximum 24-hour UTC test window. Health and exact phone/WABA/app entities must be AVAILABLE, WABA business verification VERIFIED and phone status CONNECTED. Rechecks occur immediately before dispatch and after retry backoff. Billing ledger clearance is not inferred from a card charge or health request; manual account reconciliation remains required. UNKNOWN/LIMITED health cannot authorize a test. Refresh never activates a gate. Historical observations/counts below are superseded by the dated current findings above.
 
 Backend environment names and safe defaults:
 
@@ -96,11 +98,17 @@ Preserve the exact reviewed backend image and all existing secrets, especially
 - The read-only Meta audit confirmed `rk_order_confirmation`, `en_US`, `UTILITY`,
   `APPROVED` and matching components. Quality `UNKNOWN`/pending is separate from
   approval; it is not a reason to reclassify an approved template as pending.
-- The sender returned `codeVerification=NOT_VERIFIED`. Ownership verification and
-  Cloud API registration are separate from template approval. Review ownership
-  verification in WhatsApp Manager and registration for the exact Phone Number ID
-  through the approved API process. Do not automatically register/deregister the
-  number or request verification codes as part of this diagnostic repair.
+- The 17 November read returned WABA `business_verification_status=verified`,
+  phone `status=CONNECTED`, `code_verification_status=NOT_VERIFIED`, and quality
+  `GREEN` (shown as HIGH in WhatsApp Manager). Business verification, phone OTP
+  ownership-code state, Cloud API connection/registration, and health-based
+  messaging eligibility are distinct facts. The CONNECTED/NOT_VERIFIED pair is
+  conflicting evidence; it does not establish disconnection. Preserve the sender:
+  do not remove, re-add, re-register, deregister, or request a new code based on
+  this diagnostic alone. The independent `health_status=LIMITED` remains a blocker.
+- `TIER_250` is active capacity for up to 250 unique recipients per rolling
+  24-hour period, not a sending restriction. The dashboard's five conversations
+  over seven days is a separate metric. No tier increase was requested.
 - App membership in the WABA and the configured Phone Number ID's membership were
   confirmed by read-only Meta requests. The app-level active production callback
   and its `messages` field remain unverified without appropriate app-token access
@@ -131,9 +139,10 @@ freshness, component verification and application test gate independently.
 
 These messages do not modify `eligibleForTesting`, consent/suppression, recipient
 normalization, expiry checks, rate limits, request IDs, encryption, retry rules or
-provider policy. No Meta-specific restriction is bypassed. `NOT_VERIFIED` remains a
-warning requiring operator investigation, not a fabricated claim that the backend
-knows registration or billing has been repaired.
+provider policy. No Meta-specific restriction is bypassed. The OTP code status is
+shown as reported, without a misleading ACTION REQUIRED/blocked conclusion when
+the same fresh read reports CONNECTED. This does not claim that billing or the
+separate LIMITED health state has been repaired.
 
 ### One controlled short test: procedure requiring explicit authorization
 

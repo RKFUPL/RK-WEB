@@ -37,9 +37,9 @@ def application_diagnostics(config, state, recorded_failure=None):
         add("meta_account_restriction_recorded", "warning", "A recorded Meta failure reports an account restriction or verification issue. Review WhatsApp Manager and Meta account health; application switches cannot remove Meta restrictions.")
     phone_status = state.get("phoneCodeVerificationStatus")
     if phone_status == "NOT_VERIFIED":
-        add("meta_phone_not_verified", "warning", "Meta last reported this sender's phone verification as NOT_VERIFIED. Confirm ownership verification in WhatsApp Manager and Cloud API registration for the exact Phone Number ID through the approved server-side registration process. This is separate from business verification, template approval and quality rating.")
+        add("meta_phone_code_status_review", "info", "Meta reports the phone-number OTP ownership verification code as NOT_VERIFIED. Review it alongside the separate Cloud API status: CONNECTED is registered and usable, so this conflicting pair alone does not justify removal or re-registration. WABA business verification and health_status messaging eligibility are separate.")
     elif phone_status != "VERIFIED":
-        add("meta_phone_verification_unknown", "info", "Sender phone verification has not been confirmed by the latest connection check. Run Test connection and review WhatsApp Manager; API configuration alone is not sender verification.")
+        add("meta_phone_code_status_unknown", "info", "The phone ownership OTP code status was not returned by the last connection check. This does not establish sender registration or business verification; review the separate sender status, WABA business verification and health_status fields.")
     subscription = state.get("subscriptionStatus")
     if subscription == "not_subscribed":
         add("meta_waba_not_subscribed", "warning", "The last connection check did not find this app subscribed to the configured WABA. Confirm the correct WABA/app subscription in Meta before testing; receipt notifications may otherwise be missing.")

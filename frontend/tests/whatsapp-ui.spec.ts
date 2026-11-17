@@ -5,7 +5,7 @@ test('all seven diagnostic refresh actions request and display fresh backend evi
   const requested: string[] = [];
   const scopes = [
     ['configuration', 'Application configuration'], ['billing', 'Meta billing evidence'],
-    ['sender', 'Sender phone verification'], ['templates', 'Template eligibility'],
+    ['sender', 'Sender and business status'], ['templates', 'Template eligibility'],
     ['webhook', 'App-level webhook subscription'], ['worker', 'Worker status and configuration'], ['outbox', 'Outbox status'],
   ];
   await page.route('**/api/admin/integrations/whatsapp/diagnostics/refresh', route => {
@@ -13,10 +13,15 @@ test('all seven diagnostic refresh actions request and display fresh backend evi
     requested.push(scope);
     const keys = scope === 'all' ? scopes.map(([key]) => key) : [scope];
     return route.fulfill({ json: { status: { ...integration, diagnosticChecks: keys.map(key => ({ key,
-      status: key === 'billing' ? 'UNKNOWN' : key === 'sender' ? 'ACTION REQUIRED' : 'VERIFIED',
+      status: key === 'billing' || key === 'sender' ? 'UNKNOWN' : 'VERIFIED',
       checkedAt: new Date().toISOString(), source: `Fresh mocked ${key} backend read`,
       reason: key === 'billing' ? 'Billing ledger could not be verified.' : `Fresh ${key} evidence`,
-      action: `Review ${key} prerequisites`, evidence: { fresh: true },
+      action: `Review ${key} prerequisites`, evidence: key === 'sender' ? {
+        senderStatus: 'CONNECTED', codeVerificationStatus: 'NOT_VERIFIED', businessVerificationStatus: 'VERIFIED',
+        qualityRating: 'GREEN', qualityDisplay: 'HIGH', messagingLimitTier: 'TIER_250',
+        messagingLimitDescription: '250 unique recipients per rolling 24 hours',
+        phoneNumberId: '482608498260686', phoneMasked: '***8080',
+      } : { fresh: true },
     })) } } });
   });
   await page.goto('/admin/integrations/whatsapp');
@@ -26,11 +31,17 @@ test('all seven diagnostic refresh actions request and display fresh backend evi
     const card = diagnostics.getByRole('article', { name: `${title} diagnostic` });
     await expect(card).toContainText(`Fresh mocked ${scope} backend read`);
     await expect(card).not.toContainText('Not checked');
+    await expect(card.locator('span').first()).toHaveText(scope === 'billing' || scope === 'sender' ? 'UNKNOWN' : 'VERIFIED');
   }
   await diagnostics.getByRole('button', { name: 'Refresh All Diagnostics', exact: true }).click();
-  await expect(diagnostics.getByText('VERIFIED', { exact: true })).toHaveCount(5);
-  await expect(diagnostics.getByText('UNKNOWN', { exact: true })).toHaveCount(1);
-  await expect(diagnostics.getByText('ACTION REQUIRED', { exact: true })).toHaveCount(1);
+  const sender = diagnostics.getByRole('article', { name: 'Sender and business status diagnostic' });
+  for (const fact of ['CONNECTED', 'NOT_VERIFIED', 'VERIFIED', 'GREEN (HIGH)', 'TIER_250', '250 unique recipients per rolling 24 hours']) {
+    await expect(sender).toContainText(fact);
+  }
+  for (const [scope, title] of scopes) {
+    const expected = scope === 'billing' || scope === 'sender' ? 'UNKNOWN' : 'VERIFIED';
+    await expect(diagnostics.getByRole('article', { name: `${title} diagnostic` }).locator('span').first()).toHaveText(expected);
+  }
   expect(requested).toEqual([...scopes.map(([key]) => key), 'all']);
   expect(calls.sent).toEqual([]);
 });
@@ -42,7 +53,9 @@ test('failed diagnostic refresh shows an error without pretending to verify evid
   const diagnostics = page.getByRole('region', { name: 'Messaging diagnostics' });
   await diagnostics.getByRole('button', { name: 'Refresh All Diagnostics' }).click();
   await expect(diagnostics.getByRole('alert')).toContainText('Fresh evidence unavailable');
-  await expect(diagnostics.getByText('UNKNOWN', { exact: true })).toHaveCount(7);
+  const cards = diagnostics.getByRole('article');
+  await expect(cards).toHaveCount(7);
+  for (let index = 0; index < 7; index++) await expect(cards.nth(index).locator('span').first()).toHaveText('UNKNOWN');
 });
 
 test('fresh provider evidence is required even with an open production gate and approved template', async ({ page }) => {
@@ -1054,14 +1067,14 @@ test('production diagnostics explain restrictions without enabling template send
     productionTest: { enabled: false, expiresAt: null }, diagnostics: [
       { code: 'production_test_disabled', severity: 'warning', message: 'Manual production testing is off. Configure WHATSAPP_PRODUCTION_TEST_SEND_ENABLED and a short UTC expiry in the backend.' },
       { code: 'meta_billing_issue_recorded', severity: 'warning', message: 'Recorded Meta billing restriction. A card charge does not confirm billing clearance.' },
-      { code: 'meta_phone_not_verified', severity: 'warning', message: 'Meta reports phone verification NOT_VERIFIED.' },
+      { code: 'meta_phone_code_status_review', severity: 'info', message: 'Meta reports code_verification_status NOT_VERIFIED, while the sender status is CONNECTED. Review both fields; do not re-register from this mismatch alone.' },
       { code: 'meta_waba_not_subscribed', severity: 'warning', message: 'Confirm the WABA app subscription and messages webhook field.' },
     ] });
   await page.goto('/admin/integrations/whatsapp');
   await openSection(page, 'Test Messages');
   const diagnostics = page.getByRole('region', { name: 'Messaging diagnostics' });
   await expect(diagnostics).toContainText('WHATSAPP_PRODUCTION_TEST_SEND_ENABLED');
-  await expect(diagnostics).toContainText('NOT_VERIFIED');
+  await expect(diagnostics).toContainText('code_verification_status NOT_VERIFIED');
   await expect(diagnostics).toContainText('card charge does not confirm billing clearance');
   await expect(diagnostics).toContainText('messages webhook field');
   await expect(page.getByLabel('Selected template eligibility diagnostics')).toContainText('application test-send gate is off or expired');

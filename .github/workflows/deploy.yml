@@ -26,15 +26,39 @@ jobs:
 
             cd /opt/apps/rashi-kapoor/rk-web
 
+            # Refuse to replace code/pins beneath an active 30-second worker.
+            # Only an authorized operator may pause/audit and later resume it.
+            # This guard must run BEFORE git reset installs the repaired override.
+            for unit in rk-whatsapp-worker.timer rk-whatsapp-template-refresh.timer; do
+              state=$(systemctl show "$unit" --property=ActiveState --value)
+              [ "$state" = inactive ] || { echo "WhatsApp timers must be paused and outbox audited before deployment"; exit 1; }
+            done
+            for unit in rk-whatsapp-worker.service rk-whatsapp-template-refresh.service; do
+              state=$(systemctl show "$unit" --property=ActiveState --value)
+              case "$state" in inactive|failed) ;; *) echo "WhatsApp services must be quiescent before deployment"; exit 1 ;; esac
+            done
+            running_names=$(docker ps --format '{{.Names}}')
+            if printf '%s\n' "$running_names" | grep -Eq '^rk-whatsapp-(worker|template-refresh)$'; then
+              echo "A WhatsApp worker/refresh container is still running"; exit 1
+            fi
+
             echo "==> Fetching latest code"
             git fetch origin main
             git reset --hard origin/main
 
+            python3 scripts/whatsapp_images.py check-paused
+
             echo "==> Building containers"
             docker compose build
 
+            echo "==> Validating and atomically synchronizing immutable worker image pins"
+            # Captures exact build RepoDigests, checks local availability and the
+            # actual merged worker JSON, then writes root:root 0600 image-only pins.
+            # No RepoDigest => fail here, before replacing application containers.
+            sudo -n python3 scripts/whatsapp_images.py sync
+
             echo "==> Starting containers"
-            docker compose up -d
+            docker compose up -d --no-build --pull never
 
             echo "==> Waiting for services"
             sleep 10
@@ -45,5 +69,10 @@ jobs:
             echo "==> Checking RK backend"
             curl -fsS http://127.0.0.1:5000/api/health
 
+            sudo -n python3 scripts/whatsapp_images.py validate --require-running
+            python3 scripts/whatsapp_images.py check-paused
+
+            # Do not install/start/restart timers or execute template refresh here.
+            # Unit installation and the first execution require the recovery audit.
             echo ""
             echo "==> RK-WEB deployment successful"

@@ -523,7 +523,8 @@ def _test_response(result):
     explanations.update({
         "production_test_provider_evidence_stale_or_missing": "Refresh sender and Meta eligibility diagnostics. Current account-bound provider evidence is missing or older than 15 minutes.",
         "production_test_provider_eligibility_unverified": "Meta messaging eligibility is not fully verified as AVAILABLE. Review health and billing restrictions; a card charge or template approval is insufficient.",
-        "production_test_sender_not_verified_or_registered": "The sender requires current VERIFIED ownership and CONNECTED registration evidence before a manual production test.",
+        "production_test_business_verification_unverified": "Fresh WABA business verification is not confirmed as VERIFIED.",
+        "production_test_sender_not_connected": "Fresh Meta sender status is not CONNECTED.",
     })
     explanations.update(PRODUCTION_TEST_REASONS)
     if result.get("reason") in explanations:

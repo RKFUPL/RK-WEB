@@ -20,9 +20,11 @@ def test_billing_phone_and_subscription_diagnostics_preserve_evidence_boundaries
     rows = application_diagnostics(case.app.config, {'phoneCodeVerificationStatus': 'NOT_VERIFIED', 'subscriptionStatus': 'not_subscribed'},
                                    {'failureDetails': {'errors': [{'code': 131042, 'message': 'synthetic-private-secret'}]}})
     codes = {row['code'] for row in rows}
-    assert {'meta_billing_issue_recorded', 'meta_phone_not_verified', 'meta_waba_not_subscribed'} <= codes
+    assert {'meta_billing_issue_recorded', 'meta_phone_code_status_review', 'meta_waba_not_subscribed'} <= codes
     assert 'synthetic-private-secret' not in str(rows)
     assert 'does not establish' in next(row['message'] for row in rows if row['code'] == 'meta_billing_issue_recorded')
+    phone = next(row for row in rows if row['code'] == 'meta_phone_code_status_review')
+    assert phone['severity'] == 'info' and 'does not justify removal or re-registration' in phone['message']
     assert case.db.orders.count_documents({}) == 0
     assert case.db.whatsapp_outbox.count_documents({}) == 0
     case.http.assert_not_called()
