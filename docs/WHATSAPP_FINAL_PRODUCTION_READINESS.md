@@ -2,6 +2,17 @@
 
 **NOT production-ready. Live delivery has not been verified.**
 
+**Current image-pin permissions correction:** The operator reports deployment
+`cd1a65ceac9183af910e5c7a396119f0bf9f29ac` built both images but stopped at
+`sudo: interactive authentication is required`, before replacing application
+containers. The local fix replaces passwordless repository Python with an
+independent root-owned host helper. Install and verify that helper **before any
+main push**; main still auto-deploys. Exact installation, checksum and sudoers
+commands are in [WHATSAPP_IMAGE_PIN_HELPER.md](WHATSAPP_IMAGE_PIN_HELPER.md).
+The operator reports both timers paused and all five sending gates OFF; this
+local task did not inspect/change production configuration or execute SSH.
+Earlier observed ON gates below are historical, not a fresh production claim.
+
 **17 November worker configuration correction:** The later operator-supplied VPS
 logs identify the Docker startup failure precisely. The local repair and recovery
 procedure below supersede the earlier unknown exit-1 cause and image-pin deployment
@@ -99,7 +110,7 @@ The base repairs/tests preserve country-aware signup/profile, primary/alternate 
 | `deploy/systemd/rk-whatsapp-worker.service` | Include third Compose file and read-only image/model preflight before Flask. |
 | `deploy/systemd/rk-whatsapp-template-refresh.service` | Same reviewed backend image and build-free preflight for controlled refresh. |
 | `.github/workflows/deploy.yml` | Refuse active timers/jobs, sync inspectable build RepoDigests atomically, verify running parity; never invoke worker/refresh. |
-| `scripts/whatsapp_images.py` | Credential-safe merged JSON, local digest/running parity, paused-state/lock checks and root-only atomic image-file update. |
+| `scripts/whatsapp_images.py` | Read-only merged JSON, local digest/running parity and paused checks; privileged writer removed. |
 | `backend/tests/test_whatsapp_worker_images.py` | Compose 5.5.0 digest/build regression, unit commands, missing/stale pins, digest availability and no mutable fallback. |
 | `deploy/whatsapp-images.env.example` | Explain image-only digest requirements and synchronization. |
 
@@ -319,28 +330,40 @@ named worker/refresh container is running. It neither stops nor resumes them.
 Alternative schedulers must also be excluded manually. Pausing alone does not
 authorize sending; obtain a stable outbox audit before the first execution.
 
-After base `docker compose build`, `scripts/whatsapp_images.py sync`:
+The permissions fix supersedes the original repository-based writer. Before git
+changes, the workflow now requires passwordless preflight of the already-installed
+`/usr/local/sbin/rk-whatsapp-image-pin-sync`. After base `docker compose build`,
+that independent helper's `--sync` operation:
 
 1. Takes both existing flock locks and checks the paused state again.
-2. Gets the project's build tags from the actual base Compose JSON and validates
-   them against `docker compose config --images`. Compose 5.5.0 returns all
-   images even with a service argument; the script does not assume one row.
+2. Inspects only the fixed `rk-web-backend:latest` and `rk-web-frontend:latest`
+   build identities, without parsing/executing writable repository Compose as
+   root. The non-root repository validator separately checks actual base Compose
+   JSON/project tags against `docker compose config --images`.
 3. Inspects each build's actual `RepoDigests`, selects a matching repository
    digest and inspects that exact digest locally. Its image ID must equal the
    build result. A config image ID is never relabelled as a repository digest.
-4. Resolves/validates both actual release and worker JSON models without printing
-   runtime environment or driver error contents.
+4. Rechecks images and paused state before commit. No repository code, Compose,
+   application `.env` or environment-derived executable is loaded by the helper.
 5. Uses a same-directory temporary file, root ownership, mode **0600**, fsync and
    atomic rename to replace only `/etc/rk-whatsapp/images.env`. The directory
    must be root-owned and not group/world writable; symlinks are rejected.
-6. Starts only the existing backend/frontend with `--no-build --pull never`, then
-   verifies the pinned IDs match both running containers after the health check.
+6. Emits only two non-secret image assignments after successful pin replacement.
+   The workflow captures them in a deploy-user-owned 0600 temporary file. The
+   non-root repository validator checks both merged models and local parity before
+   exporting the validated values into the deployment shell. Three-file release
+   Compose starts only backend/frontend using those immutable pins with
+   `--no-build --pull never`; health and running-image validation follow.
 
-The workflow invokes the synchronizer with `sudo -n python3`; that existing
-deployment identity must have approved noninteractive privilege for this reviewed
-operation. If unavailable, deployment fails. No credentials belong in the pin
-file. Application `.env` and encryption keys are never rewritten by the script.
-No systemd units are installed/restarted and no Meta refresh is run by deployment.
+The only new passwordless commands are the exact installed helper with
+`--preflight` or `--sync`. No sudo grant for Python, Docker, a shell, install or
+repository script is required. A missing helper or sudo denial stops before git
+fetch/build. The root-owned helper verifies its own installed path and protected
+ancestors and uses isolated Python with only standard-library imports, fixed
+executables, clean environment and safe file/lock descriptors. The root pin file
+remains 0600; the workflow validates its returned image-only copy as a non-root
+user. Application `.env`, keys, all five gates and timers are unchanged. No host
+installation, job activation or Meta refresh is performed by deployment.
 
 **No RepoDigest fallback:** classic local Docker builds may have empty
 `RepoDigests`. In that case synchronization fails before application replacement
@@ -393,19 +416,22 @@ configuration, application environment, decrypted messages or unrestricted logs.
    application `up --no-build --pull never`, health check and parity validation.
    On an approved staging host, exercise these same stages with isolated runtime
    configuration and no live data. If no RepoDigest is produced, stop and resolve
-   that prerequisite; do not substitute tags. For recovery using *already built
-   and running* reviewed images, without any build/restart:
+   that prerequisite; do not substitute tags. Install/verify the host helper as
+   described in the dedicated guide before pushing this workflow. Pre-deployment
+   validation compares selected pins to the new builds; post-deployment validation
+   also compares them to running containers. In the reported failure, old
+   containers still run, so a pre-deployment `--require-running` would correctly
+   fail for the new builds. Do not start worker/refresh services in that mismatch.
+   For an authorized validation-only inspection after helper installation:
 
    ```sh
+   sudo -n /usr/local/sbin/rk-whatsapp-image-pin-sync --preflight
    python3 scripts/whatsapp_images.py check-paused
-   sudo python3 scripts/whatsapp_images.py sync --require-running
-   sudo python3 scripts/whatsapp_images.py validate --require-running
-   sudo stat -c '%U:%G %a %n' /etc/rk-whatsapp/images.env
    ```
 
-   Expected JSON: `whatsappImageConfiguration=verified`; expected file permissions
-   `root:root 600`. Sync never starts a container. Pin IDs must match the current
-   running builds; the historical supplied digest strings are not hardcoded.
+   Expected: helper preflight and paused checks verified. No synchronization,
+   application replacement or job execution occurs in those two checks. The
+   administrator's installation guide includes root-only pin-file mode checking.
 
 4. **Install and syntax-check reviewed units with timers still paused.**
 
@@ -415,7 +441,7 @@ configuration, application environment, decrypted messages or unrestricted logs.
    sudo install -o root -g root -m 0644 deploy/systemd/rk-whatsapp-template-refresh.service /etc/systemd/system/rk-whatsapp-template-refresh.service
    sudo systemctl daemon-reload
    python3 scripts/whatsapp_images.py check-paused
-   sudo python3 scripts/whatsapp_images.py validate --require-running
+   sudo -n /usr/local/sbin/rk-whatsapp-image-pin-sync --preflight
    ```
 
    Expected: unit syntax accepted and both validators verified. Keep existing
@@ -426,13 +452,15 @@ configuration, application environment, decrypted messages or unrestricted logs.
 
 5. **Inspect merged JSON safely.** The validator executes both `docker compose
    config --format json` commands and asserts them without exposing environment.
-   To display only non-secret effective fields in an authorized privileged shell:
+   During an authorized deployment, to display only non-secret effective fields
+   as the deploy user using the workflow's validated image-only temporary file:
 
    ```sh
-   sudo python3 - <<'PY'
+   python3 - "$pin_file" <<'PY'
    from pathlib import Path
    from scripts.whatsapp_images import read_pins, merged_models
-   pins = read_pins(Path('/etc/rk-whatsapp/images.env'))
+   import sys
+   pins = read_pins(Path(sys.argv[1]))
    release, worker = merged_models(pins)
    import json
    print(json.dumps({
@@ -519,6 +547,66 @@ runtime encryption code, mappings, sending gate or timer definition was edited.
 The existing tracked `whatsapp-production-test-mode.patch` is unchanged (SHA-256
 `BB10EBA2073C396DA009F9106DEA48F54B497A4886E2B8FECE7D5E6070BAF866`). Nothing is staged,
 committed, pushed or deployed.
+
+## Image-pin deployment permissions repair
+
+The operator reports the application containers were not replaced after the
+failed passwordless Python command. Built digests are available:
+`rk-web-backend@sha256:c62c7c4ee901908789d55da62928b8b83f911f2d19ef1a97e8b1f99c657201a5`
+and `rk-web-frontend@sha256:68f50d38a01ff1cb13e693fb03387a554f2f70a5c08aaa1f7eed05fafcffc821`.
+Old running image IDs start `f44a5e618cba` and `6366b2b5dec8`. These are supplied
+observations, not a fresh VPS inspection; they are not hardcoded into deployment.
+
+The least-privilege correction is implemented locally on **main**, without a
+feature branch. The helper's reviewed executable and its exact two-command
+sudoers fragment must be installed by the administrator before this workflow is
+pushed. [WHATSAPP_IMAGE_PIN_HELPER.md](WHATSAPP_IMAGE_PIN_HELPER.md) contains the
+complete security design, candidate hashes, transfer/install/visudo commands and
+passwordless verification sequence. Repository Python has no privileged writer
+or `sync` CLI operation. All repository Compose/image validation runs as the
+non-root deploy account. The helper returns two non-secret pins so 0600 access to
+the protected host file need not be relaxed.
+
+The workflow's first privileged operation is exact helper `--preflight`, before
+fetch/reset/build. Only that helper's `--sync` can replace the root-owned image
+file. Both commands check paused units and locks; sync validates local image
+identities and uses atomic replacement. Non-root validation runs before
+application replacement and after the health check. Application `up` now uses
+all three Compose files with exported verified pins, so it deploys the immutable
+images rather than falling back to the base mutable build tags. Timers, services
+and Meta refresh remain untouched by deployment.
+
+Changed files for this permission fix:
+
+- `.github/workflows/deploy.yml`
+- `.gitattributes` (LF only for the two host-installable files)
+- `deploy/host/rk-whatsapp-image-pin-sync`
+- `deploy/sudoers/rk-whatsapp-image-pin-sync`
+- `deploy/whatsapp-images.env.example`
+- `scripts/whatsapp_images.py`
+- `backend/tests/test_whatsapp_host_helper.py`
+- `backend/tests/test_whatsapp_worker_images.py`
+- `docs/WHATSAPP_IMAGE_PIN_HELPER.md`
+- `docs/WHATSAPP_FINAL_PRODUCTION_READINESS.md`
+
+Final local validation against the permission-fix implementation:
+
+| Check | Result |
+| --- | --- |
+| Complete backend suite | **686 passed, 2 skipped**, two existing mongomock warnings. Skips: unavailable Nginx runtime and native Linux directory-fd/ownership acceptance. |
+| Host helper, worker-image and workflow regression subset | **73 passed, 1 native Linux skip**, included in the full suite. Includes simulated missing/denied helper and sync failure stopping application replacement. |
+| Actual Compose v5.5.0 configuration | Passed with the checksum-verified official local binary and synthetic `.env`; existing merge/digest/network/environment protections retained. |
+| Workflow YAML and extracted shell | Parsed; Git Bash `bash -n` passed. Helper Python syntax parsed without running host operations. |
+| Git/build-context secret scans | No findings (367 Git candidate files, 322 modeled build-context files). |
+| Whitespace | `git diff --check` passed; only Git LF/CRLF notices. |
+| Native sudoers/host acceptance | Not executed: `visudo`, installed ownership/ACL/lock checks and Linux filesystem acceptance remain administrator prerequisites. |
+| Frontend | No frontend files changed; earlier frontend results above are historical and were not rerun for this deployment-only repair. |
+
+No new sudo privilege or host installation was applied during this task. No
+application environment, key, gate, outbox, index, Admin Order Control, Meta
+setting or timer definition changed. The existing patch file remains untouched.
+Nothing is staged, committed or pushed. Do not claim the worker runs or delivery
+works from these local tests.
 
 Meta references: [WABA business verification, health and messaging-limit fields](https://developers.facebook.com/docs/graph-api/reference/whats-app-business-account), [Phone Number status and code verification](https://developers.facebook.com/documentation/business-messaging/whatsapp/business-phone-numbers/phone-numbers), [Cloud API registration](https://developers.facebook.com/documentation/business-messaging/whatsapp/business-phone-numbers/registration), [Health Status](https://developers.facebook.com/documentation/business-messaging/whatsapp/support/health-status), [App Subscriptions](https://developers.facebook.com/docs/graph-api/reference/app/subscriptions).
 

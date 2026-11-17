@@ -1,0 +1,243 @@
+#!/usr/bin/python3 -I
+"""Host-installed root helper. No repository imports, Compose, or shell execution.
+
+Install this reviewed file as /usr/local/sbin/rk-whatsapp-image-pin-sync root:root
+0755. Only --preflight and --sync are supported. --sync emits two non-secret
+image assignments after a successful protected atomic replacement.
+"""
+from contextlib import contextmanager
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import stat
+import subprocess
+import sys
+
+INSTALLED = Path('/usr/local/sbin/rk-whatsapp-image-pin-sync')
+PROJECT = '/opt/apps/rashi-kapoor/rk-web'
+PIN_DIRECTORY = Path('/etc/rk-whatsapp')
+DOCKER_CONFIG = PIN_DIRECTORY / 'docker-cli'
+LOCK_DIRECTORY = Path('/run/lock')
+DOCKER = '/usr/bin/docker'
+SYSTEMCTL = '/usr/bin/systemctl'
+NAMES = ('rk-whatsapp-worker', 'rk-whatsapp-template-refresh')
+IMAGES = (('RK_BACKEND_IMAGE', 'rk-web-backend'), ('RK_FRONTEND_IMAGE', 'rk-web-frontend'))
+CLEAN_ENV = {'HOME': '/root', 'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8'}
+IMAGE_ID = re.compile(r'sha256:[a-f0-9]{64}')
+
+
+class Blocked(Exception):
+    pass
+
+
+def trusted_metadata(info, *, directory=False, mode=None, sticky=False):
+    correct_type = stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode)
+    writable = info.st_mode & 0o022
+    if not correct_type or info.st_uid != 0 or info.st_gid != 0:
+        raise Blocked('Host file ownership or type is unsafe.')
+    # /run/lock is commonly root-owned sticky 1777. Never follow entries in it.
+    if writable and not (directory and sticky and info.st_mode & stat.S_ISVTX):
+        raise Blocked('Host file permissions are unsafe.')
+    if not directory and info.st_nlink != 1:
+        raise Blocked('Host file has unexpected hard links.')
+    if mode is not None and stat.S_IMODE(info.st_mode) != mode:
+        raise Blocked('Host file permissions do not match the required mode.')
+
+
+def trusted_directory(path, *, sticky=False):
+    # lstat each component: no symlink, even at an ancestor. Paths are constants.
+    for current in reversed((path, *path.parents)):
+        trusted_metadata(current.lstat(), directory=True, sticky=sticky and current == path)
+
+
+def verify_host():
+    if os.geteuid() != 0 or Path(__file__).absolute() != INSTALLED:
+        raise Blocked('Use only the root-owned installed helper.')
+    trusted_directory(INSTALLED.parent)
+    trusted_metadata(INSTALLED.lstat(), mode=0o755)
+    trusted_directory(PIN_DIRECTORY)
+    trusted_directory(DOCKER_CONFIG)
+    for executable in (DOCKER, SYSTEMCTL):
+        target = Path(executable).resolve(strict=True)
+        trusted_directory(target.parent)
+        trusted_metadata(target.lstat())
+        if not target.stat().st_mode & 0o111:
+            raise Blocked('Required host executable is not executable.')
+
+
+def capture(args):
+    try:
+        return subprocess.check_output(args, cwd=PROJECT, env=CLEAN_ENV,
+            stdin=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=60).strip()
+    except (OSError, subprocess.SubprocessError):
+        raise Blocked('Required host inspection failed; no raw command output is disclosed.') from None
+
+
+def docker(*args):
+    return capture([DOCKER, '--host', 'unix:///var/run/docker.sock', '--config', str(DOCKER_CONFIG), *args])
+
+
+def require_paused():
+    for name in NAMES:
+        for suffix in ('timer', 'service'):
+            raw = capture([SYSTEMCTL, 'show', name + '.' + suffix, '--property=LoadState', '--property=ActiveState'])
+            fields = dict(line.split('=', 1) for line in raw.splitlines() if '=' in line)
+            allowed = {'inactive'} if suffix == 'timer' else {'inactive', 'failed'}
+            if fields.get('LoadState') != 'loaded' or fields.get('ActiveState') not in allowed:
+                raise Blocked('Both installed WhatsApp timers/services must be quiescent.')
+    if set(docker('ps', '--format', '{{.Names}}').splitlines()).intersection(NAMES):
+        raise Blocked('A WhatsApp worker or template-refresh container is running.')
+
+
+def lock_file(directory, name):
+    flags = os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+    descriptor = os.open(name + '.lock', flags, 0o600, dir_fd=directory)
+    try:
+        trusted_metadata(os.fstat(descriptor))
+        import fcntl
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+@contextmanager
+def execution_locks():
+    trusted_directory(LOCK_DIRECTORY, sticky=True)
+    directory = os.open(LOCK_DIRECTORY, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    handles = []
+    try:
+        for name in NAMES:
+            try:
+                handles.append(lock_file(directory, name))
+            except BlockingIOError:
+                raise Blocked('A WhatsApp execution lock is held.') from None
+        yield
+    finally:
+        for descriptor in reversed(handles):
+            os.close(descriptor)
+        os.close(directory)
+
+
+def inspect(reference):
+    try:
+        result = json.loads(docker('image', 'inspect', '--format',
+            '{"id":{{json .Id}},"digests":{{json .RepoDigests}}}', reference))
+        if not IMAGE_ID.fullmatch(result['id']) or not isinstance(result['digests'], list):
+            raise ValueError()
+        return result
+    except (ValueError, KeyError, TypeError):
+        raise Blocked('Expected local image identity is invalid.') from None
+
+
+def select_pins():
+    pins = {}
+    for variable, repository in IMAGES:
+        # These are the exact Compose-built tags for this fixed project. Tags
+        # identify the build to inspect; only a verified RepoDigest is written.
+        built = inspect(repository + ':latest')
+        pattern = re.compile(re.escape(repository) + r'@sha256:[a-f0-9]{64}')
+        candidates = sorted(value for value in built['digests']
+                            if isinstance(value, str) and pattern.fullmatch(value))
+        if not candidates:
+            raise Blocked('Expected build lacks a valid repository digest; no mutable fallback is permitted.')
+        pin = candidates[0]
+        if inspect(pin)['id'] != built['id']:
+            raise Blocked('Repository digest resolves to a different local image.')
+        pins[variable] = pin
+    return pins
+
+
+def pin_text(pins):
+    if set(pins) != {key for key, _ in IMAGES}:
+        raise Blocked('Exactly the two expected image assignments are required.')
+    for key, repository in IMAGES:
+        if not re.fullmatch(re.escape(repository) + r'@sha256:[a-f0-9]{64}', pins[key]):
+            raise Blocked('Image pin does not belong to the expected repository.')
+    return ''.join(key + '=' + pins[key] + '\n' for key, _ in IMAGES)
+
+
+def check_pin_file(directory):
+    try:
+        info = os.stat('images.env', dir_fd=directory, follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    trusted_metadata(info, mode=0o600)
+
+
+@contextmanager
+def protected_directory():
+    trusted_directory(PIN_DIRECTORY)
+    descriptor = os.open(PIN_DIRECTORY, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        trusted_metadata(os.fstat(descriptor), directory=True)
+        check_pin_file(descriptor)
+        yield descriptor
+    finally:
+        os.close(descriptor)
+
+
+def atomic_replace(directory, pins):
+    content = pin_text(pins)  # Validate everything before creating a temporary file.
+    check_pin_file(directory)
+    name = '.images.env.' + secrets.token_hex(16)
+    descriptor = None
+    replaced = False
+    try:
+        descriptor = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                             0o600, dir_fd=directory)
+        os.fchown(descriptor, 0, 0)
+        os.fchmod(descriptor, 0o600)
+        trusted_metadata(os.fstat(descriptor), mode=0o600)
+        with os.fdopen(descriptor, 'w', encoding='ascii', newline='\n') as output:
+            descriptor = None
+            output.write(content)
+            output.flush()
+            os.fsync(output.fileno())
+        # The pinned directory cannot be modified by the deployment account.
+        # Recheck target type/ownership before the one fixed-name replacement.
+        check_pin_file(directory)
+        os.replace(name, 'images.env', src_dir_fd=directory, dst_dir_fd=directory)
+        replaced = True
+        os.fsync(directory)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if not replaced:
+            try:
+                os.unlink(name, dir_fd=directory)
+            except FileNotFoundError:
+                pass
+
+
+def main(argv=None):
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments not in (['--preflight'], ['--sync']):
+        print('Only --preflight or --sync is accepted.', file=sys.stderr)
+        return 2
+    try:
+        verify_host()
+        with execution_locks(), protected_directory() as directory:
+            require_paused()
+            if arguments == ['--sync']:
+                pins = select_pins()
+                # Detect a concurrent build/tag change before the commit point.
+                if select_pins() != pins:
+                    raise Blocked('Build image identities changed during synchronization.')
+                require_paused()
+                atomic_replace(directory, pins)
+                sys.stdout.write(pin_text(pins))  # Image references only; no app ENV.
+            else:
+                print('{"whatsappImagePinPreflight":"verified"}')
+        return 0
+    except (Blocked, OSError, ValueError, TypeError):
+        # Never print exception repr, command arguments, ENV or provider output.
+        print('WhatsApp image-pin helper blocked: verify host ownership, permissions, paused state, locks and local image digests.', file=sys.stderr)
+        return 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

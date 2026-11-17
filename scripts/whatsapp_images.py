@@ -1,17 +1,15 @@
-"""Validate/synchronize image-only worker pins; never build, pull or run a container.
+"""Read-only image/Compose validation; never build, pull or run a container.
 
 All subprocess output is captured. In particular Compose's resolved environment
-must never reach deployment logs. Sync requires stopped timers/services, locks,
-and root; validation is read-only and runs before either systemd command.
+must never reach deployment logs. Privileged synchronization belongs exclusively
+to the independently installed host helper, never this writable repository code.
 """
 import argparse
-from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
-import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PIN_FILE = Path('/etc/rk-whatsapp/images.env')
@@ -172,74 +170,15 @@ def require_paused():
         raise ValidationError('A WhatsApp worker/refresh container is still running.')
 
 
-@contextmanager
-def paused_locks():
-    import fcntl  # Production-only Linux operation; not needed for read-only config tests.
-    handles = []
-    try:
-        for name in NAMES:
-            handle = open('/run/lock/' + name + '.lock', 'a')
-            handles.append(handle)
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        require_paused()
-        yield
-        require_paused()
-    except BlockingIOError:
-        raise ValidationError('WhatsApp execution lock is held; no image pins changed.') from None
-    finally:
-        for handle in reversed(handles):
-            handle.close()
-
-
-def atomic_write(path, pins):
-    if os.geteuid() != 0 or path != PIN_FILE:
-        raise ValidationError('Pin synchronization requires root and the protected image-only path.')
-    directory = path.parent
-    if directory.is_symlink() or path.is_symlink():
-        raise ValidationError('Protected image path must not be a symlink.')
-    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if directory.stat().st_uid != 0 or directory.stat().st_mode & 0o022:
-        raise ValidationError('Protected image directory must be root-owned and not group/world writable.')
-    content = ''.join(f'{key}={pins[key]}\n' for key in SERVICES.values())
-    pins_from_text(content)
-    temporary = None
-    try:
-        fd, temporary = tempfile.mkstemp(prefix='.images-', dir=directory)
-        with os.fdopen(fd, 'w', encoding='utf-8', newline='\n') as output:
-            os.fchmod(output.fileno(), 0o600)
-            os.fchown(output.fileno(), 0, 0)
-            output.write(content)
-            output.flush()
-            os.fsync(output.fileno())
-        os.replace(temporary, path)
-        temporary = None
-        directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
-    finally:
-        if temporary:
-            os.unlink(temporary)
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=['check-paused', 'sync', 'validate'])
+    parser.add_argument('operation', choices=['check-paused', 'validate'])
     parser.add_argument('--pins', type=Path, default=PIN_FILE)
     parser.add_argument('--require-running', action='store_true')
     args = parser.parse_args()
     try:
         if args.operation == 'check-paused':
             require_paused()
-        elif args.operation == 'sync':
-            if args.pins != PIN_FILE:
-                raise ValidationError('Sync only writes the protected image-only configuration.')
-            with paused_locks():
-                pins = select_pins(built_references())
-                merged_models(pins)
-                validate_local_images(pins, require_running=args.require_running)
-                atomic_write(args.pins, pins)
         else:
             pins = read_pins(args.pins)
             merged_models(pins)

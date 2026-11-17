@@ -96,12 +96,12 @@ def test_actual_compose_reports_service_build_tags(compose, isolated_compose):
         assert reference.endswith('-' + service)
 
 
-def test_sync_failure_does_not_replace_protected_pins(capsys):
-    from contextlib import nullcontext
-    with patch.object(images, 'paused_locks', return_value=nullcontext()), patch.object(images, 'built_references', return_value={'backend': 'backend', 'frontend': 'frontend'}), patch.object(images, 'select_pins', side_effect=images.ValidationError('Built image has no usable local RepoDigest.')), patch.object(images, 'atomic_write') as write, patch('sys.argv', ['whatsapp_images.py', 'sync']):
-        assert images.main() == 1
-    write.assert_not_called()
-    assert 'blocked' in capsys.readouterr().out
+def test_writable_repository_script_has_no_privileged_sync_operation():
+    with patch('sys.argv', ['whatsapp_images.py', 'sync']):
+        with pytest.raises(SystemExit) as failure:
+            images.main()
+    assert failure.value.code == 2
+    assert not hasattr(images, 'atomic_write')
 
 
 def inspect_fixture(reference):
@@ -182,23 +182,15 @@ def test_failed_inspection_never_echoes_subprocess_secrets():
     assert 'private-env' not in str(failure.value)
 
 
-@pytest.mark.skipif(os.name != 'posix', reason='Atomic root:root permissions require Linux staging.')
-def test_atomic_image_only_write_preserves_old_file_on_validation_failure(tmp_path):
-    target = tmp_path / 'images.env'
-    target.write_text('previous')
-    with patch.object(images, 'PIN_FILE', target), patch.object(images.os, 'geteuid', return_value=0), patch.object(images.os, 'fchown'), patch.object(images.Path, 'stat', autospec=True) as stat:
-        from types import SimpleNamespace
-        stat.return_value = SimpleNamespace(st_uid=0, st_mode=0o40700)
-        with pytest.raises(images.ValidationError):
-            images.atomic_write(target, {'RK_BACKEND_IMAGE': 'latest', 'RK_FRONTEND_IMAGE': FRONTEND})
-    assert target.read_text() == 'previous'
-
-
 def test_workflow_orders_safety_and_pin_sync_without_running_whatsapp():
     workflow = (ROOT / '.github/workflows/deploy.yml').read_text()
+    assert workflow.index('sudo -n /usr/local/sbin/rk-whatsapp-image-pin-sync --preflight') < workflow.index('git fetch origin main')
     assert workflow.index('systemctl show') < workflow.index('git reset --hard')
-    assert workflow.index('docker compose build') < workflow.index('scripts/whatsapp_images.py sync') < workflow.index('docker compose up -d --no-build --pull never')
-    assert workflow.index('curl -fsS') < workflow.index('scripts/whatsapp_images.py validate --require-running')
-    assert 'sudo -n python3 scripts/whatsapp_images.py sync' in workflow
+    assert workflow.index('docker compose build') < workflow.index('sudo -n /usr/local/sbin/rk-whatsapp-image-pin-sync --sync') < workflow.index('release_compose up -d --no-build --pull never')
+    assert workflow.index('validate --pins "$pin_file"') < workflow.index('release_compose up -d --no-build --pull never')
+    assert workflow.index('curl -fsS') < workflow.index('validate --pins "$pin_file" --require-running')
+    assert 'docker compose -f docker-compose.yml -f deploy/docker-compose.release.yml -f deploy/docker-compose.worker.yml "$@"' in workflow
+    assert '. "$pin_file"' in workflow
+    assert 'sudo -n python3' not in workflow
     for forbidden in ('systemctl start', 'systemctl restart', 'systemctl enable', 'flask --app wsgi:app whatsapp-worker', 'flask --app wsgi:app whatsapp-template-refresh'):
         assert forbidden not in workflow

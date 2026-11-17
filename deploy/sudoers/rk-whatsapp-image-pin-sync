@@ -1,0 +1,3 @@
+# Install as /etc/sudoers.d/rk-whatsapp-image-pin-sync root:root 0440.
+# Review the host helper independently before installation. No wildcards/SETENV.
+athul ALL=(root) NOPASSWD: NOSETENV: /usr/local/sbin/rk-whatsapp-image-pin-sync --preflight, /usr/local/sbin/rk-whatsapp-image-pin-sync --sync

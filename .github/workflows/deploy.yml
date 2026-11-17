@@ -26,6 +26,10 @@ jobs:
 
             cd /opt/apps/rashi-kapoor/rk-web
 
+            # Installed/reviewed once by the VPS administrator. Never grant sudo
+            # to Python or repository scripts. Fail before changing code/images.
+            sudo -n /usr/local/sbin/rk-whatsapp-image-pin-sync --preflight
+
             # Refuse to replace code/pins beneath an active 30-second worker.
             # Only an authorized operator may pause/audit and later resume it.
             # This guard must run BEFORE git reset installs the repaired override.
@@ -52,25 +56,36 @@ jobs:
             docker compose build
 
             echo "==> Validating and atomically synchronizing immutable worker image pins"
-            # Captures exact build RepoDigests, checks local availability and the
-            # actual merged worker JSON, then writes root:root 0600 image-only pins.
-            # No RepoDigest => fail here, before replacing application containers.
-            sudo -n python3 scripts/whatsapp_images.py sync
+            # Root writes only the protected pin file and emits two non-secret
+            # image references. All repository/Compose validation runs as deploy user.
+            umask 077
+            pin_file=$(mktemp)
+            trap 'rm -f -- "$pin_file"' EXIT
+            sudo -n /usr/local/sbin/rk-whatsapp-image-pin-sync --sync > "$pin_file"
+            python3 scripts/whatsapp_images.py validate --pins "$pin_file"
+            set -a
+            . "$pin_file"
+            set +a
+
+            release_compose() {
+              docker compose -f docker-compose.yml -f deploy/docker-compose.release.yml -f deploy/docker-compose.worker.yml "$@"
+            }
 
             echo "==> Starting containers"
-            docker compose up -d --no-build --pull never
+            release_compose up -d --no-build --pull never
 
             echo "==> Waiting for services"
             sleep 10
 
             echo "==> Checking containers"
-            docker compose ps
+            release_compose ps
 
             echo "==> Checking RK backend"
             curl -fsS http://127.0.0.1:5000/api/health
 
-            sudo -n python3 scripts/whatsapp_images.py validate --require-running
+            python3 scripts/whatsapp_images.py validate --pins "$pin_file" --require-running
             python3 scripts/whatsapp_images.py check-paused
+            sudo -n /usr/local/sbin/rk-whatsapp-image-pin-sync --preflight
 
             # Do not install/start/restart timers or execute template refresh here.
             # Unit installation and the first execution require the recovery audit.
