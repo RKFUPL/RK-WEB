@@ -11,8 +11,12 @@ The health normalizer also recognizes Meta's SIP-only aggregate BLOCKED example
 as messaging-eligible only when all four entity messaging states are AVAILABLE,
 all errors are entity-scoped SIP codes attached to SIP-BLOCKED entities, and
 every configured entity identity matches. The original aggregate remains visible.
-An explicitly APPROVED, ACTIVE or AVAILABLE_WITHOUT_REVIEW sender name_status
-conflicts with the recognized display-name-not-approved reason and blocks eligibility.
+An explicitly APPROVED sender name_status conflicts with the recognized
+display-name-not-approved reason and blocks eligibility. AVAILABLE_WITHOUT_REVIEW
+and PENDING_REVIEW are compatible with this narrow manual Utility exception only
+when all other requirements pass. ACTIVE, DECLINED, EXPIRED, NONE and unsupported
+non-empty values remain ineligible. An unavailable name_status remains UNKNOWN
+and neither authorizes nor independently blocks the exception.
 
 **Local provider-eligibility correction, awaiting diff review:** The candidate
 fixes the `senderStatus`/legacy `registration` mismatch and preserves detailed

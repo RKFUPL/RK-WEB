@@ -26,6 +26,14 @@ messaging-eligible only when all four entity messaging states are AVAILABLE and
 every reported error is an entity-scoped SIP code on a SIP-BLOCKED entity. The
 raw aggregate remains in diagnostics. Calling/SIP statuses and codes 138024/138025
 are separate.
+For this exact display-name limitation, `PENDING_REVIEW` and
+`AVAILABLE_WITHOUT_REVIEW` are compatible with the manual Utility exception;
+available without review is not a reviewed `APPROVED` name. `APPROVED` conflicts
+with the unapproved health reason. `ACTIVE`, `DECLINED`, `EXPIRED`, `NONE` and
+unsupported non-empty statuses fail closed. Missing/unavailable `name_status`
+is shown as `UNKNOWN` and does not independently decide eligibility. The latest
+stored sender proof is rechecked immediately before the first provider request
+and on every retry; no live Meta lookup is implied by that recheck.
 Old health snapshots without the complete version-2 entity details require a
 fresh guarded diagnostic read after any approved deployment; they cannot opt in
 to the exception merely from a stored eligibility boolean.

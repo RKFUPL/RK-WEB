@@ -37,6 +37,23 @@ def manual_block(case, template=None, recipient=None):
         template=template if template is not None else template_registry(case.db, case.app.config)['order_confirmation'], recipient=recipient)
 
 
+def save_sender_name_status(case, name_status):
+    def meta_get(config, path, fields):
+        if path == config['WHATSAPP_BUSINESS_ACCOUNT_ID']:
+            return {'business_verification_status': 'verified', 'whatsapp_business_manager_messaging_limit': 'TIER_250'}
+        values = {'status': 'CONNECTED', 'code_verification_status': 'NOT_VERIFIED',
+                  'quality_rating': 'GREEN'}
+        if name_status is not None:
+            values['name_status'] = name_status
+        return {fields: values[fields]} if fields in values else {}
+
+    with patch.object(checks, '_get', side_effect=meta_get):
+        result = checks._sender(case.db, case.app.config)
+    result['_scope'] = checks.scope_key(case.app.config)
+    case.db.integrations.update_one({'_id': 'whatsapp'}, {'$set': {'diagnosticChecks.sender': result}})
+    return result
+
+
 @pytest.mark.parametrize('fields,expected', [
     ({'senderStatus': 'CONNECTED'}, None), ({'registration': 'CONNECTED'}, None),
     ({'senderStatus': 'CONNECTED', 'registration': 'CONNECTED'}, None),
@@ -388,21 +405,45 @@ def test_approved_name_status_conflicting_with_health_limitation_is_ineligible(c
 @pytest.mark.parametrize('name_status,expected', [
     ('PENDING_REVIEW', None),
     ('APPROVED', 'production_test_display_name_evidence_conflict'),
-    ('ACTIVE', 'production_test_display_name_evidence_conflict'),
-    ('AVAILABLE_WITHOUT_REVIEW', 'production_test_display_name_evidence_conflict'),
+    ('AVAILABLE_WITHOUT_REVIEW', None),
+    *[(status, 'production_test_display_name_status_ineligible') for status in
+      ('ACTIVE', 'DECLINED', 'EXPIRED', 'NONE', 'NON_EXISTS', 'FUTURE_UNKNOWN_VALUE')],
 ])
 def test_explicit_meta_name_status_consistency_for_display_name_exception(case, name_status, expected):
     save_health(case)
-    case.db.integrations.update_one({'_id': 'whatsapp'}, {'$set': {'diagnosticChecks.sender.evidence.nameStatus': name_status}})
+    assert save_sender_name_status(case, name_status)['evidence']['nameStatus'] == name_status
     assert manual_block(case) == expected
-    case.http.assert_not_called()
+    response = submit(case)
+    if expected:
+        assert response.status_code == 403
+        assert response.json['reason'] == expected
+        case.http.assert_not_called()
+    else:
+        assert response.status_code == 200
+        assert response.json['status'] == 'accepted'
+        assert case.http.call_count == 1  # Mocked transport only.
 
 
 def test_missing_name_status_stays_unknown_and_does_not_decide_exception(case):
     save_health(case)
-    case.db.integrations.update_one({'_id': 'whatsapp'}, {'$unset': {'diagnosticChecks.sender.evidence.nameStatus': ''}})
+    result = save_sender_name_status(case, None)
+    assert result['evidence']['nameStatus'] == 'UNKNOWN'
+    assert result['evidence']['nameStatusUnsupported'] is False
     assert manual_block(case) is None
     assert submit(case).status_code == 200
+    raw = meta_health(case)
+    raw['health_status']['entities'][0]['additional_info'] = ['Unrecognized limitation']
+    save_health(case, raw)
+    assert manual_block(case) == 'production_test_provider_eligibility_unverified'
+
+
+@pytest.mark.parametrize('name_status', ['UNKNOWN', 'pending_review', ' ', ['PENDING_REVIEW']])
+def test_reported_unsupported_name_status_is_not_treated_as_missing(case, name_status):
+    save_health(case)
+    assert save_sender_name_status(case, name_status)['evidence']['nameStatusUnsupported'] is True
+    assert manual_block(case) == 'production_test_display_name_status_ineligible'
+    assert submit(case).status_code == 403
+    case.http.assert_not_called()
 
 
 def test_unknown_name_status_does_not_rescue_unknown_provider_health(case):
@@ -415,8 +456,10 @@ def test_unknown_name_status_does_not_rescue_unknown_provider_health(case):
     case.http.assert_not_called()
 
 
-def test_name_status_change_after_claim_blocks_dispatch(case):
+@pytest.mark.parametrize('blocking_status', ['APPROVED', 'DECLINED', 'ACTIVE', 'FUTURE_UNKNOWN_VALUE'])
+def test_name_status_change_after_claim_blocks_dispatch(case, blocking_status):
     save_health(case)
+    save_sender_name_status(case, 'AVAILABLE_WITHOUT_REVIEW')
     messages = case.db.whatsapp_messages
     original_update = messages.update_one
 
@@ -424,27 +467,29 @@ def test_name_status_change_after_claim_blocks_dispatch(case):
         result = original_update(*args, **kwargs)
         update = args[1] if len(args) > 1 else kwargs.get('update', {})
         if (update.get('$inc') or {}).get('attempts'):
-            case.db.integrations.update_one({'_id': 'whatsapp'}, {'$set': {
-                'diagnosticChecks.sender.evidence.nameStatus': 'AVAILABLE_WITHOUT_REVIEW'}})
+            save_sender_name_status(case, blocking_status)
         return result
 
     with patch.object(messages, 'update_one', side_effect=change_name_status_after_claim):
         response = submit(case, requestId='name-status-dispatch-change-12345')
     assert response.status_code == 403
-    assert response.json['reason'] == 'production_test_display_name_evidence_conflict'
+    assert response.json['reason'] == ('production_test_display_name_evidence_conflict' if blocking_status == 'APPROVED'
+                                       else 'production_test_display_name_status_ineligible')
     case.http.assert_not_called()
 
 
-def test_name_status_change_during_retry_blocks_second_dispatch(case):
+@pytest.mark.parametrize('blocking_status', ['APPROVED', 'DECLINED', 'EXPIRED', 'FUTURE_UNKNOWN_VALUE'])
+def test_name_status_change_during_retry_blocks_second_dispatch(case, blocking_status):
     save_health(case)
+    save_sender_name_status(case, 'AVAILABLE_WITHOUT_REVIEW')
     case.http.return_value = case.response(429, {'error': {'code': 130429}}, {'Retry-After': '1'})
 
     def change_name_status(*_):
-        case.db.integrations.update_one({'_id': 'whatsapp'}, {'$set': {
-            'diagnosticChecks.sender.evidence.nameStatus': 'AVAILABLE_WITHOUT_REVIEW'}})
+        save_sender_name_status(case, blocking_status)
 
     with patch('app.whatsapp.time.sleep', side_effect=change_name_status):
         response = submit(case, requestId='name-status-retry-change-12345')
     assert response.status_code == 403
-    assert response.json['reason'] == 'production_test_display_name_evidence_conflict'
+    assert response.json['reason'] == ('production_test_display_name_evidence_conflict' if blocking_status == 'APPROVED'
+                                       else 'production_test_display_name_status_ineligible')
     assert case.http.call_count == 1

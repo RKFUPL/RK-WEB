@@ -175,6 +175,8 @@ def _sender(db, config):
         'messagingLimitDescription': (str(CAPACITIES[messaging_tier]) + ' unique recipients per rolling 24 hours') if messaging_tier in CAPACITIES and CAPACITIES[messaging_tier] is not None else 'Unlimited Meta tier' if messaging_tier == 'TIER_UNLIMITED' else 'Unknown messaging capacity; refresh sender evidence.',
         'apiAccessible': any(value is not None for value in values.values()),
         'nameStatus': values['name_status'] if isinstance(values['name_status'], str) and re.fullmatch(r'[A-Z_]{1,64}', values['name_status']) else 'UNKNOWN',
+        'nameStatusUnsupported': values['name_status'] not in (
+            None, '', 'APPROVED', 'AVAILABLE_WITHOUT_REVIEW', 'PENDING_REVIEW', 'DECLINED', 'EXPIRED', 'NONE', 'NON_EXISTS'),
         'displayNameStatus': values['name_status'] if isinstance(values['name_status'], str) and re.fullmatch(r'[A-Z_]{1,64}', values['name_status']) else 'UNKNOWN',
         'qualityRating': _enum(values['quality_rating'], {'GREEN', 'YELLOW', 'RED', 'HIGH', 'MEDIUM', 'LOW'}),
         'qualityDisplay': {'GREEN': 'HIGH', 'YELLOW': 'MEDIUM', 'RED': 'LOW'}.get(values['quality_rating'], _enum(values['quality_rating'], {'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'}))})
@@ -321,9 +323,14 @@ def production_provider_block(db, config, *, manual_utility_test=False, template
     if mode == 'DISPLAY_NAME_LIMITED':
         if not manual_utility_test or config.get('WHATSAPP_ENVIRONMENT') != 'production':
             return 'production_test_display_name_limited_utility_only'
-        if str(sender.get('nameStatus') or '').upper() in {
-                'APPROVED', 'ACTIVE', 'AVAILABLE_WITHOUT_REVIEW'}:
+        name_status = sender.get('nameStatus')
+        if name_status == 'APPROVED':
             return 'production_test_display_name_evidence_conflict'
+        # UNKNOWN is the diagnostic sentinel for an unavailable field, not proof
+        # of approval. Exact health evidence and every other check still apply.
+        if sender.get('nameStatusUnsupported') is True or name_status not in (
+                None, '', 'UNKNOWN', 'PENDING_REVIEW', 'AVAILABLE_WITHOUT_REVIEW'):
+            return 'production_test_display_name_status_ineligible'
         checked = as_utc_datetime((template or {}).get('approvalCheckedAt'))
         if (not template or template.get('category') != 'UTILITY' or not template.get('name') or not template.get('language')
                 or not template.get('approved') or template.get('requiresMetaApproval') is not True

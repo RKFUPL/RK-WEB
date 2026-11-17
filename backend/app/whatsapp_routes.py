@@ -536,7 +536,8 @@ def _test_response(result):
         "production_test_billing_restriction_unresolved": "An explicit billing/eligibility restriction or unresolved 131042 dispatch failure requires reconciliation. This is not proof of an outstanding balance.",
         "production_test_messaging_restriction_unresolved": "The latest recorded Meta error reports an account messaging restriction. Reconcile that restriction before a manual test; display-name eligibility cannot override it.",
         "production_test_display_name_limited_utility_only": "The display-name limitation permits only a restricted manual test with an exact freshly approved Utility template and verified components.",
-        "production_test_display_name_evidence_conflict": "Meta health reports an unapproved display name, while the separately read name_status says it is approved or available without review. Refresh sender evidence; this conflict cannot authorize a test.",
+        "production_test_display_name_evidence_conflict": "Meta health reports an unapproved display name, while the separately read name_status is APPROVED. Refresh sender evidence; this conflict cannot authorize a test.",
+        "production_test_display_name_status_ineligible": "The stored Meta display-name status does not qualify for this restricted test. PENDING_REVIEW and AVAILABLE_WITHOUT_REVIEW are compatible only with the exact recognized health limitation and all other safeguards; declined, expired and unsupported statuses remain blocked.",
         "production_test_capacity_unverified": "The current Meta messaging tier is unknown. Refresh sender evidence before a limited-capacity test.",
         "production_test_capacity_reached": "The current tier's rolling 24-hour unique-recipient capacity is already reserved in local message records. Meta also enforces business-wide usage outside this application.",
     })
