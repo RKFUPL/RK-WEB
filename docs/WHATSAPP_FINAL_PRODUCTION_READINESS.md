@@ -2,6 +2,51 @@
 
 **NOT production-ready. Live delivery has not been verified.**
 
+**Final review corrections:** `WHATSAPP_BUSINESS_PORTFOLIO_ID` is now required to
+bind the Meta `BUSINESS` health entity. A read-only Meta health GET returned
+Business Portfolio ID `982250818266556`; it is configured in the local ignored
+`backend/.env.local` and documented in `.env.example`. Confirm the same ID in
+Meta Business Settings before configuring deployment. The WABA ID is not a substitute.
+The health normalizer also recognizes Meta's SIP-only aggregate BLOCKED example
+as messaging-eligible only when all four entity messaging states are AVAILABLE,
+all errors are entity-scoped SIP codes attached to SIP-BLOCKED entities, and
+every configured entity identity matches. The original aggregate remains visible.
+An explicitly APPROVED, ACTIVE or AVAILABLE_WITHOUT_REVIEW sender name_status
+conflicts with the recognized display-name-not-approved reason and blocks eligibility.
+
+**Local provider-eligibility correction, awaiting diff review:** The candidate
+fixes the `senderStatus`/legacy `registration` mismatch and preserves detailed
+entity health, including the actual display-name limitation. It allows only the
+documented display-name LIMITED case for an otherwise authorized, freshly verified
+Utility manual test; it does not enable any gate or authorize a real send. Unknown
+limitations, messaging BLOCKED states, unresolved billing/131042 evidence, stale
+proofs, invalid templates and missing consent remain closed. SIP calling stays
+separate. See the current policy section in
+[WHATSAPP_PRODUCTION_TEST_MODE.md](WHATSAPP_PRODUCTION_TEST_MODE.md). Older text
+below describing an absolute AVAILABLE-only requirement is historical. This local
+task performed no production reads or writes, message sends, Meta operations,
+timer/service actions, environment changes, commit or push.
+
+Candidate validation (local final working tree): **756 backend tests passed,
+2 skipped**, two existing mongomock deprecation warnings; **62 WhatsApp browser
+tests passed** with mocked backend/Meta traffic. TypeScript and the production
+frontend build passed (63 static pages). Git/build-context secret scans found no
+issues and `git diff --check` passed. The two backend skips require native Nginx
+and Linux host/filesystem acceptance; they do not exercise this exception against
+production. No real delivery is claimed.
+
+Files changed for this candidate: `backend/app/whatsapp.py`,
+`backend/app/whatsapp_checks.py`, new `backend/app/whatsapp_health.py`,
+`backend/app/whatsapp_routes.py`, `backend/tests/test_whatsapp_checks.py`,
+`backend/tests/test_whatsapp_production_test.py`, new
+`backend/tests/test_whatsapp_display_name.py`,
+`frontend/components/admin/whatsapp-diagnostics.tsx`,
+`frontend/tests/whatsapp-ui.spec.ts`, this report and
+`docs/WHATSAPP_PRODUCTION_TEST_MODE.md`. Existing deployment helper, timer,
+environment and template-mapping files are untouched. The candidate remains on
+`main` based on `97960135c0c324eeb0595d92c5c736aff29ae326`, with no staged files,
+commit, push or deployment. The existing patch file is preserved.
+
 **Current image-pin permissions correction:** The operator reports deployment
 `cd1a65ceac9183af910e5c7a396119f0bf9f29ac` built both images but stopped at
 `sudo: interactive authentication is required`, before replacing application

@@ -41,6 +41,9 @@ class BaseConfig:
     WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "")
     WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
     WHATSAPP_BUSINESS_ACCOUNT_ID = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID", "")
+    # Exact ID of the Meta Business Portfolio reported by the BUSINESS health entity.
+    # There is intentionally no guessed default: missing identity fails closed.
+    WHATSAPP_BUSINESS_PORTFOLIO_ID = os.getenv("WHATSAPP_BUSINESS_PORTFOLIO_ID", "")
     WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
     WHATSAPP_APP_ID = os.getenv("WHATSAPP_APP_ID", "")
     WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "")

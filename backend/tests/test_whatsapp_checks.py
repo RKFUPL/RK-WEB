@@ -19,8 +19,8 @@ def guard(case):
 
 def health(case, state='AVAILABLE'):
     return {'health_status': {'can_send_message': state, 'entities': [
-        {'entity_type': kind, 'id': case.app.config[key], 'can_send_message': state}
-        for kind, key in [('PHONE_NUMBER', 'WHATSAPP_PHONE_NUMBER_ID'), ('WABA', 'WHATSAPP_BUSINESS_ACCOUNT_ID'), ('APP', 'WHATSAPP_APP_ID')]]}}
+        {'entity_type': kind, 'id': case.app.config[key] if key else '99999', 'can_send_message': state}
+        for kind, key in [('PHONE_NUMBER', 'WHATSAPP_PHONE_NUMBER_ID'), ('WABA', 'WHATSAPP_BUSINESS_ACCOUNT_ID'), ('BUSINESS', 'WHATSAPP_BUSINESS_PORTFOLIO_ID'), ('APP', 'WHATSAPP_APP_ID')]]}}
 
 
 @pytest.mark.parametrize('scope', [*checks.SCOPES, 'all'])

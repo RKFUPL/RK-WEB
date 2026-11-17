@@ -288,7 +288,7 @@ def send(db, config, recipient, event, parameters, key, *, order_id=None, text=N
             content = {"type": "template", "template": {"name": template["name"], "language": {"code": template["language"]}, "components": components}}
     if production_test:
         from .whatsapp_checks import production_provider_block
-        blocked = production_provider_block(db, config)
+        blocked = production_provider_block(db, config, manual_utility_test=True, template=template, recipient=phone)
         if blocked:
             return {"status": "skipped", "reason": blocked}
     if consent_check is not None and not consent_check():
@@ -298,6 +298,8 @@ def send(db, config, recipient, event, parameters, key, *, order_id=None, text=N
               "type": event if text is None else "text", "template": template["name"] if text is None else None,
               "orderId": str(order_id) if order_id else None, "status": "sending", "createdAt": now(), "attempts": 0,
               "testSend": bool(test_send), "productionTestSend": bool(production_test)}
+    from .whatsapp_checks import scope_key
+    record['_providerScope'] = scope_key(config)
     if order_id and ObjectId.is_valid(str(order_id)):
         linked_order = db.orders.find_one({"_id": ObjectId(str(order_id))}) or {}
         record.update(orderNumber=linked_order.get("orderNumber"), customerId=str(linked_order.get("customerId") or ""),
@@ -345,7 +347,7 @@ def send(db, config, recipient, event, parameters, key, *, order_id=None, text=N
         try:
             if production_test:
                 from .whatsapp_checks import production_provider_block
-                blocked = production_test_block(config, recipient) or production_provider_block(db, config)
+                blocked = production_test_block(config, recipient) or production_provider_block(db, config, manual_utility_test=True, template=latest_template, recipient=phone)
                 if blocked:
                     result = {"status": "failed", "reason": blocked, "error": {"kind": blocked}, "httpStatus": result.get("httpStatus")}
                     break

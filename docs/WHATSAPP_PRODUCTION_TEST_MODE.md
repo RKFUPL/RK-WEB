@@ -1,5 +1,70 @@
 # Restricted temporary production template tests
 
+## Local provider-eligibility correction awaiting review
+
+The prepared change on `main` is not committed, pushed or deployed. No production
+gate, expiry, secret, Meta setting, queue or timer was changed and no message was
+sent. This supersedes the older AVAILABLE-only eligibility description below.
+
+Provider evidence remains bound to the exact app/WABA/phone/configuration and
+expires after 15 minutes. `senderStatus` is the canonical registration field;
+legacy `registration` remains readable. Conflicting fields fail closed rather
+than claiming a connected phone is disconnected. OTP status, WABA verification,
+actual Meta `name_status`, quality and messaging tier remain independent facts.
+The exact `WHATSAPP_BUSINESS_PORTFOLIO_ID` from Meta Business Settings is also
+required to bind the health response's `BUSINESS` entity; the current read-only
+Meta health response returned `982250818266556`. It must not be replaced with
+the WABA ID. Missing or mismatched portfolio identity invalidates the proof.
+
+Only a manually initiated production Utility-template test can use the exact
+documented PHONE_NUMBER display-name limitation: overall LIMITED, only the phone
+messaging entity LIMITED, its sole recognized reason being the unapproved display
+name, and WABA/BUSINESS/APP messaging AVAILABLE. Unknown reasons, incomplete or
+mis-scoped entities, missing tier, messaging errors and any messaging BLOCKED
+entity remain ineligible. Meta's documented SIP-only aggregate BLOCKED shape is
+messaging-eligible only when all four entity messaging states are AVAILABLE and
+every reported error is an entity-scoped SIP code on a SIP-BLOCKED entity. The
+raw aggregate remains in diagnostics. Calling/SIP statuses and codes 138024/138025
+are separate.
+Old health snapshots without the complete version-2 entity details require a
+fresh guarded diagnostic read after any approved deployment; they cannot opt in
+to the exception merely from a stored eligibility boolean.
+
+The exact template name, language, Utility category, current approval and matching
+components must be backed by fresh account-bound Meta observations. The backend
+checks those observations, provider evidence and expiry again before dispatch
+and each retry. Consent attestation, normalized recipient, suppression/STOP,
+request-ID idempotency, admin auth and shared send limits remain mandatory.
+The production test gate must still be explicitly opened by a separately
+authorized operator with a maximum 24-hour UTC expiry; this change opens nothing.
+
+Billing ledger status stays unverified and is never inferred from AVAILABLE,
+LIMITED or an accepted request. Explicit billing errors and unresolved 131042
+dispatch records block testing. A latest recorded account restriction (131031 or
+368) also blocks the exception. Old failures do not silently expire into payment
+clearance, and a connection GET cannot erase their message-record evidence.
+Legacy unscoped failures are handled conservatively pending reconciliation;
+future records carry a private provider-scope binding. Reconciliation is not a
+reason to delete a log, replay a job or treat a checkbox as provider clearance.
+
+The current tier/capacity is shown. For the exception, existing local message
+claims conservatively reserve unique-recipient slots across a rolling 24-hour
+window, including ambiguous attempts; quota is checked before claim/dispatch and
+on retries. A repeated recipient does not consume a new unique slot. This local
+check cannot observe sends outside RK-WEB or all other business phone numbers.
+Meta remains authoritative for business-wide capacity; no tier increase is
+requested and no provider quota failure is bypassed.
+
+The health card preserves safe per-entity `can_send_message`, `additional_info`,
+errors, timestamp and masked scope. It displays SIP separately and directs
+display-name review to WhatsApp Manager > Phone numbers > select number > Profile
+> Display name. Private credential-derived scope hashes never reach the frontend.
+There is no phone re-registration instruction. Worker UNKNOWN remains independent
+of manual tests. Order automation, Authentication, Marketing and free text cannot
+use this exception; their existing gates and flows are unchanged.
+
+Reference: [Meta messaging and calling health status](https://developers.facebook.com/documentation/business-messaging/whatsapp/support/health-status).
+
 Implemented locally; no production environment, Meta settings or messaging gates were changed. The mode defaults off. This does not authorize deployment or a real send.
 
 **Current sender interpretation (17 November):** Fresh WABA evidence reports business verification `verified` and tier `TIER_250`; the Phone Number ID reports `status=CONNECTED`, `code_verification_status=NOT_VERIFIED`, and quality `GREEN` (Manager displays HIGH). Meta documents code verification as the phone ownership OTP flow and `CONNECTED` as the status required for Cloud API send/receive. These fields conflict. Diagnostics show each independently and mark the combined sender check UNKNOWN; they do not infer disconnection or recommend removing/re-registering the number from this mismatch. Fresh phone health is still LIMITED, and billing clearance is not verified. Those remain separate blockers. The 250 tier is active capacity, not a sending restriction. See [the final production readiness report](WHATSAPP_FINAL_PRODUCTION_READINESS.md).

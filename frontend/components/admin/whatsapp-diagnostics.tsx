@@ -7,10 +7,16 @@ export type DiagnosticCheck = {
   checkedAt?: string; evidence?: Record<string, unknown>;
 };
 const checks = [
-  ['configuration', 'Application configuration'], ['billing', 'Meta billing evidence'],
+  ['configuration', 'Application configuration'], ['billing', 'Messaging health and billing'],
   ['sender', 'Sender and business status'], ['templates', 'Template eligibility'],
   ['webhook', 'App-level webhook subscription'], ['worker', 'Worker status and configuration'], ['outbox', 'Outbox status'],
 ] as const;
+type HealthEntity = {
+  type?: string; idMasked?: string; can_send_message?: string; can_receive_call_sip?: string;
+  additional_info?: string[]; checkedAt?: string;
+  scope?: { matchesConfiguredEntity?: boolean; sourcePhoneNumberIdMasked?: string };
+  errors?: { code: number; description?: string; channel?: string }[];
+};
 const colour = (status: string) => status === 'VERIFIED' ? 'border-green-700/30 bg-green-50 text-green-950 dark:bg-green-950 dark:text-green-100'
   : status === 'BLOCKED' ? 'border-red-700/30 bg-red-50 text-red-950 dark:bg-red-950 dark:text-red-100'
   : status === 'ACTION REQUIRED' ? 'border-amber-700/30 bg-amber-50 text-amber-950 dark:bg-amber-950 dark:text-amber-100'
@@ -38,11 +44,25 @@ export function WhatsAppDiagnostics({ values = [], notes = [], request, onResult
     <div className="mt-5 grid min-w-0 gap-4 lg:grid-cols-2">{checks.map(([key, title]) => {
       const result = values.find(row => row.key === key);
       const status = result?.status || 'UNKNOWN';
+      const healthEntities = Array.isArray(result?.evidence?.entities) ? result.evidence.entities as HealthEntity[] : [];
       return <article key={key} aria-label={`${title} diagnostic`} className="min-w-0 space-y-3 rounded-xl border border-black/10 p-4 dark:border-white/20">
         <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{title}</h3><span className={`rounded-full border px-2 py-1 text-xs ${colour(status)}`}>{status}</span></div>
         <p className="break-words text-sm">{result?.reason || 'Not checked. Request fresh evidence from the backend.'}</p>
+        {key === 'billing' && <div aria-label="Messaging health and billing details" className="space-y-3 text-sm">
+          <dl className="grid gap-2 sm:grid-cols-2"><div><dt className="text-xs opacity-70">Overall messaging health</dt><dd>{String(result?.evidence?.messagingHealth || 'UNKNOWN')}</dd></div>
+            <div><dt className="text-xs opacity-70">Messaging eligibility interpretation</dt><dd>{String(result?.evidence?.messagingEligibilityMode || 'UNKNOWN')}</dd></div>
+            <div><dt className="text-xs opacity-70">Billing ledger</dt><dd>{result?.evidence?.billingLedgerVerified === true ? 'Verified' : 'Not verified; no current debt inferred'}</dd></div></dl>
+          {result?.evidence?.displayNameLimitedCandidate === true && <p className="rounded-lg border border-amber-600/30 p-3">Phone display name not approved; current messaging capacity is limited. Only an eligible approved Utility manual test can use this specific limitation, with the production test gate, fresh evidence and consent still required.</p>}
+          {healthEntities.map((entity, index) => <div key={`${entity.type}-${index}`} className="space-y-2 rounded-lg border border-black/10 p-3 dark:border-white/20">
+            <p className="font-medium">{entity.type || 'UNKNOWN'} {entity.idMasked} · Messaging: {entity.can_send_message || 'UNKNOWN'} · SIP calling: {entity.can_receive_call_sip || 'Not reported'}</p>
+            {entity.additional_info?.map((info, number) => <p className="break-words" key={number}>{info}</p>)}
+            {entity.errors?.map((error, number) => <p className="break-words text-xs" key={number}>{error.channel === 'calling_sip' ? 'SIP calling' : 'Messaging/unknown'} error {error.code}: {error.description || 'Description not returned'}</p>)}
+            <p className="text-xs opacity-70">Checked: {entity.checkedAt ? new Date(entity.checkedAt).toLocaleString() : 'Not recorded'} · Scope: source phone {entity.scope?.sourcePhoneNumberIdMasked || 'Unknown'} · {entity.scope?.matchesConfiguredEntity ? 'Matches configured entity' : 'Entity scope unconfirmed'}</p>
+          </div>)}
+        </div>}
         {key === 'sender' && <dl aria-label="Sender status details" className="grid gap-x-4 gap-y-2 rounded-lg bg-stone-50 p-3 text-sm dark:bg-stone-800 sm:grid-cols-2">
-          <div><dt className="text-xs opacity-70">Sender API status</dt><dd>{String(result?.evidence?.senderStatus || 'UNKNOWN')}</dd></div>
+          <div><dt className="text-xs opacity-70">Sender API status</dt><dd>{String(result?.evidence?.senderStatus || result?.evidence?.registration || 'UNKNOWN')}</dd></div>
+          <div><dt className="text-xs opacity-70">Display name status (Meta name_status)</dt><dd>{String(result?.evidence?.nameStatus || result?.evidence?.displayNameStatus || 'UNKNOWN')}</dd></div>
           <div><dt className="text-xs opacity-70">Phone ownership OTP code status</dt><dd>{String(result?.evidence?.codeVerificationStatus || 'UNKNOWN')}</dd></div>
           <div><dt className="text-xs opacity-70">WABA business verification</dt><dd>{String(result?.evidence?.businessVerificationStatus || 'UNKNOWN')}</dd></div>
           <div><dt className="text-xs opacity-70">Quality rating</dt><dd>{String(result?.evidence?.qualityRating || 'UNKNOWN')} ({String(result?.evidence?.qualityDisplay || 'UNKNOWN')})</dd></div>

@@ -31,7 +31,7 @@ class WhatsAppTests(unittest.TestCase):
             WHATSAPP_ENABLED=True, WHATSAPP_API_VERSION="v26.0", WHATSAPP_PHONE_NUMBER_ID="12345",
             WHATSAPP_BUSINESS_ACCOUNT_ID="67890", WHATSAPP_ACCESS_TOKEN="private-access-token",
             WHATSAPP_APP_SECRET="private-app-secret", WHATSAPP_WEBHOOK_VERIFY_TOKEN="private-verify-token",
-            WHATSAPP_APP_ID="123", WHATSAPP_OUTBOX_KEY=Fernet.generate_key().decode(),
+            WHATSAPP_APP_ID="123", WHATSAPP_BUSINESS_PORTFOLIO_ID="98765", WHATSAPP_OUTBOX_KEY=Fernet.generate_key().decode(),
             WHATSAPP_TEMPLATES={event: {"enabled": True, "approved": True,
                 "components": [{"type": "BODY", "text": " ".join("{{" + str(i + 1) + "}}" for i in range(len(parameters)))}]}
                 for event, (_, parameters) in EVENTS.items() if event != "test"})

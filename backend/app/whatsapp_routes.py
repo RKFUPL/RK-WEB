@@ -93,16 +93,23 @@ def safe_status(db):
     from .whatsapp_checks import production_provider_block, public_checks, provider_evidence_expiry
     provider_block = production_provider_block(db, config) if config.get("WHATSAPP_ENVIRONMENT") == "production" else None
     templates = template_registry(db, config)
+    template_provider_blocks = {}
     for event, item in templates.items():
         ready = item["approved"] and not missing
         item["mappingEnabled"] = bool(item.get("enabled"))
         test_fields = test_parameter_fields(item) if item.get("componentsVerified") else None
         item["testParameterFields"] = test_fields or []
+        template_provider_blocks[event] = (production_provider_block(db, config, manual_utility_test=True, template=item)
+            if provider_block == "production_test_display_name_limited_utility_only" else provider_block)
+        item["providerBlock"] = template_provider_blocks[event]
         item["eligibleForTesting"] = bool(ready and test_fields is not None and item["category"] == "UTILITY"
             and item.get("requiresMetaApproval") is True and item.get("approvalSource") == "meta_api_read"
-            and not item.get("statusStale") and template_test_enabled(config) and provider_block is None)
+            and not item.get("statusStale") and template_test_enabled(config) and template_provider_blocks[event] is None)
         item["eligibleForAutomation"] = bool(item["enabled"] and ready and automation_enabled(db, config, event)
             and (item["category"] != "MARKETING" or config.get("WHATSAPP_MARKETING_ENABLED") is True))
+    if provider_block == "production_test_display_name_limited_utility_only" and any(
+            item.get('category') == 'UTILITY' and template_provider_blocks[event] is None for event, item in templates.items()):
+        provider_block = None
     catalogue = {}
     mapped_by_key = {}
     for item in templates.values():
@@ -522,9 +529,16 @@ def _test_response(result):
     }
     explanations.update({
         "production_test_provider_evidence_stale_or_missing": "Refresh sender and Meta eligibility diagnostics. Current account-bound provider evidence is missing or older than 15 minutes.",
-        "production_test_provider_eligibility_unverified": "Meta messaging eligibility is not fully verified as AVAILABLE. Review health and billing restrictions; a card charge or template approval is insufficient.",
+        "production_test_provider_eligibility_unverified": "Messaging eligibility is unknown, blocked, or has an unsupported limitation. Only AVAILABLE or the exact documented display-name limitation can qualify for a restricted Utility manual test.",
         "production_test_business_verification_unverified": "Fresh WABA business verification is not confirmed as VERIFIED.",
-        "production_test_sender_not_connected": "Fresh Meta sender status is not CONNECTED.",
+        "production_test_sender_not_connected": "Fresh sender evidence does not confirm CONNECTED. Refresh the sender diagnostic; do not infer disconnection or request re-registration from missing evidence.",
+        "production_test_sender_evidence_conflict": "Stored senderStatus and legacy registration disagree. Refresh sender evidence; conflicting fields cannot authorize dispatch.",
+        "production_test_billing_restriction_unresolved": "An explicit billing/eligibility restriction or unresolved 131042 dispatch failure requires reconciliation. This is not proof of an outstanding balance.",
+        "production_test_messaging_restriction_unresolved": "The latest recorded Meta error reports an account messaging restriction. Reconcile that restriction before a manual test; display-name eligibility cannot override it.",
+        "production_test_display_name_limited_utility_only": "The display-name limitation permits only a restricted manual test with an exact freshly approved Utility template and verified components.",
+        "production_test_display_name_evidence_conflict": "Meta health reports an unapproved display name, while the separately read name_status says it is approved or available without review. Refresh sender evidence; this conflict cannot authorize a test.",
+        "production_test_capacity_unverified": "The current Meta messaging tier is unknown. Refresh sender evidence before a limited-capacity test.",
+        "production_test_capacity_reached": "The current tier's rolling 24-hour unique-recipient capacity is already reserved in local message records. Meta also enforces business-wide usage outside this application.",
     })
     explanations.update(PRODUCTION_TEST_REASONS)
     if result.get("reason") in explanations:

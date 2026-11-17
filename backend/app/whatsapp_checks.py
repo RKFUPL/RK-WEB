@@ -2,11 +2,13 @@
 from datetime import timedelta
 import hashlib
 import hmac
+import re
 from pathlib import Path
 
 import requests
 
 from .time_utils import as_utc_datetime
+from .whatsapp_health import CAPACITIES, DISPLAY_NAME_ACTION, health_error_codes, health_mode, normalize_health
 
 SCOPES = ('configuration', 'billing', 'sender', 'templates', 'webhook', 'worker', 'outbox')
 STATUSES = {'VERIFIED', 'BLOCKED', 'ACTION REQUIRED', 'NOT VERIFIED', 'UNKNOWN', 'DISABLED BY CONFIGURATION'}
@@ -14,14 +16,14 @@ FRESHNESS = timedelta(minutes=15)
 
 
 def scope_key(config):
-    value = ':'.join(str(config.get(k) or '') for k in ('WHATSAPP_APP_ID', 'WHATSAPP_BUSINESS_ACCOUNT_ID', 'WHATSAPP_PHONE_NUMBER_ID', 'WHATSAPP_API_VERSION'))
+    value = ':'.join(str(config.get(k) or '') for k in ('WHATSAPP_APP_ID', 'WHATSAPP_BUSINESS_ACCOUNT_ID', 'WHATSAPP_BUSINESS_PORTFOLIO_ID', 'WHATSAPP_PHONE_NUMBER_ID', 'WHATSAPP_API_VERSION'))
     return hmac.new(str(config.get('WHATSAPP_APP_SECRET') or '').encode(), value.encode(), hashlib.sha256).hexdigest()
 
 
 def code_version():
     root = Path(__file__).parent
     return hashlib.sha256(b''.join((root / name).read_bytes() for name in (
-        'whatsapp.py', 'whatsapp_orders.py', 'whatsapp_consent.py', 'whatsapp_templates.py', 'whatsapp_checks.py',
+        'whatsapp.py', 'whatsapp_orders.py', 'whatsapp_consent.py', 'whatsapp_templates.py', 'whatsapp_checks.py', 'whatsapp_health.py',
     ))).hexdigest()[:16]
 
 
@@ -80,33 +82,53 @@ def _configuration(db, config):
 
 
 def _billing(db, config):
+    from .whatsapp import now
     body = _get(config, config['WHATSAPP_PHONE_NUMBER_ID'], 'health_status')
-    health = body.get('health_status') or {}
-    overall = _enum(health.get('can_send_message'), {'AVAILABLE', 'LIMITED', 'BLOCKED'})
-    entities = []
-    matches = {}
-    for row in health.get('entities', []):
-        if not isinstance(row, dict):
-            continue
-        kind = _enum(row.get('entity_type'), {'PHONE_NUMBER', 'WABA', 'BUSINESS', 'APP'})
-        state = _enum(row.get('can_send_message'), {'AVAILABLE', 'LIMITED', 'BLOCKED'})
-        ident = str(row.get('id') or '')
-        expected = {'PHONE_NUMBER': config['WHATSAPP_PHONE_NUMBER_ID'], 'WABA': config['WHATSAPP_BUSINESS_ACCOUNT_ID'], 'APP': config['WHATSAPP_APP_ID']}.get(kind)
-        if expected is not None and ident == str(expected):
-            matches[kind] = state
-        codes = [e.get('error_code') for e in row.get('errors', []) if isinstance(e, dict) and isinstance(e.get('error_code'), int)]
-        entities.append({'type': kind, 'idMasked': '***' + ident[-4:], 'messaging': state, 'errorCodes': codes[:10]})
-    eligible = overall == 'AVAILABLE' and all(matches.get(key) == 'AVAILABLE' for key in ('PHONE_NUMBER', 'WABA', 'APP'))
-    failure = db.whatsapp_messages.find_one({'$or': [{'error.code': 131042}, {'failureDetails.errors.code': 131042}]},
-                                          {'updatedAt': 1, 'failedAt': 1}, sort=[('updatedAt', -1)])
-    return _result('billing', 'BLOCKED' if overall == 'BLOCKED' else 'ACTION REQUIRED' if overall == 'LIMITED' else 'NOT VERIFIED',
-        'Current provider messaging eligibility is available; the paid balance and Messaging Account billing relationship still require manual verification.' if eligible else
-        'Meta messaging health is ' + overall + '. Billing ledger clearance and account relationship are not inferred from this result.',
-        'Meta Business > Billing & Payments > Messaging Accounts: select the account linked to WABA ending ' + str(config['WHATSAPP_BUSINESS_ACCOUNT_ID'])[-4:] + '. Reconcile the charge, outstanding balance and restrictions. Call/SIP codes 138024/138025 do not prove a billing restriction.',
-        'Fresh Meta phone health_status GET; no Ad Account billing query',
-        {'messagingHealth': overall, 'providerEligibilityVerified': eligible, 'billingLedgerVerified': False, 'entities': entities,
-         'recordedPaymentEligibilityFailure': {'code': 131042, 'observedAt': failure.get('failedAt') or failure.get('updatedAt'),
-             'meaning': 'Historical payment/business-eligibility failure; current clearance requires fresh Meta review.'} if failure else None})
+    checked = now()
+    health = body.get('health_status')
+    evidence = normalize_health(health if isinstance(health, dict) else {}, config, checked)
+    failure = unresolved_payment_failure(db, config)
+    evidence['unresolvedPaymentEligibilityFailure'] = failure
+    overall = evidence['messagingHealth']
+    mode = evidence['messagingEligibilityMode']
+    limited = evidence['displayNameLimitedCandidate']
+    status = ('BLOCKED' if failure or (overall == 'BLOCKED' and mode != 'AVAILABLE_SIP_ONLY') else
+              'ACTION REQUIRED' if overall == 'LIMITED' else 'NOT VERIFIED')
+    reason = ('Phone display name is not approved; current messaging capacity is limited. Only an otherwise eligible approved Utility manual test may use this specific limitation.' if limited else
+              ('Meta aggregate messaging health is BLOCKED, but all four messaging entities are AVAILABLE and every reported error is SIP-only. This is not a messaging restriction; SIP calling remains blocked.'
+               if mode == 'AVAILABLE_SIP_ONLY' else
+               'Meta messaging health is ' + overall + '. Unknown limitations and messaging blocks cannot authorize a manual test.'))
+    if evidence['providerEligibilityVerified']:
+        reason = 'Messaging health is AVAILABLE. Billing-ledger verification is independent and remains unverified.'
+    if failure:
+        reason += ' An unresolved 131042 dispatch failure requires provider/billing reconciliation; it is not proof of an outstanding balance.'
+    action = (DISPLAY_NAME_ACTION if limited else
+              'No messaging action is indicated by SIP-only errors; review SIP calling separately if calling is needed.'
+              if mode == 'AVAILABLE_SIP_ONLY' else
+              'Review the exact entity messaging limitation in WhatsApp Manager. Do not re-register the sender.')
+    action += ' Separately review Meta Billing & Payments > Messaging Accounts for ledger/account questions. SIP calling restrictions are separate from messaging.'
+    result = _result('billing', status, reason, action, 'Fresh Meta phone health_status GET; ledger not queried', evidence)
+    result['checkedAt'] = checked
+    return result
+
+
+def unresolved_payment_failure(db, config):
+    """A connection GET or age never silently resolves a dispatch rejection.
+
+    New records are account-scoped. Legacy unscoped failures remain conservative
+    unresolved evidence; a delivery/read status on that record resolves dispatch
+    uncertainty only, never verifies the billing ledger.
+    """
+    failure = db.whatsapp_messages.find_one({'$and': [
+        {'$or': [{'error.code': 131042}, {'failureDetails.errors.code': 131042}]},
+        {'status': {'$nin': ['delivered', 'read']}},
+        {'$or': [{'_providerScope': scope_key(config)}, {'_providerScope': {'$exists': False}}]},
+    ]}, {'updatedAt': 1, 'failedAt': 1, 'createdAt': 1}, sort=[('updatedAt', -1)])
+    state = db.integrations.find_one({'_id': 'whatsapp'}, {'lastError.code': 1}) or {}
+    if failure or (state.get('lastError') or {}).get('code') == 131042:
+        return {'code': 131042, 'observedAt': (failure or {}).get('failedAt') or (failure or {}).get('updatedAt') or (failure or {}).get('createdAt'),
+                'meaning': 'Unresolved dispatch eligibility/payment failure, not a verified current debt.'}
+    return None
 
 
 def _sender(db, config):
@@ -142,14 +164,18 @@ def _sender(db, config):
         'Review the CONNECTED sender and OTP code status together in WhatsApp Manager. Do not remove, re-add or request another code for a CONNECTED sender solely from this conflicting read. Use the WABA field for business verification and health_status for messaging eligibility.',
         'Fresh Meta Phone Number ID and configured WABA GETs', {'phoneNumberId': str(config['WHATSAPP_PHONE_NUMBER_ID']), 'phoneMasked': '***' + digits[-4:] if digits else 'Unknown',
         'senderStatus': registration, 'codeVerificationStatus': code_verification,
+        'senderEvidenceVersion': 2,
         'codeVerificationMeaning': 'Phone number OTP-code state; not business verification or, by itself, registration state.',
         'phoneOwnershipOtpStatus': code_verification,
         'senderConnectionAndOtpEvidence': 'CONNECTED plus NOT_VERIFIED is an inconsistent read; it does not establish disconnection or justify re-registration.',
         'businessVerificationStatus': business_verification,
         'messagingLimitTier': messaging_tier,
-        'messagingLimitDescription': '250 unique recipients per rolling 24 hours' if messaging_tier == 'TIER_250' else 'Meta messaging capacity tier; not a sender-disconnection signal.',
+        'messagingCapacity': {'uniqueRecipientsPer24Hours': CAPACITIES.get(messaging_tier), 'tierKnown': messaging_tier in CAPACITIES,
+                              'providerEnforced': True, 'scope': 'Business capacity shared across phone numbers; local records cannot measure external usage.'},
+        'messagingLimitDescription': (str(CAPACITIES[messaging_tier]) + ' unique recipients per rolling 24 hours') if messaging_tier in CAPACITIES and CAPACITIES[messaging_tier] is not None else 'Unlimited Meta tier' if messaging_tier == 'TIER_UNLIMITED' else 'Unknown messaging capacity; refresh sender evidence.',
         'apiAccessible': any(value is not None for value in values.values()),
-        'displayNameStatus': _enum(values['name_status'], {'APPROVED', 'AVAILABLE_WITHOUT_REVIEW', 'PENDING_REVIEW', 'DECLINED', 'EXPIRED'}),
+        'nameStatus': values['name_status'] if isinstance(values['name_status'], str) and re.fullmatch(r'[A-Z_]{1,64}', values['name_status']) else 'UNKNOWN',
+        'displayNameStatus': values['name_status'] if isinstance(values['name_status'], str) and re.fullmatch(r'[A-Z_]{1,64}', values['name_status']) else 'UNKNOWN',
         'qualityRating': _enum(values['quality_rating'], {'GREEN', 'YELLOW', 'RED', 'HIGH', 'MEDIUM', 'LOW'}),
         'qualityDisplay': {'GREEN': 'HIGH', 'YELLOW': 'MEDIUM', 'RED': 'LOW'}.get(values['quality_rating'], _enum(values['quality_rating'], {'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'}))})
 
@@ -265,21 +291,74 @@ def record_worker_observation(db, config, state, processed=None):
     }}}, upsert=True)
 
 
-def production_provider_block(db, config):
+def production_provider_block(db, config, *, manual_utility_test=False, template=None, recipient=None):
     from .whatsapp import now
-    rows = (db.integrations.find_one({'_id': 'whatsapp'}) or {}).get('diagnosticChecks') or {}
+    state = db.integrations.find_one({'_id': 'whatsapp'}) or {}
+    rows = state.get('diagnosticChecks') or {}
     for key in ('billing', 'sender'):
         row = rows.get(key) or {}
         at = as_utc_datetime(row.get('checkedAt'))
         if row.get('_scope') != scope_key(config) or not at or at > now() or now() - at > FRESHNESS:
             return 'production_test_provider_evidence_stale_or_missing'
-    if not (rows['billing'].get('evidence') or {}).get('providerEligibilityVerified'):
+    health = rows['billing'].get('evidence') or {}
+    if 131042 in health_error_codes(health) or unresolved_payment_failure(db, config):
+        return 'production_test_billing_restriction_unresolved'
+    if (state.get('lastError') or {}).get('code') in {131031, 368}:
+        return 'production_test_messaging_restriction_unresolved'
+    mode = health_mode(health)
+    if not mode or (mode == 'AVAILABLE' and health.get('providerEligibilityVerified') is not True):
         return 'production_test_provider_eligibility_unverified'
+    if any(as_utc_datetime(entity.get('checkedAt')) != as_utc_datetime(rows['billing'].get('checkedAt')) for entity in health['entities']):
+        return 'production_test_provider_evidence_stale_or_missing'
     sender = rows['sender'].get('evidence') or {}
     if sender.get('businessVerificationStatus') != 'VERIFIED':
         return 'production_test_business_verification_unverified'
-    if sender.get('registration') != 'CONNECTED':
+    canonical, legacy = sender.get('senderStatus'), sender.get('registration')
+    if canonical is not None and legacy is not None and canonical != legacy:
+        return 'production_test_sender_evidence_conflict'
+    if (canonical if canonical is not None else legacy) != 'CONNECTED':
         return 'production_test_sender_not_connected'
+    if mode == 'DISPLAY_NAME_LIMITED':
+        if not manual_utility_test or config.get('WHATSAPP_ENVIRONMENT') != 'production':
+            return 'production_test_display_name_limited_utility_only'
+        if str(sender.get('nameStatus') or '').upper() in {
+                'APPROVED', 'ACTIVE', 'AVAILABLE_WITHOUT_REVIEW'}:
+            return 'production_test_display_name_evidence_conflict'
+        checked = as_utc_datetime((template or {}).get('approvalCheckedAt'))
+        if (not template or template.get('category') != 'UTILITY' or not template.get('name') or not template.get('language')
+                or not template.get('approved') or template.get('requiresMetaApproval') is not True
+                or template.get('approvalSource') != 'meta_api_read' or template.get('componentsVerified') is not True
+                or template.get('statusStale') or not checked or not now() - timedelta(hours=24) <= checked <= now()):
+            return 'production_test_display_name_limited_utility_only'
+        from .whatsapp_templates import component_signature, observation_is_stale
+        observed = db.whatsapp_template_status.find_one({'_id': template['name'] + ':' + template['language']}) or {}
+        if (observed.get('name') != template['name'] or observed.get('language') != template['language']
+                or observed.get('status') != 'APPROVED' or observed.get('category') != 'UTILITY'
+                or observed.get('source') != 'meta_api_read' or observed.get('presentInMeta') is not True
+                or observed.get('componentsVerified') is not True
+                or observed.get('componentSignature') != component_signature(template.get('components'))
+                or observation_is_stale(observed, state.get('templateStatusSync') or {}, config.get('WHATSAPP_BUSINESS_ACCOUNT_ID'))):
+            return 'production_test_display_name_limited_utility_only'
+        tier = sender.get('messagingLimitTier')
+        if tier not in CAPACITIES:
+            return 'production_test_capacity_unverified'
+        if recipient is not None and CAPACITIES[tier] is not None:
+            from .whatsapp import fingerprint, normalize_phone
+            try:
+                if normalize_phone(recipient) != recipient:
+                    return 'invalid_recipient'
+            except ValueError:
+                return 'invalid_recipient'
+            # Existing message claims serve as conservative local reservations,
+            # including ambiguous attempts. This cannot measure traffic outside
+            # RK-WEB; Meta remains authoritative for its business-wide quota.
+            used = set(db.whatsapp_messages.distinct('recipientHash', {
+                'createdAt': {'$gte': now() - timedelta(hours=24)},
+                'status': {'$in': ['sending', 'accepted', 'sent', 'delivered', 'read', 'unknown', 'failed']},
+                '$or': [{'_providerScope': scope_key(config)}, {'_providerScope': {'$exists': False}}],
+            })) - {None, ''}
+            if len(used) > CAPACITIES[tier] or (len(used) >= CAPACITIES[tier] and fingerprint(recipient, config) not in used):
+                return 'production_test_capacity_reached'
     return None
 
 

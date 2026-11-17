@@ -23,9 +23,15 @@ def case():
         WHATSAPP_PRODUCTION_TEST_SEND_ENABLED=True,
         WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT=(now() + timedelta(hours=1)).isoformat())
     from app.whatsapp_checks import scope_key
+    from app.whatsapp_health import normalize_health
+    checked = now()
+    health = normalize_health({'can_send_message': 'AVAILABLE', 'entities': [
+        {'entity_type': kind, 'id': instance.app.config[key] if key else '99999', 'can_send_message': 'AVAILABLE'}
+        for kind, key in [('PHONE_NUMBER', 'WHATSAPP_PHONE_NUMBER_ID'), ('WABA', 'WHATSAPP_BUSINESS_ACCOUNT_ID'), ('BUSINESS', 'WHATSAPP_BUSINESS_PORTFOLIO_ID'), ('APP', 'WHATSAPP_APP_ID')]]
+    }, instance.app.config, checked)
     evidence = {
-        "billing": {"key": "billing", "status": "NOT VERIFIED", "checkedAt": now(), "_scope": scope_key(instance.app.config), "evidence": {"providerEligibilityVerified": True, "billingLedgerVerified": False}},
-        "sender": {"key": "sender", "status": "VERIFIED", "checkedAt": now(), "_scope": scope_key(instance.app.config), "evidence": {"businessVerificationStatus": "VERIFIED", "codeVerificationStatus": "VERIFIED", "registration": "CONNECTED"}},
+        "billing": {"key": "billing", "status": "NOT VERIFIED", "checkedAt": checked, "_scope": scope_key(instance.app.config), "evidence": health},
+        "sender": {"key": "sender", "status": "VERIFIED", "checkedAt": now(), "_scope": scope_key(instance.app.config), "evidence": {"businessVerificationStatus": "VERIFIED", "codeVerificationStatus": "VERIFIED", "registration": "CONNECTED", "messagingLimitTier": "TIER_250"}},
     }
     instance.db.integrations.update_one({"_id": "whatsapp"}, {"$set": {"diagnosticChecks": evidence}})
     for mapping in instance.app.config["WHATSAPP_TEMPLATES"].values():

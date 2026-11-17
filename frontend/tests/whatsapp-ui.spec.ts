@@ -1,10 +1,59 @@
 ﻿import { expect, test, type Page } from '@playwright/test';
 
+for (const scenario of ['gate-off', 'eligible', 'provider-stale', 'billing-blocked', 'sip-only'] as const) test(`provider diagnostics preserve independent health details: ${scenario}`, async ({ page }) => {
+  const calls = await mockApi(page);
+  const gate = scenario !== 'gate-off';
+  const provider = scenario === 'eligible' || scenario === 'gate-off';
+  const sipOnly = scenario === 'sip-only';
+  const at = new Date().toISOString();
+  const explanation = 'Your display name has not been approved yet. Your message limit will increase after the display name is approved.';
+  await page.route('**/api/admin/integrations/whatsapp', route => route.fulfill({ json: {
+    ...integration, configured: true, missing: [], environment: 'production',
+    productionTest: { enabled: gate, expiresAt: new Date(Date.now() + 60_000).toISOString(), providerEligible: provider,
+      providerEvidenceExpiresAt: scenario === 'provider-stale' ? new Date(Date.now() - 1).toISOString() : new Date(Date.now() + 60_000).toISOString() },
+    templates: { test: { ...registeredTemplate, eligibleForTesting: gate && provider } },
+    diagnosticChecks: [
+      { key: 'billing', status: sipOnly ? 'NOT VERIFIED' : 'ACTION REQUIRED', checkedAt: at, source: 'Mocked Meta health GET',
+        reason: sipOnly ? 'Meta aggregate messaging health is BLOCKED, but all four messaging entities are AVAILABLE and every reported error is SIP-only. This is not a messaging restriction; SIP calling remains blocked.' : 'Phone display name is not approved; current messaging capacity is limited.',
+        action: sipOnly ? 'No messaging action is indicated by SIP-only errors; review SIP calling separately if calling is needed.' : 'WhatsApp Manager > Phone numbers > select number > Profile > Display name: review the display-name approval.',
+        evidence: { messagingHealth: sipOnly ? 'BLOCKED' : 'LIMITED', messagingEligibilityMode: sipOnly ? 'AVAILABLE_SIP_ONLY' : 'DISPLAY_NAME_LIMITED', billingLedgerVerified: false, displayNameLimitedCandidate: !sipOnly,
+          entities: ['PHONE_NUMBER', 'WABA', 'BUSINESS', 'APP'].map(type => ({ type, idMasked: '***1234', checkedAt: at,
+            scope: { sourcePhoneNumberIdMasked: '***0686', matchesConfiguredEntity: true },
+            can_send_message: !sipOnly && type === 'PHONE_NUMBER' ? 'LIMITED' : 'AVAILABLE',
+            can_receive_call_sip: ['PHONE_NUMBER', 'APP'].includes(type) ? 'BLOCKED' : 'UNKNOWN',
+            additional_info: !sipOnly && type === 'PHONE_NUMBER' ? [explanation] : [],
+            errors: (sipOnly ? ['PHONE_NUMBER', 'APP'] : ['PHONE_NUMBER']).includes(type) ? [{ code: type === 'APP' ? 138025 : 138024, channel: 'calling_sip', description: 'SIP calling not configured' }] : [] })) } },
+      { key: 'sender', status: 'UNKNOWN', checkedAt: at, source: 'Mocked Meta phone and WABA GET', reason: 'Sender status is CONNECTED; OTP code status is separate.',
+        evidence: { senderStatus: 'CONNECTED', codeVerificationStatus: 'NOT_VERIFIED', businessVerificationStatus: 'VERIFIED', nameStatus: 'PENDING_REVIEW',
+          qualityRating: 'GREEN', qualityDisplay: 'HIGH', messagingLimitTier: 'TIER_250', messagingLimitDescription: '250 unique recipients per rolling 24 hours' } },
+    ],
+  } }));
+  await page.goto('/admin/integrations/whatsapp');
+  const diagnostic = page.getByRole('region', { name: 'Messaging diagnostics' });
+  if (sipOnly) {
+    await expect(diagnostic.getByText('BLOCKED', { exact: true })).toBeVisible();
+    await expect(diagnostic.getByText('AVAILABLE_SIP_ONLY', { exact: true })).toBeVisible();
+    await expect(diagnostic).toContainText('This is not a messaging restriction');
+  } else await expect(diagnostic.getByText(explanation, { exact: true })).toBeVisible();
+  await expect(diagnostic.getByText('Not verified; no current debt inferred', { exact: true })).toBeVisible();
+  await expect(diagnostic.getByText(/^SIP calling error 138024:/)).toBeVisible();
+  await expect(diagnostic.getByText('PENDING_REVIEW', { exact: true })).toBeVisible();
+  if (!sipOnly) await expect(diagnostic).toContainText('Profile > Display name');
+  await expect(diagnostic).toContainText('250 unique recipients per rolling 24 hours');
+  await openSection(page, 'Test Messages');
+  await page.getByLabel('Consenting test recipient').fill('+14155552671');
+  await page.getByLabel(/I verified that the recipient provided this number/).check();
+  const send = page.getByRole('button', { name: 'Send approved test template', exact: true });
+  if (scenario === 'eligible') await expect(send).toBeEnabled();
+  else await expect(send).toBeDisabled();
+  expect(calls.sent).toEqual([]);
+});
+
 test('all seven diagnostic refresh actions request and display fresh backend evidence', async ({ page }) => {
   const calls = await mockApi(page);
   const requested: string[] = [];
   const scopes = [
-    ['configuration', 'Application configuration'], ['billing', 'Meta billing evidence'],
+    ['configuration', 'Application configuration'], ['billing', 'Messaging health and billing'],
     ['sender', 'Sender and business status'], ['templates', 'Template eligibility'],
     ['webhook', 'App-level webhook subscription'], ['worker', 'Worker status and configuration'], ['outbox', 'Outbox status'],
   ];
