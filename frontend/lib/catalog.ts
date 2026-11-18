@@ -135,6 +135,12 @@ export type CatalogProduct = {
     occasion?: string;
     gender?: string;
     material?: string;
+    components?: string;
+    fit?: string;
+    composition?: string;
+    care?: string;
+    disclaimer?: string | string[];
+    productDisclaimer?: string | string[];
     customizationInformation?: string;
     [key: string]: unknown;
   };

@@ -16,9 +16,11 @@ import {
   X,
   ZoomIn,
   ZoomOut,
+  MessageCircle, Scissors, Layers, Video, Truck,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Footer } from "@/components/home/footer";
 import { StickyHeader } from "@/components/home/sticky-header";
@@ -46,6 +48,13 @@ import {
 import { cloudinaryImageUrl } from "@/lib/utils";
 import { PriceCurrencyRow } from "@/components/commerce/price-currency-row";
 import { AiTryon } from "@/components/products/ai-tryon";
+import { colourSwatchValue, useColourSwatches } from "@/lib/colour-swatches";
+import { productDisclaimerText } from "@/lib/product-editor";
+import { FloatingProductChat } from "@/components/products/floating-product-chat";
+import { SizeSelectionDialog } from "@/components/products/size-selection-dialog";
+import { productWhatsappHref, useProductWhatsapp } from "@/lib/product-assistance";
+
+const productDetailLabelClass = "text-xs uppercase tracking-[0.24em] text-charcoal/45";
 
 function textValue(value: unknown) {
   if (Array.isArray(value)) return value.filter(Boolean).join(", ");
@@ -105,6 +114,14 @@ function isRunwayCollection(collection: ManagedCollection) {
 }
 
 export function ProductDetailPage({ productId, initialVariantId = "" }: { productId: string; initialVariantId?: string }) {
+  const colourSwatches = useColourSwatches();
+  const whatsappNumber = useProductWhatsapp();
+  const router = useRouter();
+  const [sizePromptOpen, setSizePromptOpen] = useState(false);
+  const pendingPurchase = useRef<"cart" | "buy" | null>(null);
+  const purchaseBusy = useRef(false);
+  const [productUrl, setProductUrl] = useState("");
+  useEffect(() => { setProductUrl(window.location.href); }, [productId, initialVariantId]);
   const [product, setProduct] = useState<CatalogProduct | null>(null);
   const [collections, setCollections] = useState<ManagedCollection[]>([]);
   const [relatedProducts, setRelatedProducts] = useState<CatalogProduct[]>([]);
@@ -113,6 +130,7 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
   const [selectedVariantId, setSelectedVariantId] = useState("");
   const [selectedSize, setSelectedSize] = useState("");
   const [customSizeOpen, setCustomSizeOpen] = useState(false);
+  const customSizeDialogRef = useRef<HTMLDivElement>(null);
   const [customSizeError, setCustomSizeError] = useState("");
   const [customOrderOpen, setCustomOrderOpen] = useState(false);
   const [customOrderName, setCustomOrderName] = useState("");
@@ -165,6 +183,8 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
   }, [product, selectedVariantId]);
 
   useEffect(() => {
+    pendingPurchase.current = null;
+    setSizePromptOpen(false);
     setProduct(null);
     setCollections([]);
     setRelatedProducts([]);
@@ -258,6 +278,29 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
       document.body.style.overflow = previousOverflow;
     };
   }, [customOrderOpen, customSizeOpen]);
+
+  useEffect(() => {
+    if (!customSizeOpen) return;
+    const dialog = customSizeDialogRef.current;
+    const previous = document.activeElement as HTMLElement | null;
+    const focusable = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex="0"]') || []);
+    focusable()[0]?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        pendingPurchase.current = null;
+        setCustomSizeOpen(false);
+      }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => { document.removeEventListener("keydown", onKeyDown); previous?.focus(); };
+  }, [customSizeOpen]);
 
   useEffect(() => {
     const sync = () =>
@@ -488,10 +531,13 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
     setCustomOrderOpen(true);
   };
   const chooseVariant = (variantId: string) => {
+    pendingPurchase.current = null;
+    setSizePromptOpen(false);
     setSelectedVariantId(variantId);
     const nextUrl = new URL(window.location.href);
     nextUrl.searchParams.set("variant", variantId);
     window.history.replaceState(window.history.state, "", nextUrl);
+    setProductUrl(nextUrl.href);
     setActiveImage(0);
     setSelectedSize("");
     setCustomMeasurements({});
@@ -536,7 +582,13 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
         value: selectedPrice,
       });
   };
-  const addToCart = () => {
+  const addToCart = (action: "cart" | "buy" = "cart", size = selectedSize, measurements = customMeasurements) => {
+    if (purchaseBusy.current) return;
+    if (showSizeSelector && !size && !measurements._customReady) {
+      pendingPurchase.current = action;
+      setSizePromptOpen(true);
+      return;
+    }
     if (!requireSignIn()) return;
     if (!selectedVariant || selectedVariant.status !== "active") {
       setMessage("Please choose an available colour.");
@@ -546,20 +598,18 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
       setMessage("This colour does not have a valid price yet.");
       return;
     }
-    if (showSizeSelector && !selectedSize && !customMeasurements._customReady) {
-      setMessage("Please select a size.");
-      return;
-    }
-    const customSize = customMeasurements._customReady
+    const customSize = measurements._customReady
       ? {
           unit: customSizeUnit,
           measurements: Object.fromEntries(
-            Object.entries(customMeasurements).filter(
+            Object.entries(measurements).filter(
               ([key]) => key !== "_customReady",
             ),
           ),
         }
       : undefined;
+    purchaseBusy.current = true;
+    window.setTimeout(() => { purchaseBusy.current = false; }, 400);
     addStoredCartItem({
       productId: product.id,
       productCode:
@@ -573,8 +623,8 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
       quantity,
       image: media[0],
       availability: availabilityLabels[selectedAvailability],
-      shippingMode: shippingTimeline.mode,
-      size: selectedSize || undefined,
+      shippingMode: productShippingTimeline(product, selectedVariant, Boolean(measurements._customReady)).mode,
+      size: size || undefined,
       sizeOptions: sizes,
       sizeStock: Object.fromEntries(
         sizeInventory.map((entry) => [entry.size, entry.stock]),
@@ -599,6 +649,7 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
       quantity,
     });
     setMessage("Added to your shopping bag.");
+    if (action === "buy") router.push("/checkout");
   };
   const submitCustomOrder = async () => {
     if (!customOrderName.trim()) {
@@ -678,6 +729,9 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
     setCustomMeasurements((current) => ({ ...current, _customReady: "true" }));
     setCustomSizeOpen(false);
     setMessage("Custom measurements saved.");
+    const action = pendingPurchase.current;
+    pendingPurchase.current = null;
+    if (action) addToCart(action, "", { ...customMeasurements, _customReady: "true" });
   };
   const attributes = product.attributes || {};
   const attributeText = (...keys: string[]) => keys.map((key) => textValue(attributes[key])).find(Boolean) || '';
@@ -688,37 +742,20 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
       attributes.descriptionDetails ||
       attributes.longDescription,
   );
-  const fabric = attributeText('fabric', 'composition', 'fabricComposition');
   const material = attributeText('material');
   const construction = attributeText('customizationInformation');
-  const setContents = attributeText('setContents', 'includes', 'productIncludes', 'components');
+  const setContents = attributeText('components', 'setContents', 'includes', 'productIncludes');
   const fit = attributeText('fit', 'fitDetails', 'silhouette');
   const garmentMeasurements = attributeText('garmentMeasurements', 'measurements', 'measurementNotes');
   const care = attributeText('care', 'careInstructions');
   const assistance = attributeText('madeToOrder', 'madeToOrderInformation', 'clientService');
+  const composition = attributeText('composition', 'fabricComposition', 'fabric');
+  const productAttributes = [['Components', setContents], ['Fit', fit], ['Composition', composition], ['Care', care]].filter(([, value]) => value.trim());
+  const disclaimer = productDisclaimerText(product);
+  const whatsappHref = productWhatsappHref(whatsappNumber, product.name || 'this piece', productUrl);
   const informationSections = [
-    ...(setContents ? [{
-      id: 'composition',
-      label: 'Fabric & Contents',
-      content: <div className="space-y-4 text-sm leading-7 text-charcoal/65">{fabric ? <p><span className="mr-2 text-[0.62rem] uppercase tracking-[0.2em] text-charcoal/45">Fabric</span>{fabric}</p> : null}{setContents ? <p><span className="mr-2 text-[0.62rem] uppercase tracking-[0.2em] text-charcoal/45">Set includes</span>{setContents}</p> : null}</div>,
-    }] : []),
-    ...(fit || garmentMeasurements ? [{
-      id: 'fit',
-      label: 'Fit & Measurements',
-      content: <div className="space-y-4 text-sm leading-7 text-charcoal/65">{fit ? <p>{fit}</p> : null}{garmentMeasurements ? <p>{garmentMeasurements}</p> : null}<SizeChartPopover /></div>,
-    }] : []),
-    ...(care ? [{ id: 'care', label: 'Care', content: <p className="text-sm leading-7 text-charcoal/65">{care}</p> }] : []),
+    ...(garmentMeasurements ? [{ id: 'measurements', label: 'Fit & Measurements', content: <p className="text-sm leading-7 text-charcoal/65">{garmentMeasurements}</p> }] : []),
     ...(assistance ? [{ id: 'assistance', label: 'Made to Order & Assistance', content: <p className="text-sm leading-7 text-charcoal/65">{assistance}</p> }] : []),
-    {
-      id: "disclaimer",
-      label: "Disclaimer",
-      content: (
-        <div className="space-y-3 text-sm leading-7 text-charcoal/65">
-          <p>Colours and textures may vary slightly due to screen settings and the handcrafted nature of our garments. Product-specific inclusions and customisation details are stated on the product page.</p>
-          <Link href="/legal" className="inline-block border-b border-charcoal/30 pb-0.5 text-xs uppercase tracking-[0.16em] text-charcoal transition hover:border-gold hover:text-gold">Terms &amp; Conditions</Link>
-        </div>
-      ),
-    },
   ];
 
   return (
@@ -890,50 +927,63 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
               {product.name || "Untitled piece"}
             </h1>
             {shortDescription ? (
-              <p className="mt-5 max-w-[34rem] text-base font-semibold leading-7 text-charcoal">
+              <p className="mt-5 text-sm font-semibold uppercase leading-6 tracking-[0.02em] text-charcoal sm:text-base">
                 {shortDescription}
               </p>
             ) : null}
-            {selectedSku ? (
-              <p className="mt-5 text-xs uppercase tracking-[0.24em] text-charcoal/45">
-                SKU: {selectedSku}
-              </p>
-            ) : null}
-            {product.styleCode ? (
-              <p className="mt-2 text-xs uppercase tracking-[0.24em] text-charcoal/45">
-                Style Code: {product.styleCode}
+            {product.styleCode || selectedSku ? (
+              <p className={`mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 ${productDetailLabelClass}`}>
+                {product.styleCode ? <span>Style Code: {product.styleCode}</span> : null}
+                {selectedSku ? <span className="inline-flex items-center gap-x-3">{product.styleCode ? <span aria-hidden="true">|</span> : null}<span>SKU: {selectedSku}</span></span> : null}
               </p>
             ) : null}
             {productDescription || detailedDescription ? (
-              <p className="mt-6 max-w-[34rem] text-[0.95rem] leading-7 text-charcoal/68">
+              <p className="mt-6 text-[0.95rem] leading-7 text-charcoal/68">
                 {productDescription || detailedDescription}
               </p>
             ) : null}
             {material || construction ? (
-              <div className="mt-6 space-y-3 border-t border-black/10 pt-5 text-sm leading-7 text-charcoal/68">
-                {material ? <p><span className="mr-2 text-[0.62rem] uppercase tracking-[0.2em] text-charcoal/45">Material</span>{material}</p> : null}
-                {construction ? <p><span className="mr-2 text-[0.62rem] uppercase tracking-[0.2em] text-charcoal/45">Construction</span>{construction}</p> : null}
-              </div>
+              <dl aria-label="Material and construction" className="mt-6 grid grid-cols-1 items-baseline gap-x-3 gap-y-3 border-t border-black/10 pt-5 text-sm leading-7 text-charcoal/68 sm:grid-cols-[9rem_minmax(0,1fr)]">
+                {material ? <><dt className={productDetailLabelClass}>Material:</dt><dd className="min-w-0 break-words">{material}</dd></> : null}
+                {construction ? <><dt className={productDetailLabelClass}>Construction:</dt><dd className="min-w-0 break-words">{construction}</dd></> : null}
+              </dl>
             ) : null}
-            {variantOptions.length > 1 ? (
-              <label className="mt-5 block max-w-xs text-[0.58rem] uppercase tracking-[0.24em] text-charcoal/50">
-                Colour
-                <select
-                  value={selectedVariant?.id ?? ""}
-                  onChange={(event) => chooseVariant(event.target.value)}
-                  className="mt-2 w-full border border-black/15 bg-transparent px-3 py-3 text-sm normal-case tracking-normal text-charcoal outline-none transition focus:border-gold dark:border-white/20"
-                >
-                  {variantOptions.map((variant) => (
-                    <option key={variant.id} value={variant.id}>
-                      {normalizeColour(variant.colour) || "DEFAULT"}
-                      {variant.status === "inactive" ? " — Sold out" : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            {productAttributes.length ? <dl aria-label="Product attributes" className="mt-5 grid grid-cols-1 gap-x-6 gap-y-4 border-y border-black/10 py-5 min-[380px]:grid-cols-2 xl:grid-cols-3">
+              {productAttributes.map(([label, value]) => <div key={label} className="min-w-0"><dt className={productDetailLabelClass}>{label}:</dt><dd className="mt-2 break-words text-sm leading-6 text-charcoal/68">{value}</dd></div>)}
+            </dl> : null}
+
+            {variantOptions.length ? (
+              <div role="group" aria-labelledby="product-colour-label" data-product-selection-controls className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span id="product-colour-label" className={productDetailLabelClass}>Colour:</span>
+                <div className="flex flex-wrap items-center">
+                  {variantOptions.map((variant) => {
+                    const colour = normalizeColour(variant.colour) || "DEFAULT";
+                    const label = `${colour}${variant.status === "inactive" ? " — Sold out" : ""}`;
+                    return (
+                      <label key={variant.id} title={label} className="relative inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center">
+                        <input
+                          type="radio"
+                          name="product-colour"
+                          value={variant.id}
+                          checked={selectedVariant?.id === variant.id}
+                          onChange={() => chooseVariant(variant.id)}
+                          aria-label={label}
+                          className="peer sr-only"
+                        />
+                        <span
+                          aria-hidden="true"
+                          className="h-5 w-5 rounded-full border border-black/20 ring-offset-2 ring-offset-ivory transition peer-checked:ring-1 peer-checked:ring-charcoal peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-[5px] peer-focus-visible:outline-charcoal"
+                          style={{ backgroundColor: colourSwatchValue(variant.colour, colourSwatches) || "#b7aa99" }}
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+                <span aria-live="polite" className="text-xs text-charcoal/68">{selectedColour || "DEFAULT"}{soldOut ? " — Sold out" : ""}</span>
+              </div>
             ) : selectedColour ? (
-              <p className="mt-2 text-xs uppercase tracking-[0.2em] text-charcoal/55">
-                <span className="text-charcoal/40">Colour:</span>{" "}
+              <p className="mt-2 text-xs text-charcoal/68">
+                <span className={productDetailLabelClass}>Colour:</span>{" "}
                 {selectedColour}
               </p>
             ) : null}
@@ -954,9 +1004,12 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
                 </p>
               </div>
             ) : null}
+            <div data-product-selection-controls className="mt-6 flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-6">
+              <div className="min-w-0 flex-1">
             {showSizeSelector ? (
-              <fieldset className="mt-6">
+              <fieldset className="min-w-0">
                 <legend className="sr-only">Choose a size</legend>
+                <div data-product-size-options className="w-fit max-w-full">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/50">
                     Size
@@ -985,6 +1038,7 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
                     );
                   })}
                 </div>
+                </div>
                 {customSizeFields.length && !soldOut ? (
                   <button
                     type="button"
@@ -1000,7 +1054,7 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
               <button
                 type="button"
                 onClick={() => setCustomSizeOpen(true)}
-                className="mt-6 inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.58rem] uppercase tracking-[0.22em] text-charcoal/70 transition hover:border-gold hover:text-gold"
+                className="inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.58rem] uppercase tracking-[0.22em] text-charcoal/70 transition hover:border-gold hover:text-gold"
               >
                 <Ruler size={14} />
                 Want a custom size?
@@ -1011,15 +1065,13 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
                 Custom measurements added to this piece.
               </p>
             ) : null}
-            <div className="mt-6">
-              <ShippingTimeline timeline={shippingTimeline} explainModels />
-            </div>
+              </div>
             {!soldOut && !runwayCustomOrder ? (
-              <div className="mt-6 flex items-center justify-between border-y border-black/12 py-3 dark:border-white/15">
-                <span className="text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/50">
+              <div role="group" aria-labelledby="product-quantity-label" className="flex shrink-0 flex-col items-start sm:items-end">
+                <span id="product-quantity-label" className="text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/50">
                   Quantity
                 </span>
-                <div className="flex items-center gap-4">
+                <div className="mt-3 flex h-[2.625rem] items-center gap-3">
                   <button
                     type="button"
                     disabled={quantity <= 1}
@@ -1027,13 +1079,13 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
                       setQuantity((value) => Math.max(1, value - 1))
                     }
                     aria-label="Decrease quantity"
-                    className="grid h-8 w-8 place-items-center border border-black/15 transition hover:border-gold disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/20"
+                    className="grid h-10 w-10 place-items-center border border-black/15 transition hover:border-gold disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/20"
                   >
                     <Minus size={13} />
                   </button>
-                  <span className="min-w-5 text-center text-sm">
+                  <output aria-live="polite" aria-label="Selected quantity" className="min-w-5 text-center text-sm">
                     {quantity}
-                  </span>
+                  </output>
                   <button
                     type="button"
                     disabled={quantity >= 50}
@@ -1041,19 +1093,21 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
                       setQuantity((value) => Math.min(50, value + 1))
                     }
                     aria-label="Increase quantity"
-                    className="grid h-8 w-8 place-items-center border border-black/15 transition hover:border-gold disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/20"
+                    className="grid h-10 w-10 place-items-center border border-black/15 transition hover:border-gold disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/20"
                   >
                     <Plus size={13} />
                   </button>
                 </div>
               </div>
             ) : null}
-            <div className="mt-6 grid grid-cols-[1fr_auto] gap-3">
+            </div>
+            <div data-product-purchase-controls className="mt-5 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 sm:gap-3">
+              {!runwayCustomOrder ? <button type="button" disabled={soldOut} onClick={() => addToCart("buy")} className="min-h-12 bg-ink px-3 py-3.5 text-[0.62rem] uppercase tracking-[0.18em] text-ivory transition hover:bg-gold hover:text-ink disabled:cursor-not-allowed disabled:opacity-45">Buy now</button> : null}
               <button
                 type="button"
                 disabled={soldOut && !runwayCustomOrder}
-                onClick={runwayCustomOrder ? requestCustomOrder : addToCart}
-                className="inline-flex items-center justify-center gap-3 bg-ink px-5 py-3.5 text-[0.62rem] uppercase tracking-[0.26em] text-ivory transition hover:bg-gold hover:text-ink disabled:cursor-not-allowed disabled:opacity-45"
+                onClick={runwayCustomOrder ? requestCustomOrder : () => addToCart()}
+                className={`inline-flex min-h-12 items-center justify-center gap-2 border border-charcoal/30 px-3 py-3.5 text-[0.62rem] uppercase tracking-[0.16em] text-charcoal transition hover:border-gold hover:text-gold disabled:cursor-not-allowed disabled:opacity-45 ${runwayCustomOrder ? "col-span-2" : ""}`}
               >
                 {runwayCustomOrder ? (
                   <Mail size={16} />
@@ -1071,7 +1125,7 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
                 onClick={saveProduct}
                 aria-pressed={saved}
                 aria-label={saved ? "Remove from wishlist" : "Add to wishlist"}
-                className="grid w-14 place-items-center border border-black/15 transition hover:border-gold hover:text-gold dark:border-white/20"
+                className="grid w-11 place-items-center border border-black/15 transition hover:border-gold hover:text-gold dark:border-white/20"
               >
                 <Heart
                   size={18}
@@ -1083,6 +1137,17 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
             {message ? (
               <p className="mt-4 text-xs text-gold">{message}</p>
             ) : null}
+            <div className="mt-6"><ShippingTimeline timeline={shippingTimeline} explainModels collapsible /></div>
+            {disclaimer ? <section aria-label="Disclaimer" className="mt-5 border-b border-black/10 pb-5"><h2 className={productDetailLabelClass}>Disclaimer:</h2><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-charcoal/65">{disclaimer}</p></section> : null}
+            <section aria-label="Product assistance" className="mt-5 grid bg-sand/30 xl:grid-cols-[minmax(0,1fr)_11rem]">
+              <div className="grid gap-5 p-4 sm:grid-cols-2">{[
+                { Icon: Scissors, title: 'Customisations', copy: 'Same style in a bespoke color' },
+                { Icon: Layers, title: "Don't want the whole set?", copy: 'Buy only one item from the look' },
+                { Icon: Video, title: 'Live Product Preview', copy: 'Call us to see the product live.' },
+                { Icon: Truck, title: 'Early Delivery', copy: 'Need the product sooner?' },
+              ].map(({ Icon, title, copy }) => <div key={title} className="flex items-start gap-3"><Icon aria-hidden="true" size={17} strokeWidth={1.25} className="mt-0.5 shrink-0 text-charcoal/55" /><div><h3 className="text-xs font-medium leading-5">{title}</h3><p className="mt-1 text-xs leading-5 text-charcoal/65">{copy}</p></div></div>)}</div>
+              {whatsappHref ? <div className="grid grid-cols-[minmax(0,1fr)_auto] items-stretch border-t border-black/10 xl:flex xl:flex-col xl:border-l xl:border-t-0"><p className="p-4 text-xs leading-5 text-charcoal/65">Do you need help with customisation or shipping of this product?</p><a href={whatsappHref} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center justify-center gap-2 border-l border-black/10 bg-sand/25 px-3 xl:mt-auto xl:border-l-0 xl:border-t xl:py-3 text-[0.58rem] uppercase tracking-[0.14em] hover:border-gold hover:text-gold"><MessageCircle size={14} />Chat with us</a></div> : null}
+            </section>
             {informationSections.length ? (
               <div className="mt-8 border-t border-black/12 dark:border-white/15">
                 {informationSections.map((section) => (
@@ -1158,6 +1223,13 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
         </section>
       ) : null}
     <Footer />
+    <FloatingProductChat href={whatsappHref} hidden={sizePromptOpen || customSizeOpen || customOrderOpen} />
+    <SizeSelectionDialog open={sizePromptOpen} sizes={sizes} custom={Boolean(customSizeFields.length)} onClose={() => { setSizePromptOpen(false); pendingPurchase.current = null; }} onSelect={size => {
+      const action = pendingPurchase.current;
+      pendingPurchase.current = null;
+      setSelectedSize(size); setCustomMeasurements({}); setMessage(""); setSizePromptOpen(false);
+      if (action) addToCart(action, size, {});
+    }} onCustom={() => { setSizePromptOpen(false); setCustomSizeOpen(true); }} />
     <AnimatePresence>
         {customSizeOpen ? (
           <motion.div
@@ -1165,7 +1237,7 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         className="fixed inset-0 z-[110] grid place-items-center bg-ink/65 p-4"
-        onClick={() => setCustomSizeOpen(false)}
+        onClick={() => { pendingPurchase.current = null; setCustomSizeOpen(false); }}
       >
         <motion.div
           initial={{ y: 18, opacity: 0 }}
@@ -1175,6 +1247,7 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
           role="dialog"
           aria-modal="true"
           aria-label="Enter custom measurements"
+          ref={customSizeDialogRef}
           className="max-h-[90vh] w-full max-w-lg overflow-y-auto bg-ivory p-6 text-charcoal shadow-2xl sm:p-8"
         >
           <div className="flex items-start justify-between gap-5">
@@ -1188,7 +1261,7 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
             </div>
                 <button
                   type="button"
-                  onClick={() => setCustomSizeOpen(false)}
+                  onClick={() => { pendingPurchase.current = null; setCustomSizeOpen(false); }}
                   aria-label="Close custom measurements"
                 >
                   <X size={19} />

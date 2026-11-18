@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildProductUpdate,
   productDraftFrom,
+  productDisclaimerText,
   productUpdateMismatch,
   verifyMediaRelationshipRemoval,
   verifyProductReadBack,
@@ -36,6 +37,44 @@ const product = {
     { size: "XL", stock: 1, enabled: true },
   ],
 };
+
+test('disclaimer preserves multiline and legacy list content and survives edit/read-back/clear', () => {
+  const legacy = { ...product, attributes: { ...product.attributes, productDisclaimer: ['Handcrafted for you.', 'Colour and texture may vary.'] } };
+  assert.equal(productDisclaimerText(legacy), 'Handcrafted for you.\nColour and texture may vary.');
+  assert.equal(productDraftFrom(legacy).disclaimer, productDisclaimerText(legacy));
+  const draft = { ...productDraftFrom(legacy), disclaimer: 'First paragraph.\n\nSecond paragraph.' };
+  const { payload } = buildProductUpdate(legacy, draft);
+  assert.equal(payload.attributes.disclaimer, draft.disclaimer);
+  assert.equal(payload.attributes.productDisclaimer, draft.disclaimer);
+  const persisted = { ...legacy, attributes: payload.attributes };
+  assert.equal(productUpdateMismatch(persisted, payload), null);
+  assert.equal(productDisclaimerText(persisted), draft.disclaimer);
+  const cleared = buildProductUpdate(persisted, { ...productDraftFrom(persisted), disclaimer: '' }).payload;
+  assert.equal(productDisclaimerText({ attributes: cleared.attributes }), '');
+  assert.equal(productUpdateMismatch({ ...persisted, attributes: { ...cleared.attributes, productDisclaimer: 'stale' } }, cleared), 'disclaimer');
+  assert.equal(productDisclaimerText({ attributes: { disclaimer: '  \n ', productDisclaimer: [] } }), '');
+  const unrelated = buildProductUpdate(legacy, { ...productDraftFrom(legacy), material: 'New material' }).payload;
+  assert.deepEqual(unrelated.attributes.productDisclaimer, legacy.attributes.productDisclaimer);
+});
+
+test("optional couture attributes round-trip through the existing update and read-back contract", () => {
+  const draft = productDraftFrom(product);
+  Object.assign(draft, { components: '2 (Blouse, Lehenga)', fit: 'Fitted at bust', composition: 'Silk', care: 'Dry clean only' });
+  const { payload, error } = buildProductUpdate(product, draft);
+  assert.equal(error, undefined);
+  assert.equal(payload.attributes.components, draft.components);
+  assert.equal(payload.attributes.fit, draft.fit);
+  assert.equal(payload.attributes.composition, draft.composition);
+  assert.equal(payload.attributes.care, draft.care);
+  assert.equal(payload.attributes.material, product.attributes.material);
+  const persisted = { ...product, attributes: payload.attributes };
+  assert.equal(productUpdateMismatch(persisted, payload), null);
+  assert.equal(productDraftFrom(persisted).components, draft.components);
+  const cleared = { ...productDraftFrom(persisted), care: '' };
+  assert.equal(buildProductUpdate(persisted, cleared).payload.attributes.care, '');
+  assert.equal(productUpdateMismatch({ ...persisted, attributes: { ...payload.attributes, care: 'stale' } }, payload), 'care');
+  assert.deepEqual(buildProductUpdate(product, productDraftFrom(product)).payload, {});
+});
 
 test("product editor emits only changed product fields and never stock, SKU or media", () => {
   const draft = productDraftFrom(product);

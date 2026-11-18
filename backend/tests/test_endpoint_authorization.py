@@ -6,6 +6,7 @@ from flask import Flask
 from flask_jwt_extended import JWTManager, create_access_token
 
 from app.blueprints.admin.routes import admin_bp
+from app.catalog import product_view
 from bson import ObjectId
 from app.blueprints.staff.routes import (
     _customer_scope,
@@ -87,6 +88,26 @@ class ProductDatabase:
 
 
 class EndpointAuthorizationTests(unittest.TestCase):
+    def test_disclaimer_admin_update_and_public_serialization_preserve_content(self):
+        admin = {"_id": ObjectId(), "role": "admin", "isActive": True, "permissions": ["*"]}
+        product_id = ObjectId()
+        document = {"_id": product_id, "name": "Couture", "sku": "TEST", "price": 500,
+                    "stock": 0, "status": "active", "availability": "in_stock", "variants": [],
+                    "attributes": {"material": "Silk"}, "media": [], "catalogMedia": []}
+        db = ProductDatabase(document)
+        with patch("app.rbac.current_user", return_value=admin), \
+             patch("app.blueprints.staff.routes.current_user", return_value=admin), \
+             patch("app.blueprints.staff.routes.database", return_value=db), \
+             patch("app.blueprints.staff.routes.sync_product_variants", side_effect=lambda _db, item, force=False: item):
+            for key, content in [("productDisclaimer", ["Handcrafted for you.", "Colour may vary."]),
+                                 ("disclaimer", "First paragraph.\n\nSecond paragraph."), ("disclaimer", "")]:
+                attributes = {"material": "Silk", key: content}
+                response = self.client.patch(f"/api/staff/resources/products/{product_id}", json={"attributes": attributes}, headers=self.headers)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(document["attributes"], attributes)
+                self.assertEqual(response.get_json()["item"]["attributes"], attributes)
+                self.assertEqual(product_view(document)["attributes"], attributes)
+
     def setUp(self):
         app = Flask(__name__)
         app.config.update(TESTING=True, JWT_SECRET_KEY="test-secret-key-that-is-at-least-32-bytes")

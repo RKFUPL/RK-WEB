@@ -5,7 +5,7 @@ import test from 'node:test';
 const detail = readFileSync(new URL('../components/products/product-detail-page.tsx', import.meta.url), 'utf8');
 
 test('product detail renders optional information only from persisted attributes', () => {
-  assert.match(detail, /Fabric & Contents/);
+  assert.match(detail, /aria-label="Product attributes"/);
   assert.match(detail, /Fit & Measurements/);
   assert.match(detail, /Made to Order & Assistance/);
   assert.match(detail, /shortDescription/);
@@ -13,7 +13,7 @@ test('product detail renders optional information only from persisted attributes
   assert.match(detail, /Construction/);
   assert.match(detail, /attributes\[key\]/);
   assert.match(detail, /setContents/);
-  assert.match(detail, /fit \|\| garmentMeasurements/);
+  assert.match(detail, /\['Fit', fit\]/);
 });
 
 test('product detail retains pricing and colour-gallery contracts', () => {

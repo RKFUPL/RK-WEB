@@ -66,7 +66,7 @@ test('product and bag surfaces show item-specific shipping links', () => {
   assert.equal((productPage.match(/<ShippingTimeline\b/g) || []).length, 1);
   assert.match(productPage, /ShippingTimeline timeline=\{shippingTimeline\} explainModels/);
   assert.doesNotMatch(productPage, /id: ["']shipping["']/);
-  assert.match(productPage, /shippingMode: shippingTimeline\.mode/);
+  assert.match(productPage, /shippingMode: productShippingTimeline\(product, selectedVariant, Boolean\(measurements\._customReady\)\)\.mode/);
   assert.match(timelineComponent, /verifiedShippingPolicy\.readyToWear\.label/);
   assert.match(timelineComponent, /verifiedShippingPolicy\.madeToOrder\.label/);
   assert.match(timelineComponent, /These are estimates, not guaranteed delivery dates/);

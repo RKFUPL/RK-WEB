@@ -1,5 +1,15 @@
 import type { CatalogProduct, ProductAvailability } from "./catalog";
 
+/** Preserve paragraph/list boundaries from legacy catalogue attributes. */
+export function productDisclaimerText(product: Pick<CatalogProduct, 'attributes'>): string {
+  for (const value of [product.attributes?.disclaimer, product.attributes?.productDisclaimer]) {
+    const content = typeof value === 'string' ? value : Array.isArray(value)
+      ? value.filter((line): line is string => typeof line === 'string').join('\n') : '';
+    if (content.trim()) return content.trim();
+  }
+  return '';
+}
+
 export type ProductDraft = {
   name: string;
   price: string;
@@ -14,6 +24,11 @@ export type ProductDraft = {
   gender: string;
   material: string;
   customizationInformation: string;
+  components: string;
+  fit: string;
+  composition: string;
+  care: string;
+  disclaimer: string;
   aiTryonEnabled: boolean;
 };
 
@@ -26,6 +41,7 @@ const attributeKeys = [
   "gender",
   "material",
   "customizationInformation",
+  "components", "fit", "composition", "care", "disclaimer",
 ] as const;
 
 function text(value: unknown) {
@@ -58,6 +74,11 @@ export function productDraftFrom(product: CatalogProduct): ProductDraft {
     gender: text(attributes.gender),
     material: text(attributes.material),
     customizationInformation: text(attributes.customizationInformation),
+    components: text(attributes.components),
+    fit: text(attributes.fit),
+    composition: text(attributes.composition),
+    care: text(attributes.care),
+    disclaimer: productDisclaimerText(product),
     aiTryonEnabled: product.aiTryonEnabled === true,
   };
 }
@@ -76,6 +97,11 @@ function normalisedDraft(draft: ProductDraft) {
     gender: text(draft.gender),
     material: text(draft.material),
     customizationInformation: text(draft.customizationInformation),
+    components: text(draft.components),
+    fit: text(draft.fit),
+    composition: text(draft.composition),
+    care: text(draft.care),
+    disclaimer: text(draft.disclaimer),
   };
 }
 
@@ -120,7 +146,16 @@ export function buildProductUpdate(
       gender: next.gender,
       material: next.material,
       customizationInformation: next.customizationInformation,
+      ...Object.fromEntries((["components", "fit", "composition", "care"] as const)
+        .filter(key => next[key] || key in (baseline.attributes || {}))
+        .map(key => [key, next[key]])),
     };
+    if (next.disclaimer !== current.disclaimer) {
+      const attributes = payload.attributes as Record<string, unknown>;
+      attributes.disclaimer = next.disclaimer;
+      // Clearing a legacy disclaimer must not resurrect its old alias.
+      if ("productDisclaimer" in (baseline.attributes || {})) attributes.productDisclaimer = next.disclaimer;
+    }
   }
 
   if (JSON.stringify(next.sizes) !== JSON.stringify(current.sizes)) {
@@ -152,10 +187,12 @@ export function productUpdateMismatch(
   if ("attributes" in payload) {
     const expected = payload.attributes as Record<string, unknown>;
     for (const key of attributeKeys) {
+      if (!(key in expected)) continue;
       if (JSON.stringify(persisted.attributes?.[key] ?? (key === "sizes" || key === "colors" ? [] : "")) !== JSON.stringify(expected[key])) {
         return key;
       }
     }
+    if ("productDisclaimer" in expected && JSON.stringify(persisted.attributes?.productDisclaimer) !== JSON.stringify(expected.productDisclaimer)) return "disclaimer";
   }
   if ("sizeInventory" in payload && JSON.stringify(persisted.sizeInventory || []) !== JSON.stringify(payload.sizeInventory)) {
     return "size inventory";

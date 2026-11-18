@@ -154,6 +154,7 @@ SETTINGS_DEFAULTS = {
     "showStorefrontForex": True,
     "courierOptions": [],
     "colourSwatches": {},
+    "whatsappNumber": "918879597878",
 }
 
 LOOKBOOK_DEFAULTS = {
@@ -753,7 +754,7 @@ def refresh_forex():
 @storefront_lookbooks_bp.get("/storefront-settings")
 def get_public_storefront_settings():
     settings = _settings(database())
-    return jsonify({"settings": {"colourSwatches": _colour_swatches(settings.get("colourSwatches"))}}), 200
+    return jsonify({"settings": {"colourSwatches": _colour_swatches(settings.get("colourSwatches")), "whatsappNumber": settings.get("whatsappNumber", SETTINGS_DEFAULTS["whatsappNumber"])}}), 200
 
 
 @storefront_lookbooks_bp.get("/lookbooks")
@@ -927,6 +928,10 @@ def update_settings():
     low_stock = _integer(payload.get("lowStockThreshold"), -1)
     retention = _integer(payload.get("analyticsRetentionDays"), -1)
     courier_options = payload.get("courierOptions", [])
+    whatsapp_number = str(payload.get("whatsappNumber", _settings(database()).get("whatsappNumber", SETTINGS_DEFAULTS["whatsappNumber"])) or "").strip()
+    whatsapp_number = re.sub(r"[\s()+-]", "", whatsapp_number)
+    if whatsapp_number and not re.fullmatch(r"[1-9][0-9]{7,14}", whatsapp_number):
+        return jsonify({"error": "WhatsApp number must include a country code and 8 to 15 digits, or be empty to disable chat links."}), 400
     if not store_name or (support_email and "@" not in support_email):
         return jsonify({"error": "Store name is required, and support email must be valid when provided."}), 400
     if currency not in {"INR", "USD", "EUR", "GBP"} or timezone_name not in {"Asia/Kolkata", "UTC", "Europe/London", "America/New_York"} or not prefix or low_stock < 0 or retention not in {30, 90, 180, 365, 730}:
@@ -951,6 +956,7 @@ def update_settings():
         "lowStockNotifications": bool(payload.get("lowStockNotifications")),
         "showStorefrontForex": bool(payload.get("showStorefrontForex")),
         "courierOptions": couriers,
+        "whatsappNumber": whatsapp_number,
     }
     actor = current_user()
     database().admin_settings.update_one({"_id": "store"}, {"$set": {**settings, "updatedAt": datetime.now(timezone.utc), "updatedBy": actor["_id"]}}, upsert=True)
