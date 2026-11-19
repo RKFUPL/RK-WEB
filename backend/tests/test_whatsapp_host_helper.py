@@ -197,13 +197,16 @@ def test_expected_permissions_and_root_sticky_lock_directory():
 def test_lock_uses_nofollow_and_rejects_held_lock(monkeypatch, posix_flags):
     opened = Mock(return_value=52)
     closed = Mock()
-    monkeypatch.setattr(host.os, 'open', opened)
-    monkeypatch.setattr(host.os, 'close', closed)
-    monkeypatch.setattr(host.os, 'fstat', lambda _: metadata())
     flock = Mock(side_effect=BlockingIOError())
-    monkeypatch.setitem(sys.modules, 'fcntl', SimpleNamespace(flock=flock, LOCK_EX=2, LOCK_NB=4))
-    with pytest.raises(BlockingIOError):
-        host.lock_file(17, 'rk-whatsapp-worker')
+    # os is shared with pytest. Restore the incomplete fstat mock before pytest
+    # snapshots captured output or formats any later assertion failure.
+    with monkeypatch.context() as patch:
+        patch.setattr(host.os, 'open', opened)
+        patch.setattr(host.os, 'close', closed)
+        patch.setattr(host.os, 'fstat', lambda _: metadata())
+        patch.setitem(sys.modules, 'fcntl', SimpleNamespace(flock=flock, LOCK_EX=2, LOCK_NB=4))
+        with pytest.raises(BlockingIOError):
+            host.lock_file(17, 'rk-whatsapp-worker')
     flags = opened.call_args.args[1]
     assert flags & os.O_NOFOLLOW and flags & os.O_CLOEXEC
     assert opened.call_args.kwargs['dir_fd'] == 17
@@ -226,15 +229,18 @@ def test_atomic_replace_permissions_fsync_and_fixed_target(monkeypatch, posix_fl
         def close(self):
             content.append(self.getvalue())
             super().close()
-    monkeypatch.setattr(host.os, 'stat', lambda *args, **kwargs: metadata())
-    monkeypatch.setattr(host.os, 'open', lambda *args, **kwargs: operations.append(('open', args, kwargs)) or 52)
-    monkeypatch.setattr(host.os, 'fchown', lambda *args: operations.append(('chown', args)), raising=False)
-    monkeypatch.setattr(host.os, 'fchmod', lambda *args: operations.append(('chmod', args)), raising=False)
-    monkeypatch.setattr(host.os, 'fstat', lambda _: metadata())
-    monkeypatch.setattr(host.os, 'fdopen', lambda *args, **kwargs: Output())
-    monkeypatch.setattr(host.os, 'fsync', lambda value: operations.append(('fsync', value)))
-    monkeypatch.setattr(host.os, 'replace', lambda *args, **kwargs: operations.append(('replace', args, kwargs)))
-    host.atomic_replace(17, PINS)
+    # Keep process-wide os mocks local to the helper invocation so pytest's
+    # capture and traceback machinery continue to receive real stat results.
+    with monkeypatch.context() as patch:
+        patch.setattr(host.os, 'stat', lambda *args, **kwargs: metadata())
+        patch.setattr(host.os, 'open', lambda *args, **kwargs: operations.append(('open', args, kwargs)) or 52)
+        patch.setattr(host.os, 'fchown', lambda *args: operations.append(('chown', args)), raising=False)
+        patch.setattr(host.os, 'fchmod', lambda *args: operations.append(('chmod', args)), raising=False)
+        patch.setattr(host.os, 'fstat', lambda _: metadata())
+        patch.setattr(host.os, 'fdopen', lambda *args, **kwargs: Output())
+        patch.setattr(host.os, 'fsync', lambda value: operations.append(('fsync', value)))
+        patch.setattr(host.os, 'replace', lambda *args, **kwargs: operations.append(('replace', args, kwargs)))
+        host.atomic_replace(17, PINS)
     assert content == [host.pin_text(PINS)]
     assert ('chown', (52, 0, 0)) in operations
     assert ('chmod', (52, 0o600)) in operations
@@ -246,11 +252,12 @@ def test_atomic_replace_permissions_fsync_and_fixed_target(monkeypatch, posix_fl
 
 @pytest.mark.parametrize('info', [metadata(mode=stat.S_IFLNK | 0o777), metadata(uid=1000), metadata(mode=stat.S_IFREG | 0o644), metadata(links=2)])
 def test_existing_symlink_or_wrong_permissions_rejected_before_write(monkeypatch, posix_flags, info):
-    monkeypatch.setattr(host.os, 'stat', lambda *args, **kwargs: info)
     opened = Mock()
-    monkeypatch.setattr(host.os, 'open', opened)
-    with pytest.raises(host.Blocked):
-        host.atomic_replace(17, PINS)
+    with monkeypatch.context() as patch:
+        patch.setattr(host.os, 'stat', lambda *args, **kwargs: info)
+        patch.setattr(host.os, 'open', opened)
+        with pytest.raises(host.Blocked):
+            host.atomic_replace(17, PINS)
     opened.assert_not_called()
 
 
@@ -328,14 +335,19 @@ def test_linux_atomic_replace_preserves_file_until_all_validations_pass(tmp_path
     target = tmp_path / 'images.env'
     target.write_text('old-pins')
     real_fstat = os.fstat
-    monkeypatch.setattr(host, 'check_pin_file', lambda _: None)
-    monkeypatch.setattr(host.os, 'fchown', lambda *_: None)
-    monkeypatch.setattr(host.os, 'fstat', lambda descriptor: metadata(mode=real_fstat(descriptor).st_mode))
     try:
-        with pytest.raises(host.Blocked):
-            host.atomic_replace(directory, {**PINS, 'RK_BACKEND_IMAGE': 'latest'})
+        with monkeypatch.context() as patch:
+            patch.setattr(host, 'check_pin_file', lambda _: None)
+            patch.setattr(host.os, 'fchown', lambda *_: None)
+            patch.setattr(host.os, 'fstat', lambda descriptor: metadata(mode=real_fstat(descriptor).st_mode))
+            with pytest.raises(host.Blocked):
+                host.atomic_replace(directory, {**PINS, 'RK_BACKEND_IMAGE': 'latest'})
         assert target.read_text() == 'old-pins'
-        host.atomic_replace(directory, PINS)
+        with monkeypatch.context() as patch:
+            patch.setattr(host, 'check_pin_file', lambda _: None)
+            patch.setattr(host.os, 'fchown', lambda *_: None)
+            patch.setattr(host.os, 'fstat', lambda descriptor: metadata(mode=real_fstat(descriptor).st_mode))
+            host.atomic_replace(directory, PINS)
         assert target.read_text() == host.pin_text(PINS)
         assert stat.S_IMODE(target.stat().st_mode) == 0o600
         assert list(tmp_path.iterdir()) == [target]
