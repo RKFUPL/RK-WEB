@@ -9,6 +9,9 @@ const careers = read('../components/home/newsletter.tsx');
 const careersPage = read('../app/careers/page.tsx');
 const footer = read('../components/home/footer.tsx');
 const header = read('../components/home/sticky-header.tsx');
+const normalizeEditorialMarkup = (source) => source
+  .replace(/<br\s*\/?\s*>|<\/?span\b[^>]*>/gi, ' ')
+  .replace(/\s+/g, ' ');
 
 test('homepage hero keeps photography clear of right-side editorial metadata', () => {
   assert.doesNotMatch(hero, /Indian couture/);
@@ -19,9 +22,7 @@ test('homepage hero keeps photography clear of right-side editorial metadata', (
 });
 
 test('collection and careers sections retain the approved editorial copy', () => {
-  assert.match(collections, /Where the art of/);
-  assert.match(collections, /draping meets/);
-  assert.match(collections, /timeless luxury\./);
+  assert.match(normalizeEditorialMarkup(collections), /Where the art of draping meets timeless luxury\./);
   assert.match(collections, /An expression of our design philosophy/);
   assert.match(careers, /An Invitation into Our World/);
   assert.match(careers, /Your vision belongs here\./);
