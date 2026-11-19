@@ -62,7 +62,7 @@ def test_distinct_part_payments_dispatch_distinct_immutable_transaction_events(o
     assert process_outbox(c.db, c.app.config) == 2
     assert c.http.call_count == 2
     bodies = [call.kwargs["json"]["template"]["components"][0]["parameters"] for call in c.http.call_args_list]
-    assert [body[-1]["text"] for body in bodies] == ["INR 1,150.00", "INR 1,050.00"]
+    assert [body[-1]["text"] for body in bodies] == ["1,150.00", "1,050.00"]
 
 
 def test_reversal_appends_audit_and_worker_rejects_reversed_receipt(order_case):

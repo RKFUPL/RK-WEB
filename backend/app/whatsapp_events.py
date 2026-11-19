@@ -31,21 +31,32 @@ def event_values(event, record):
     number = str(record.get("orderNumber") or "").strip()
     name = str(record.get("customerName") or "").strip()
     values = {"customer_name": name, "order_number": number}
-    from .manual_payments import payment_summary, MANUAL_PAYMENT_EVENTS
+    from .manual_payments import is_manual, payment_summary, MANUAL_PAYMENT_EVENTS
     from .whatsapp_catalogue import STATUS_UPDATE_EVENTS
     if event == "order_placed":
         if record.get("paymentGateway") != "manual" or not record.get("createdAt") or status != "order_placed" or payment_summary(record)["status"] != "pending":
             raise ValueError("manual_order_not_placed")
-        values["order_total"] = money(record.get("total"), record.get("currency", "INR"))
-    elif event in STATUS_UPDATE_EVENTS:
+        values["order_total"] = money(record.get("total"), "").strip()
+        items = record.get("items") if isinstance(record.get("items"), list) else []
+        summaries = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("name") or item.get("productCode") or "Item").strip()[:120]
+            quantity = int(item.get("quantity") or 1)
+            summaries.append(f"{label} x {quantity}")
+        values["items_summary"] = (", ".join(summaries) or "your selected pieces")[:500]
+    elif event in {"order_accepted", "order_rejected", "processing", "packed"} | MANUAL_PAYMENT_EVENTS:
         summary = payment_summary(record)
         if event in MANUAL_PAYMENT_EVENTS:
             transaction = record.get("whatsappPayment") or {}
-            if (not transaction or transaction not in record.get("paymentTransactions", []) or transaction.get("event") != event
+            if (not is_manual(record) or not transaction or transaction not in record.get("paymentTransactions", []) or transaction.get("event") != event
                     or any(t.get("reverses") == transaction.get("id") for t in record.get("paymentTransactions", []))):
                 raise ValueError("payment_transaction_not_recorded")
-            summary = {"status": "paid" if transaction["balancePaise"] == 0 else "partial",
-                       "received": transaction["receivedPaise"] / 100, "balanceDue": transaction["balancePaise"] / 100}
+            # Recompute this receipt's cumulative position from the immutable
+            # ledger, never caller values or cached client-calculated balances.
+            receipt_index = next(index for index, entry in enumerate(record["paymentTransactions"]) if entry.get("id") == transaction["id"])
+            summary = payment_summary({**record, "paymentTransactions": record["paymentTransactions"][:receipt_index + 1]})
         else:
             expected = {"order_accepted": "confirmed", "order_rejected": "cancelled"}.get(event, event)
             if status != expected:
@@ -54,8 +65,7 @@ def event_values(event, record):
                 raise ValueError("acceptance_not_recorded")
             if event == "order_rejected" and (record.get("availabilityDecision") or {}).get("status") != "rejected":
                 raise ValueError("rejection_not_recorded")
-        values.update(event_label=event.replace("_", " ").title(), payment_status=summary["status"].title(),
-                      amount_received=money(summary["received"]), balance_due=money(summary["balanceDue"]))
+
     elif event == "order_confirmation":
         if (paid != "paid" or not (record.get("paymentVerifiedAt") or payment.get("verifiedAt"))
                 or not (record.get("razorpayPaymentId") or payment.get("razorpayPaymentId"))
@@ -89,4 +99,31 @@ def event_values(event, record):
         if refund.get("status") != "processed" or refund.get("source") != "razorpay_signed_webhook" or not refund.get("id"):
             raise ValueError("refund_not_processed")
         values.update(refund_amount=money(Decimal(str(refund["amountPaise"])) / 100, refund["currency"]), refund_reference=refund["id"])
+    if event in STATUS_UPDATE_EVENTS and record.get("total") is not None:
+        if event not in MANUAL_PAYMENT_EVENTS:
+            summary = payment_summary(record)
+        messages = {
+            "order_accepted": "Your order has been accepted by our team.",
+            "order_rejected": "Our team is unable to accept your order. Please contact us for assistance.",
+            "processing": "Your order is being prepared by our team.",
+            "packed": "Your order has been packed and is ready for dispatch.",
+            "shipped": "Your order has shipped.",
+            "out_for_delivery": "Your order is out for delivery.",
+            "delivered": "Your order has been delivered.",
+            "advance_payment_received": "Your advance payment has been received.",
+            "part_payment_received": "Your part payment has been received.",
+            "payment_received": "Your remaining payment has been received. Your order is paid in full.",
+            "cancelled": "Your order has been cancelled.",
+            "refund_completed": "Your refund has been processed.",
+        }
+        message = messages[event]
+        if event in {"shipped", "out_for_delivery", "delivered"} and fulfillment.get("shippedAt") and fulfillment.get("courier") and fulfillment.get("trackingNumber"):
+            message += " Courier: " + str(fulfillment["courier"])[:100] + ". Tracking: " + str(fulfillment["trackingNumber"])[:120] + "."
+        if event in MANUAL_PAYMENT_EVENTS:
+            message += " Payment received: INR " + money(Decimal(transaction["amountPaise"]) / 100, "").strip() + "."
+        if event == "refund_completed":
+            message += " " + values["refund_amount"] + ". Reference: " + str(refund["id"])[:120] + "."
+        values.update(update_message=message, payment_status=summary["status"].title(),
+                      order_total=money(record.get("total"), "").strip(),
+                      amount_received=money(summary["received"], "").strip(), balance_due=money(summary["balanceDue"], "").strip())
     return values

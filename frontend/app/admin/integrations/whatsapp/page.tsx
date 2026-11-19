@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiBaseUrl } from '@/lib/rbac';
 import { WhatsAppTestMessage, testErrorText, validTestRecipient } from '@/components/admin/whatsapp-test-message';
-import { WhatsAppDiagnostics, type DiagnosticCheck } from '@/components/admin/whatsapp-diagnostics';
+import { DiagnosticSummary, WhatsAppDiagnostics, type DiagnosticCheck } from '@/components/admin/whatsapp-diagnostics';
 import { WhatsAppCampaigns } from '@/components/admin/whatsapp-campaigns';
 
 type TemplateComponent = { type: string; format?: string; text?: string; buttons?: { type: string; text: string; url?: string }[]; add_security_recommendation?: boolean; code_expiration_minutes?: number };
@@ -58,9 +58,9 @@ const failureText = (message: Message) => {
   return `Failure details: ${failure.kind ?? 'delivery_failed'}${failure.code ? ` · Meta code ${failure.code}` : ''}${failure.subcode ? ` · subcode ${failure.subcode}` : ''}`;
 };
 
-type SectionKey = 'overview' | 'test-messages' | 'template-library' | 'otp' | 'marketing' | 'consent' | 'logs' | 'advanced';
+type SectionKey = 'overview' | 'diagnostics' | 'test-messages' | 'template-library' | 'otp' | 'marketing' | 'consent' | 'logs' | 'advanced';
 const sections: { key: SectionKey; label: string }[] = [
-  { key: 'overview', label: 'Overview' }, { key: 'test-messages', label: 'Test Messages' },
+  { key: 'overview', label: 'Overview' }, { key: 'diagnostics', label: 'Diagnostics' }, { key: 'test-messages', label: 'Test Messages' },
   { key: 'template-library', label: 'Template Library' }, { key: 'otp', label: 'OTP & Authentication' },
   { key: 'marketing', label: 'Marketing Campaigns' }, { key: 'consent', label: 'Consent & Preferences' },
   { key: 'logs', label: 'Message Logs' }, { key: 'advanced', label: 'Advanced Settings' },
@@ -261,8 +261,9 @@ export default function WhatsAppIntegrationPage() {
       {sections.map(section => <button key={section.key} id={`whatsapp-tab-${section.key}`} role="tab" aria-selected={activeSection === section.key} aria-controls="whatsapp-panel" className={`shrink-0 rounded-full px-4 py-2 text-sm ${activeSection === section.key ? 'bg-[#211e1a] text-white' : 'border border-black/10 text-gray-700 hover:bg-[#f7f4ef]'}`} onClick={() => setActiveSection(section.key)}>{section.label}</button>)}
     </nav>
     {!status ? <p>Loading WhatsApp configuration…</p> : <div id="whatsapp-panel" role="tabpanel" aria-labelledby={`whatsapp-tab-${activeSection}`} className="min-w-0 space-y-5">
-      {(show('overview') || show('test-messages')) && <WhatsAppDiagnostics values={status.diagnosticChecks} notes={status.diagnostics} request={api} onResult={value => setStatus(value as Status)} />}
+      {show('diagnostics') && <WhatsAppDiagnostics values={status.diagnosticChecks} notes={status.diagnostics} request={api} onResult={value => setStatus(value as Status)} />}
       {show('overview') && <>
+        <DiagnosticSummary values={status.diagnosticChecks} onView={() => setActiveSection('diagnostics')} />
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {[
             ['API connection', status.configured ? 'Configured' : 'Needs configuration', status.lastApiSuccess ? `Last success ${date(status.lastApiSuccess)}` : 'No successful request recorded'],

@@ -29,7 +29,10 @@ for (const scenario of ['gate-off', 'eligible', 'provider-stale', 'billing-block
     ],
   } }));
   await page.goto('/admin/integrations/whatsapp');
+  await openSection(page, 'Diagnostics');
   const diagnostic = page.getByRole('region', { name: 'Messaging diagnostics' });
+  await diagnostic.getByRole('button', { name: 'Expand Messaging health and billing', exact: true }).click();
+  await diagnostic.getByRole('button', { name: 'Expand Sender and business status', exact: true }).click();
   if (sipOnly) {
     await expect(diagnostic.getByText('BLOCKED', { exact: true })).toBeVisible();
     await expect(diagnostic.getByText('AVAILABLE_SIP_ONLY', { exact: true })).toBeVisible();
@@ -74,10 +77,12 @@ test('all seven diagnostic refresh actions request and display fresh backend evi
     })) } } });
   });
   await page.goto('/admin/integrations/whatsapp');
+  await openSection(page, 'Diagnostics');
   const diagnostics = page.getByRole('region', { name: 'Messaging diagnostics' });
   for (const [scope, title] of scopes) {
     await diagnostics.getByRole('button', { name: `Refresh ${title}`, exact: true }).click();
     const card = diagnostics.getByRole('article', { name: `${title} diagnostic` });
+    await card.getByRole('button', { name: `Expand ${title}`, exact: true }).click();
     await expect(card).toContainText(`Fresh mocked ${scope} backend read`);
     await expect(card).not.toContainText('Not checked');
     await expect(card.locator('span').first()).toHaveText(scope === 'billing' || scope === 'sender' ? 'UNKNOWN' : 'VERIFIED');
@@ -99,6 +104,7 @@ test('failed diagnostic refresh shows an error without pretending to verify evid
   await mockApi(page);
   await page.route('**/api/admin/integrations/whatsapp/diagnostics/refresh', route => route.fulfill({ status: 503, json: { error: 'Fresh evidence unavailable' } }));
   await page.goto('/admin/integrations/whatsapp');
+  await openSection(page, 'Diagnostics');
   const diagnostics = page.getByRole('region', { name: 'Messaging diagnostics' });
   await diagnostics.getByRole('button', { name: 'Refresh All Diagnostics' }).click();
   await expect(diagnostics.getByRole('alert')).toContainText('Fresh evidence unavailable');
@@ -124,6 +130,7 @@ for (const mode of ['light', 'dark'] as const) test(`diagnostics remain readable
   await mockApi(page);
   await page.goto('/admin/integrations/whatsapp');
   await page.evaluate(dark => document.documentElement.classList.toggle('dark', dark), mode === 'dark');
+  await openSection(page, 'Diagnostics');
   const diagnostics = page.getByRole('region', { name: 'Messaging diagnostics' });
   await expect(diagnostics).toBeVisible();
   await expect(diagnostics.getByRole('article')).toHaveCount(7);
@@ -1121,12 +1128,129 @@ test('production diagnostics explain restrictions without enabling template send
     ] });
   await page.goto('/admin/integrations/whatsapp');
   await openSection(page, 'Test Messages');
+  await openSection(page, 'Diagnostics');
   const diagnostics = page.getByRole('region', { name: 'Messaging diagnostics' });
+  await diagnostics.getByText('Existing configuration notes', { exact: true }).click();
   await expect(diagnostics).toContainText('WHATSAPP_PRODUCTION_TEST_SEND_ENABLED');
   await expect(diagnostics).toContainText('code_verification_status NOT_VERIFIED');
   await expect(diagnostics).toContainText('card charge does not confirm billing clearance');
   await expect(diagnostics).toContainText('messages webhook field');
+  await openSection(page, 'Test Messages');
   await expect(page.getByLabel('Selected template eligibility diagnostics')).toContainText('application test-send gate is off or expired');
   await expect(page.getByRole('button', { name: 'Send approved test template', exact: true })).toBeDisabled();
   expect(calls.sent).toHaveLength(0);
+});
+
+test('diagnostics live only in their tab, count semantics correctly and expand each row', async ({ page }) => {
+  await mockApi(page);
+  const titles = ['Application configuration', 'Messaging health and billing', 'Sender and business status', 'Template eligibility', 'App-level webhook subscription', 'Worker status and configuration', 'Outbox status'];
+  const keys = ['configuration', 'billing', 'sender', 'templates', 'webhook', 'worker', 'outbox'];
+  const statuses = ['VERIFIED', 'ACTION REQUIRED', 'BLOCKED', 'UNKNOWN', 'NOT VERIFIED', 'STALE EVIDENCE', 'UNKNOWN'];
+  await page.route('**/api/admin/integrations/whatsapp', route => route.fulfill({ json: { ...integration,
+    diagnosticChecks: keys.map((key, index) => ({ key, status: statuses[index], checkedAt: '2026-11-18T10:00:00Z',
+      reason: `Evidence for ${key}`, action: `Review ${key}`, source: 'Mocked scoped evidence',
+      evidence: { imageParity: 'UNKNOWN (host access required)', codeVersionMatches: false, customerPhone: '+14155552671', accessToken: 'fixture-secret-must-not-render', messageBody: 'private message must not render' } })),
+  } }));
+  await page.goto('/admin/integrations/whatsapp');
+  await expect(page.getByRole('region', { name: 'Messaging diagnostics' })).toHaveCount(0);
+  const summary = page.getByLabel('Diagnostic status summary');
+  for (const label of ['1 Verified', '1 Action Required', '1 Blocked', '4 Unknown / Not Verified']) await expect(summary.getByText(label, { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'View Diagnostics', exact: true }).click();
+  await expect(page.getByRole('tab', { name: 'Diagnostics', exact: true })).toHaveAttribute('aria-selected', 'true');
+  const diagnostics = page.getByRole('region', { name: 'Messaging diagnostics' });
+  await expect(diagnostics.getByRole('article')).toHaveCount(7);
+  for (const title of titles) {
+    const expand = diagnostics.getByRole('button', { name: `Expand ${title}`, exact: true });
+    await expect(expand).toHaveAttribute('aria-expanded', 'false');
+    await expand.click();
+    const collapse = diagnostics.getByRole('button', { name: `Collapse ${title}`, exact: true });
+    await expect(collapse).toHaveAttribute('aria-expanded', 'true');
+    const row = diagnostics.getByRole('article', { name: `${title} diagnostic`, exact: true });
+    const raw = row.locator('details');
+    await expect(raw).not.toHaveAttribute('open', '');
+    await raw.getByText('Raw diagnostic evidence', { exact: true }).click();
+    await expect(raw).not.toContainText('fixture-secret-must-not-render');
+    await expect(raw).not.toContainText('+14155552671');
+    await expect(raw).not.toContainText('private message must not render');
+    await collapse.click();
+  }
+  await openSection(page, 'Test Messages');
+  await expect(page.getByRole('region', { name: 'Messaging diagnostics' })).toHaveCount(0);
+});
+
+test('refresh is read-only, prevents duplicates and retains scoped timestamps and failed evidence', async ({ page }) => {
+  const calls = await mockApi(page);
+  const rows = ['configuration', 'billing', 'sender', 'templates', 'webhook', 'worker', 'outbox'].map(key => ({ key,
+    status: 'UNKNOWN', checkedAt: '2026-11-17T10:00:00Z', reason: `Old ${key} evidence`, source: 'Scoped fixture', action: 'Review evidence' }));
+  await page.route('**/api/admin/integrations/whatsapp', route => route.fulfill({ json: { ...integration, diagnosticChecks: rows } }));
+  const mutations: { path: string; body: unknown }[] = [];
+  page.on('request', request => { if (request.method() === 'POST' || request.method() === 'PATCH') mutations.push({ path: new URL(request.url()).pathname, body: request.postDataJSON() }); });
+  let release!: () => void;
+  let count = 0;
+  const waitForRelease = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/admin/integrations/whatsapp/diagnostics/refresh', async route => {
+    count++;
+    if (count === 1) {
+      await waitForRelease;
+      return route.fulfill({ json: { status: { ...integration, diagnosticChecks: rows.map(row => row.key === 'sender' ? { ...row, status: 'VERIFIED', checkedAt: '2026-11-19T10:00:00Z', reason: 'Fresh sender evidence' } : row) } } });
+    }
+    return route.fulfill({ status: 503, json: { error: 'Scoped refresh failed' } });
+  });
+  await page.goto('/admin/integrations/whatsapp');
+  await openSection(page, 'Diagnostics');
+  const diagnostic = page.getByRole('region', { name: 'Messaging diagnostics' });
+  const oldTime = await diagnostic.getByRole('article', { name: 'Application configuration diagnostic', exact: true }).locator('time').getAttribute('dateTime');
+  const refresh = diagnostic.getByRole('button', { name: 'Refresh Sender and business status', exact: true });
+  await refresh.click();
+  await expect(refresh).toBeDisabled();
+  await expect(diagnostic.getByRole('button', { name: /^Refreshing/ })).toBeDisabled();
+  await refresh.dispatchEvent('click');
+  expect(count).toBe(1);
+  release();
+  await expect(refresh).toBeEnabled();
+  await expect(diagnostic.getByRole('article', { name: 'Sender and business status diagnostic', exact: true })).toContainText('Fresh sender evidence');
+  expect(await diagnostic.getByRole('article', { name: 'Application configuration diagnostic', exact: true }).locator('time').getAttribute('dateTime')).toBe(oldTime);
+  await diagnostic.getByRole('button', { name: 'Refresh All Diagnostics', exact: true }).click();
+  await expect(diagnostic.getByRole('alert')).toContainText('Scoped refresh failed');
+  await expect(diagnostic.getByRole('article', { name: 'Sender and business status diagnostic', exact: true })).toContainText('Fresh sender evidence');
+  expect(mutations).toEqual([
+    { path: '/api/admin/integrations/whatsapp/diagnostics/refresh', body: { scope: 'sender' } },
+    { path: '/api/admin/integrations/whatsapp/diagnostics/refresh', body: { scope: 'all' } },
+  ]);
+  expect(calls.sent).toEqual([]);
+});
+
+for (const width of [1440, 768, 390]) test(`compact diagnostic rows and expanded evidence fit ${width}px`, async ({ page }, info) => {
+  await page.setViewportSize({ width, height: 1000 });
+  const calls = await mockApi(page);
+  const scopes = ['configuration', 'billing', 'sender', 'templates', 'webhook', 'worker', 'outbox'];
+  const states = ['VERIFIED', 'NOT VERIFIED', 'ACTION REQUIRED', 'UNKNOWN', 'VERIFIED', 'NOT VERIFIED', 'BLOCKED'];
+  await page.route('**/api/admin/integrations/whatsapp', route => route.fulfill({ json: { ...integration,
+    diagnosticChecks: scopes.map((key, index) => ({ key, status: states[index], checkedAt: '2026-11-19T06:00:00Z',
+      reason: key === 'worker' ? 'Observed worker evidence is stale; host image parity is not verified.' : `Scoped ${key} evidence requires review.`,
+      action: key === 'worker' ? 'Inspect the protected worker observation and image parity on the host.' : 'Review the scoped backend evidence.', source: 'Isolated diagnostic fixture',
+      evidence: key === 'worker' ? { imageParity: 'UNKNOWN (host access required)', codeVersionMatches: false, environmentDatabaseConsistency: true, executionState: 'UNKNOWN', pendingJobs: 2, failedJobs: 1 }
+        : key === 'outbox' ? { pending: 2, processing: 0, held: 1, failed: 1, unknown: 0 } : {},
+    })),
+  } }));
+  await page.goto('/admin/integrations/whatsapp');
+  await openSection(page, 'Diagnostics');
+  const diagnostic = page.getByRole('region', { name: 'Messaging diagnostics' });
+  await expect(diagnostic.getByRole('article')).toHaveCount(7);
+  expect(await diagnostic.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(false);
+  const workerRow = diagnostic.getByRole('article', { name: 'Worker status and configuration diagnostic', exact: true });
+  const header = workerRow.locator(':scope > div').first();
+  const boxes = await Promise.all([header.locator('h3'), header.locator('span').first(), header.locator('p').nth(1), header.locator('p').nth(2)].map(locator => locator.boundingBox()));
+  for (const [left, right] of [[boxes[0]!, boxes[1]!], [boxes[2]!, boxes[3]!]]) {
+    const overlaps = Math.max(left.x, right.x) < Math.min(left.x + left.width, right.x + right.width) && Math.max(left.y, right.y) < Math.min(left.y + left.height, right.y + right.height);
+    expect(overlaps).toBe(false);
+  }
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: info.outputPath(`diagnostics-${width}.png`), fullPage: true });
+  await diagnostic.getByRole('button', { name: 'Expand Worker status and configuration', exact: true }).click();
+  await expect(diagnostic).toContainText('UNKNOWN (host access required)');
+  expect(await diagnostic.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(false);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: info.outputPath(`diagnostics-expanded-${width}.png`), fullPage: true });
+  expect(calls.sent).toEqual([]);
 });

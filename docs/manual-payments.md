@@ -32,10 +32,10 @@ These are local definitions, **not evidence of approval**. Submit/approve the ex
 
 | Name | Language | Category | Text header | Body parameters, in order | Events |
 | --- | --- | --- | --- | --- | --- |
-| `rk_order_placed` | `en_US` | `UTILITY` | `Order Received` | customer name, order number, order total | initial manual order placed |
-| `rk_order_status_update` | `en_US` | `UTILITY` | `Order Update` | customer name, order number, event label, payment status, amount received, balance due | accepted, rejected, processing, packed, advance payment, part payment, final payment |
+| `rk_order_placed` | `en_US` | `UTILITY` | `Order Received` | customer name, order number, items summary, order total | initial manual order placed |
+| `rk_order_status_update` | `en_US` | `UTILITY` | `Order Update` | customer name, order number, update message, payment status, order total, amount received, balance due | accepted, rejected, processing, packed, advance payment, part payment, final payment; explicit compatible shipment/delivery/cancellation/refund mapping |
 
-Exact body text and component contracts are in `backend/app/whatsapp_catalogue.py`. Existing approved shipment, delivery, cancellation and signed-refund mappings are retained. Category, language, components and current account-scoped Meta approval are rechecked; there is no free-text fallback.
+The refined exact bodies, footers and complete event mapping are documented in `docs/whatsapp-templates-diagnostics.md`. Exact body text and component contracts are in `backend/app/whatsapp_catalogue.py`. Existing approved shipment, delivery, cancellation and signed-refund mappings are retained. Category, language, components and current account-scoped Meta approval are rechecked; there is no free-text fallback.
 
 The restricted order-only worker adds only the new order/collection events. Generic WhatsApp, OTP and Marketing gates remain unchanged. Payment event keys include the immutable receipt ID so distinct part-payments each dispatch once. The worker reloads consent, STOP state, template mapping, approval, persisted event and transaction identity before dispatch. Earlier lifecycle jobs that no longer match current state are skipped rather than sending stale status.
 
