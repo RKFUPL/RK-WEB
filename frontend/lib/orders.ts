@@ -1,6 +1,6 @@
 import { formatDate, formatDateTime, formatLongDate } from "@/lib/date-time";
 
-export type PaymentStatus = "pending" | "paid" | "failed" | "refunded";
+export type PaymentStatus = "pending" | "partial" | "overdue" | "paid" | "failed" | "refunded";
 export type FulfillmentStatus =
   | "order_placed"
   | "awaiting_confirmation"
@@ -94,7 +94,13 @@ export type ConfirmationEmailState = {
   error?: string | null;
 };
 
+export type PaymentTransaction = { reverses?: string; id: string; amount: number; amountPaise: number; method: string; reference?: string; note?: string; timestamp: string; recordedBy: string; event: string };
+export type PaymentCollection = { total: number; received: number; balanceDue: number; status: PaymentStatus; dueAt?: string; instructions?: string };
 export type Order = {
+  paymentCollection?: PaymentCollection;
+  paymentTransactions?: PaymentTransaction[];
+  inventoryReservation?: string;
+  notificationLog?: { key: string; status: string; timestamp: string; error?: string }[];
   id: string;
   refunds?: { id: string; status: string; amountPaise: number; currency: string; processedAt?: string }[];
   orderNumber: string;
@@ -152,6 +158,8 @@ export type Order = {
 
 export const paymentLabels: Record<PaymentStatus, string> = {
   pending: "Pending",
+  partial: "Partially paid / balance due",
+  overdue: "Overdue",
   paid: "Paid",
   failed: "Failed",
   refunded: "Refunded",
@@ -197,3 +205,10 @@ export const titleCase = (value?: string) =>
         .replaceAll("_", " ")
         .replace(/\b\w/g, (letter) => letter.toUpperCase())
     : "—";
+
+
+export function orderStatusLabel(order: Order) {
+  if (order.payment.gateway === "manual" && order.fulfillmentStatus === "confirmed") return "Accepted";
+  if (order.fulfillmentStatus === "cancelled" && order.availabilityDecision?.status === "rejected") return "Rejected";
+  return fulfillmentLabels[order.fulfillmentStatus];
+}

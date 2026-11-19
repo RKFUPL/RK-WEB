@@ -30,6 +30,8 @@ FIELDS = {"messages", "account_update", "account_alerts", "phone_number_quality_
 
 _INTEGRATION_TEMPLATE = "3p_direct_integration_test_template"
 _DRAFT_EXPLANATIONS = {
+    "rk_order_placed": "Local Utility draft only. Submit the exact four-variable contract and refresh Meta status; approval has not been verified.",
+    "rk_order_status_update": "Local Utility draft only. Submit the exact seven-variable contract and refresh Meta status; approval has not been verified.",
     "rk_authentication_otp": "Local Authentication draft. Meta previously denied Authentication-template creation for this WABA; this was not submitted and is not an approval status.",
     "rk_exclusive_offer": "Local Marketing draft blocked until checkout has an integrated, validated coupon and promotion system; it was not submitted.",
     "rk_admin_notification": "Internal-only notification draft. It is excluded from the customer-facing template catalogue and was not submitted.",
@@ -122,7 +124,7 @@ def safe_status(db):
         same_account = bool(observed and observed.get("businessAccountId") == str(config.get("WHATSAPP_BUSINESS_ACCOUNT_ID") or ""))
         sync = state.get("templateStatusSync") or {}
         stale = observation_is_stale(observed, sync, config.get("WHATSAPP_BUSINESS_ACCOUNT_ID"))
-        local_draft = bool(observed and observed.get("presentInMeta") is False and spec.get("approvalStatus") == "NOT_SUBMITTED")
+        local_draft = bool(spec.get("approvalStatus") == "NOT_SUBMITTED" and ((observed and observed.get("presentInMeta") is False) or (not observed and name in {"rk_order_placed", "rk_order_status_update"})))
         catalogue[name] = {**spec, "components": components, "observedStatus": observed.get("status", "MISSING_OR_UNKNOWN"),
                            "metaComponents": observed.get("metaComponents", []),
                            "componentMismatches": observed.get("mismatches", []),

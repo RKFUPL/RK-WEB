@@ -141,6 +141,7 @@ def email_integration_test_email():
 _dashboard_indexes_ready = False
 
 SETTINGS_DEFAULTS = {
+    "razorpayEnabled": True,
     "storeName": "Rashi Kapoor",
     "supportEmail": "",
     "currency": "INR",
@@ -432,7 +433,7 @@ def _document_view(document: dict) -> dict:
 
 def _settings(db) -> dict:
     stored = db.admin_settings.find_one({"_id": "store"}) or {}
-    return {**SETTINGS_DEFAULTS, **{key: value for key, value in stored.items() if key not in {"_id", "updatedAt", "updatedBy"}}}
+    return {**SETTINGS_DEFAULTS, **{key: value for key, value in stored.items() if key in SETTINGS_DEFAULTS}}
 
 
 def _colour_swatches(value) -> dict[str, str]:
@@ -754,7 +755,7 @@ def refresh_forex():
 @storefront_lookbooks_bp.get("/storefront-settings")
 def get_public_storefront_settings():
     settings = _settings(database())
-    return jsonify({"settings": {"colourSwatches": _colour_swatches(settings.get("colourSwatches")), "whatsappNumber": settings.get("whatsappNumber", SETTINGS_DEFAULTS["whatsappNumber"])}}), 200
+    return jsonify({"settings": {"colourSwatches": _colour_swatches(settings.get("colourSwatches")), "whatsappNumber": settings.get("whatsappNumber", SETTINGS_DEFAULTS["whatsappNumber"]), "razorpayEnabled": settings.get("razorpayEnabled") is not False}}), 200
 
 
 @storefront_lookbooks_bp.get("/lookbooks")
@@ -920,6 +921,8 @@ def update_lookbooks():
 @requireAdmin
 def update_settings():
     payload = request.get_json(silent=True) or {}
+    if "razorpayEnabled" in payload and not isinstance(payload["razorpayEnabled"], bool):
+        return jsonify(error="Razorpay Online Payments must be boolean."), 400
     store_name = str(payload.get("storeName") or "").strip()
     support_email = str(payload.get("supportEmail") or "").strip().lower()
     currency = str(payload.get("currency") or "INR").upper()
@@ -944,6 +947,7 @@ def update_settings():
         if courier and courier.lower() not in {existing.lower() for existing in couriers}:
             couriers.append(courier)
     settings = {
+        "razorpayEnabled": payload.get("razorpayEnabled", _settings(database()).get("razorpayEnabled", True)),
         "storeName": store_name,
         "supportEmail": support_email,
         "currency": currency,

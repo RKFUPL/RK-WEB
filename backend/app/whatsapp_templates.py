@@ -3,7 +3,7 @@ import json
 import re
 import hashlib
 from datetime import datetime, timedelta, timezone
-from .whatsapp_catalogue import CATALOGUE, EVENT_CATALOGUE
+from .whatsapp_catalogue import CATALOGUE, EVENT_CATALOGUE, STATUS_UPDATE_EVENTS
 from .whatsapp_definitions import definitions, definition_components
 from .time_utils import as_utc_datetime
 
@@ -34,6 +34,7 @@ EVENTS = {
     "login_otp": ("AUTHENTICATION", ("code",)),
     "forgot_password_otp": ("AUTHENTICATION", ("code",)),
     **{key: ("UTILITY", ("reference", "status")) for key in (
+        "order_placed", "order_accepted", "order_rejected", "advance_payment_received", "part_payment_received", "payment_received",
         "order_confirmation", "payment_confirmation", "payment_failure", "processing",
         "packed", "shipped", "tracking_update", "out_for_delivery", "delivered",
         "cancelled", "return_requested", "return_status", "refund_initiated",
@@ -43,6 +44,9 @@ EVENTS = {
     "new_collection_drop": ("MARKETING", ("first_name", "collection_name")),
     "exclusive_offer": ("MARKETING", ("first_name", "offer_description", "coupon_code", "expiry_date")),
 }
+EVENTS["order_placed"] = ("UTILITY", tuple(CATALOGUE["rk_order_placed"]["parameters"]))
+for event in ["order_accepted", "order_rejected", "advance_payment_received", "part_payment_received", "payment_received"]:
+    EVENTS[event] = ("UTILITY", tuple(CATALOGUE["rk_order_status_update"]["parameters"]))
 EVENTS["shipped"] = ("UTILITY", ("reference", "status", "tracking"))
 EVENTS["tracking_update"] = ("UTILITY", ("reference", "status", "tracking"))
 
@@ -238,7 +242,7 @@ def registry(config):
             "requiresMetaApproval": requires_meta,
             "components": components,
             "componentContractValid": contract_valid,
-            "templateGroup": "Integration Test" if local_test else "Authentication" if category == "AUTHENTICATION" else "Marketing" if category == "MARKETING" else "Internal only" if event == "admin_notification" else "Transactional" if event in {"order_confirmation", "payment_confirmation", "shipped", "out_for_delivery", "delivered", "cancelled", "refund_completed"} else "Optional lifecycle drafts",
+            "templateGroup": "Integration Test" if local_test else "Authentication" if category == "AUTHENTICATION" else "Marketing" if category == "MARKETING" else "Internal only" if event == "admin_notification" else "Transactional" if event in set(STATUS_UPDATE_EVENTS) | {"order_placed", "order_confirmation", "payment_confirmation"} else "Optional lifecycle drafts",
             "buttons": (spec or {}).get("buttons", []), "buttonParameters": (spec or {}).get("buttonParameters", []),
             "definitionEvents": (spec or {}).get("events", []),
             "enabled": bool(valid and entry.get("enabled") is True),

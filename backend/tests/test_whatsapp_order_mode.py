@@ -148,7 +148,7 @@ def test_order_dispatch_rechecks_after_provider_backoff(order_case, change):
 
 def test_order_only_mode_does_not_claim_otp_marketing_or_unrelated_jobs(order_case):
     c = order_case
-    for event in ("signup_otp", "new_collection_drop", "exclusive_offer", "processing", "admin_notification", "text"):
+    for event in ("signup_otp", "new_collection_drop", "exclusive_offer", "payment_failure", "admin_notification", "text"):
         c.db.whatsapp_outbox.insert_one({"_id": "unrelated-" + event, "event": event, "orderNotification": True,
                                        "payload": "not-decrypted", "status": "pending", "expiresAt": now() + timedelta(hours=1), "createdAt": now()})
         with c.app.app_context():
@@ -215,6 +215,7 @@ def test_admin_order_control_is_separate_and_requires_backend_gate(order_case):
 def test_other_lifecycle_mappings_are_off_and_require_business_proof(order_case, event):
     c = order_case
     assert enqueue(c, event)["status"] == "skipped"
+    c.db.orders.update_one({"_id": c.order["_id"]}, {"$set": {"fulfillment.status": "order_placed"}})
     c.app.config["WHATSAPP_TEMPLATES"][event]["enabled"] = True
     assert enqueue(c, event)["status"] == "skipped"
     assert c.db.whatsapp_outbox.count_documents({}) == 0
@@ -273,6 +274,19 @@ def test_individually_authorized_lifecycle_events_use_existing_worker(order_case
     c = order_case
     c.app.config["WHATSAPP_TEMPLATES"][event]["enabled"] = True
     fields = {"fulfillment.status": "confirmed"}
+    if event in {"processing", "packed"}:
+        fields["fulfillment.status"] = event
+    elif event == "order_placed":
+        fields.update(paymentGateway="manual", paymentStatus="pending", paymentTransactions=[])
+        fields["fulfillment.status"] = "order_placed"
+    elif event == "order_accepted":
+        fields["availabilityDecision.status"] = "accepted"
+    elif event == "order_rejected":
+        fields.update({"fulfillment.status": "cancelled", "availabilityDecision.status": "rejected"})
+    elif event in {"advance_payment_received", "part_payment_received", "payment_received"}:
+        transaction = {"id": "txn_recorded", "event": event, "amountPaise": 125000, "receivedPaise": 125000, "balancePaise": 0}
+        fields.update(paymentGateway="manual", paymentTransactions=[transaction])
+        c.order["whatsappPayment"] = transaction
     if event in {"shipped", "out_for_delivery", "delivered"}:
         fields.update({"fulfillment.status": event, "fulfillment.shippedAt": now(),
                        "fulfillment.courier": "Recorded carrier", "fulfillment.trackingNumber": "ACTUAL_AWB"})

@@ -169,6 +169,8 @@ def test_index_read_failure_is_reported_without_driver_secrets():
 
 def queued(case):
     record = case.confirmed_order()
+    record["fulfillment"]["status"] = "processing"
+    case.db.orders.update_one({"_id": record["_id"]}, {"$set": {"fulfillment": record["fulfillment"]}})
     with case.app.app_context():
         result = notify(case.db, "processing", record)
     assert result["status"] == "queued"

@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: ['whatsapp-ui.spec.ts', 'product-detail.spec.ts'],
+  testMatch: ['whatsapp-ui.spec.ts', 'product-detail.spec.ts', 'manual-payments.spec.ts'],
   fullyParallel: false,
   use: {
     baseURL: 'http://127.0.0.1:3210',

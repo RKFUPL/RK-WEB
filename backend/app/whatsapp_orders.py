@@ -10,7 +10,7 @@ from .whatsapp_consent import consent_phone
 from .whatsapp_events import event_values
 from .whatsapp_templates import template_registry
 
-ORDER_NOTIFICATIONS = {"order_confirmation", "payment_confirmation", "shipped", "out_for_delivery", "delivered", "cancelled", "refund_completed"}
+ORDER_NOTIFICATIONS = {"order_placed", "order_accepted", "order_rejected", "processing", "packed", "advance_payment_received", "part_payment_received", "payment_received", "order_confirmation", "payment_confirmation", "shipped", "out_for_delivery", "delivered", "cancelled", "refund_completed"}
 # Restricted order-only mode deliberately sends a single initial confirmation;
 # payment_confirmation is reserved for the separately enabled broad flow.
 ORDER_ONLY_EVENTS = ORDER_NOTIFICATIONS - {"payment_confirmation"}
@@ -71,7 +71,9 @@ def business_event_key(order, event):
     shipment = [str(fulfillment.get("courier") or "").strip().casefold(), str(fulfillment.get("trackingNumber") or "").strip()]
     shipment_id = hashlib.sha256(json.dumps(shipment, separators=(",", ":")).encode()).hexdigest()
     reference = ""
-    if event == "payment_confirmation":
+    if event in {"advance_payment_received", "part_payment_received", "payment_received"}:
+        reference = str((order.get("whatsappPayment") or {}).get("id") or "missing_transaction")
+    elif event == "payment_confirmation":
         reference = str(order.get("razorpayPaymentId") or (order.get("payment") or {}).get("razorpayPaymentId") or "missing_payment")
     elif event in {"shipped", "out_for_delivery", "delivered"}:
         reference = shipment_id
@@ -91,6 +93,9 @@ def notify_order_whatsapp(db, order_id, event, event_data=None):
         order = db.orders.find_one({"_id": ObjectId(str(order_id))})
         if not order:
             return {"status": "skipped", "reason": "order_not_found"}
+        if event in {"advance_payment_received", "part_payment_received", "payment_received"}:
+            transaction_id = (event_data or {}).get("transactionId")
+            order["whatsappPayment"] = next((t for t in order.get("paymentTransactions", []) if t.get("id") == transaction_id), {})
         if event == "refund_completed":
             refund_id = (event_data or {}).get("refundId")
             order["whatsappRefund"] = next((item for item in order.get("refunds", []) if item.get("id") == refund_id), {})

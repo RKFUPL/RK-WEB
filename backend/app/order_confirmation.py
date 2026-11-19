@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import html
 import re
+from urllib.parse import urlsplit
+from flask import current_app, has_app_context
 
 from .whatsapp import notify, notify_admins
 from .mail import SENDERS, send_html_email
@@ -74,11 +76,35 @@ def _measurement_rows(item: dict) -> str:
     return f"<p style='margin:12px 0 5px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#9a7a4d'>Custom Size</p><table style='font-size:12px;border-collapse:collapse'>{rows}</table>"
 
 
+def email_image_url(value, config=None):
+    """Resolve only our public proxy or known public Cloudinary media; never fetch."""
+    config = config if config is not None else current_app.config if has_app_context() else {}
+    raw = str(value or "")
+    if not raw or raw != raw.strip() or re.search(r"[\\\x00-\x20]", raw):
+        return ""
+    try:
+        parsed = urlsplit(raw)
+        if parsed.username or parsed.password or parsed.fragment:
+            return ""
+        proxy = bool(re.fullmatch(r"/api/catalog/products/[A-Za-z0-9_-]+/media/[A-Za-z0-9_-]+", parsed.path))
+        if raw.startswith("/") and not raw.startswith("//") and not parsed.netloc and proxy:
+            origin = str(config.get("WHATSAPP_CANONICAL_URL") or config.get("FRONTEND_URL") or "https://rashikapoor.co.in").rstrip("/")
+            canonical = urlsplit(origin)
+            if canonical.scheme != "https" or not canonical.hostname or canonical.username or canonical.password or canonical.path or canonical.query or canonical.fragment:
+                return ""
+            return origin + raw
+        if parsed.scheme == "https" and parsed.hostname == "res.cloudinary.com" and parsed.port in {None, 443} and parsed.path.startswith("/"):
+            return raw
+    except ValueError:
+        pass
+    return ""
+
+
 def _item_html(item: dict) -> str:
-    image_url = _text(item.get("image"), 2048)
-    image = ""
-    if re.match(r"^https://", image_url, re.I):
-        image = f"<img src='{html.escape(image_url, quote=True)}' alt='' width='116' style='display:block;width:116px;height:150px;object-fit:cover;border-radius:10px;background:#eee6da'>"
+    image_url = email_image_url(item.get("image"))
+    image = "<div style='width:116px;height:150px;background:#eee6da;border-radius:10px' aria-label='Product image unavailable'></div>"
+    if image_url:
+        image = f"<img src='{html.escape(image_url, quote=True)}' alt='{html.escape(_text(item.get('name'), 180), quote=True)}' width='116' height='150' class='rk-item-image' style='display:block;width:116px;height:150px;object-fit:cover;border-radius:10px;background:#eee6da'>"
     name = html.escape(_text(item.get("name") or item.get("productCode"), 180) or "RK piece")
     code = html.escape(_text(item.get("productCode"), 120))
     sku = html.escape(_text(item.get("sku"), 140))
@@ -109,15 +135,18 @@ def _item_html(item: dict) -> str:
     return (
         "<tr><td style='padding:22px 0;border-bottom:1px solid #e3ddd3'>"
         "<table role='presentation' width='100%' style='border-collapse:collapse'><tr>"
-        f"<td width='132' valign='top'>{image}</td>"
+        f"<td width='132' class='rk-item-image-cell' valign='top'>{image}</td>"
         f"<td valign='top'><h3 style='font-family:Georgia,serif;font-size:22px;font-weight:400;margin:0 0 10px'>{name}</h3>"
         f"<p style='font-size:12px;line-height:1.8;color:#625c54;margin:0'>{details}</p>{custom}</td>"
-        f"<td width='105' valign='top' align='right' style='font-size:13px'>{line_total}</td>"
+        f"<td width='105' class='rk-item-total' valign='top' align='right' style='font-size:13px'>{line_total}</td>"
         "</tr></table></td></tr>"
     )
 
 
-def render_order_confirmation(order: dict) -> str:
+def render_order_confirmation(order: dict, *, title=None, message=None, details_html="") -> str:
+    manual = order.get("paymentGateway") == "manual"
+    title = html.escape(title or ("Your order has been received." if manual else "Your order is confirmed."))
+    message = html.escape(message or ("Your order is pending team review. Payment is pending. Our team will contact you with the next steps and payment instructions." if manual else "Payment has been securely verified and your order is now with the house."))
     customer = html.escape(_text(order.get("customerName"), 160) or "Customer")
     number = html.escape(_text(order.get("orderNumber"), 100))
     payment = order.get("payment") if isinstance(order.get("payment"), dict) else {}
@@ -138,31 +167,34 @@ def render_order_confirmation(order: dict) -> str:
     shipping_charge = _money(order.get("shippingCharge"))
     total = _money(order.get("total"))
     return f"""
+    <style>@media screen and (max-width:480px){{.rk-email-padding{{padding-left:16px!important;padding-right:16px!important}}.rk-item-image{{width:64px!important;height:84px!important}}.rk-item-image-cell{{width:76px!important}}.rk-item-total{{width:60px!important}}}}</style>
     <div style="margin:0;background:#f4f0e8;padding:34px 12px;color:#27221d;font-family:Arial,sans-serif">
       <table role="presentation" width="100%" style="max-width:760px;margin:auto;border-collapse:collapse;background:#fffdf9">
-        <tr><td style="padding:38px 42px 26px;border-bottom:1px solid #e3ddd3">
+        <tr><td class="rk-email-padding" style="padding:38px 42px 26px;border-bottom:1px solid #e3ddd3">
           <p style="margin:0;font-size:11px;letter-spacing:.30em;color:#9a7a4d">RASHI KAPOOR</p>
-          <h1 style="font-family:Georgia,serif;font-size:38px;font-weight:400;margin:16px 0 10px">Your order is confirmed.</h1>
-          <p style="margin:0;color:#706960;font-size:14px;line-height:1.7">Dear {customer}, payment has been securely verified and your order is now with the house.</p>
+          <h1 style="font-family:Georgia,serif;font-size:38px;font-weight:400;margin:16px 0 10px">{title}</h1>
+          <p style="margin:0;color:#706960;font-size:14px;line-height:1.7">Dear {customer}, {message}</p>
         </td></tr>
-        <tr><td style="padding:24px 42px;background:#faf7f1">
+        <tr><td class="rk-email-padding" style="padding:24px 42px;background:#faf7f1">
           <table role="presentation" width="100%" style="font-size:12px;line-height:1.8"><tr>
             <td><strong>Order</strong><br>{number}</td><td><strong>Order date</strong><br>{_date(order.get('createdAt'))}</td><td><strong>Payment</strong><br>{payment_status}</td>
           </tr></table>
         </td></tr>
-        <tr><td style="padding:8px 42px 0"><table role="presentation" width="100%" style="border-collapse:collapse">{item_rows}</table></td></tr>
-        <tr><td style="padding:26px 42px"><table role="presentation" width="100%" style="border-collapse:collapse"><tr>
+        <tr><td class="rk-email-padding" style="padding:8px 42px 0"><table role="presentation" width="100%" style="border-collapse:collapse">{item_rows}</table></td></tr>
+        <tr><td class="rk-email-padding" style="padding:26px 42px"><table role="presentation" width="100%" style="border-collapse:collapse"><tr>
           <td valign="top" style="width:58%;padding-right:30px"><p style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#9a7a4d;margin:0 0 12px">Shipping address</p><p style="font-size:13px;line-height:1.8;margin:0;color:#625c54">{address or 'Address not recorded'}</p></td>
           <td valign="top"><table role="presentation" width="100%" style="font-size:13px;line-height:2"><tr><td>Subtotal</td><td align="right">{subtotal}</td></tr><tr><td>Shipping</td><td align="right">{shipping_charge}</td></tr><tr style="font-size:16px"><td style="border-top:1px solid #d8d0c4;padding-top:8px"><strong>Total</strong></td><td align="right" style="border-top:1px solid #d8d0c4;padding-top:8px"><strong>{total}</strong></td></tr></table></td>
         </tr></table></td></tr>
-        <tr><td style="padding:25px 42px;background:#27221d;color:#f8f3e9;font-size:12px;line-height:1.7">Yours sincerely,<br>The Rashi Kapoor Team</td></tr>
+        <tr><td class="rk-email-padding" style="padding:0 42px 25px;font-size:13px;line-height:1.7">{details_html}</td></tr>
+        <tr><td class="rk-email-padding" style="padding:25px 42px;background:#27221d;color:#f8f3e9;font-size:12px;line-height:1.7">Yours sincerely,<br>The Rashi Kapoor Team</td></tr>
       </table>
     </div>"""
 
 
 def send_order_confirmation(database, order: dict, config, logger, *, force: bool = False) -> bool:
     # Channel claims are independent of email retry/resend claims.
-    notify(database, "order_confirmation", order)
+    manual = order.get("paymentGateway") == "manual"
+    notify(database, "order_placed" if manual else "order_confirmation", order)
     # The restricted order-only gate sends one initial order confirmation. A
     # separately enabled payment confirmation is not a second initial message.
     # Preserve the legacy paired flow only when broad messaging is authorized.
@@ -192,7 +224,7 @@ def send_order_confirmation(database, order: dict, config, logger, *, force: boo
             sender=SENDERS["orders"],
             recipients=[recipient],
             bcc=confirmation_bcc_recipients(database, config.get("ORDER_CONFIRMATION_BCC", "")),
-            subject=f"Rashi Kapoor order confirmed — {_text(order.get('orderNumber'), 100)}",
+            subject=f"Rashi Kapoor order {'received' if manual else 'confirmed'} — {_text(order.get('orderNumber'), 100)}",
             html=render_order_confirmation(order),
         )
         provider_id = _text((response or {}).get("id") if isinstance(response, dict) else "", 180)

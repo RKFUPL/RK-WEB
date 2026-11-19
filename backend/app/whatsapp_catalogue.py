@@ -196,4 +196,20 @@ CATALOGUE = {'rk_authentication_otp': {'name': 'rk_authentication_otp',
                          'header': 'Refund Processed',
                          'footer': 'Rashi Kapoor Official'}}
 
-EVENT_CATALOGUE = {event: name for name, template in CATALOGUE.items() for event in template["events"]}
+STATUS_UPDATE_EVENTS = ["order_accepted", "order_rejected", "processing", "packed", "shipped", "out_for_delivery", "delivered", "advance_payment_received", "part_payment_received", "payment_received", "cancelled", "refund_completed"]
+CATALOGUE["rk_order_placed"] = utility("rk_order_placed", ["order_placed"],
+    ["customer_name", "order_number", "items_summary", "order_total"],
+    "Dear {{1}},\n\nThank you for placing your order with Rashi Kapoor.\n\nWe have received your order {{2}} for {{3}}.\n\nOrder total: \u20b9{{4}}\n\nYour order is now awaiting review by our team. Payment has not yet been collected. Our team will contact you to confirm availability and arrange payment.\n\nWe will keep you updated here as your order progresses.", "manual checkout")
+CATALOGUE["rk_order_placed"].update(header="Order Received", footer="Rashi Kapoor Official")
+CATALOGUE["rk_order_status_update"] = utility("rk_order_status_update", STATUS_UPDATE_EVENTS,
+    ["customer_name", "order_number", "update_message", "payment_status", "order_total", "amount_received", "balance_due"],
+    "Dear {{1}},\n\nThere is an update on your Rashi Kapoor order {{2}}.\n\n{{3}}\n\nPayment status: {{4}}\n\nOrder total: \u20b9{{5}}\n\nAmount received: \u20b9{{6}}\n\nBalance due: \u20b9{{7}}\n\nThank you for choosing Rashi Kapoor. We will keep you informed as your order progresses.", "saved order status and manual ledger events")
+CATALOGUE["rk_order_status_update"].update(header="Order Update", footer="Rashi Kapoor Official")
+
+# Keep existing shipment/delivery/cancellation/refund defaults. Operators can
+# explicitly map those events to the new verified contract without altering
+# any existing approved template's components or silently replacing mappings.
+EVENT_CATALOGUE = {}
+for name, template in CATALOGUE.items():
+    for event in template["events"]:
+        EVENT_CATALOGUE.setdefault(event, name)

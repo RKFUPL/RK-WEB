@@ -482,7 +482,7 @@ def notify(db, event, record, *, key=None, parameters=None, user=None, auth_cont
     from .whatsapp_orders import ORDER_NOTIFICATIONS, notify_order_whatsapp
     if event in ORDER_NOTIFICATIONS or event == "tracking_update":
         return notify_order_whatsapp(db, record.get("_id"), "shipped" if event == "tracking_update" else event,
-                                     {"refundId": (record.get("whatsappRefund") or {}).get("id")})
+                                     {"refundId": (record.get("whatsappRefund") or {}).get("id"), "transactionId": (record.get("whatsappPayment") or {}).get("id")})
     return _enqueue_notification(db, event, record, key=key, parameters=parameters, user=user, auth_context=auth_context)
 
 
@@ -559,7 +559,8 @@ def _enqueue_notification(db, event, record, *, key=None, parameters=None, user=
                    "mapping": {k: template[k] for k in ("name", "language", "category", "parameters", "components", "requiresMetaApproval")},
                    "businessEventKey": business_event_key,
                    "button_parameters": button_parameters or {}, "campaign_context": campaign_context,
-                   "refundId": (record.get("whatsappRefund") or {}).get("id")}
+                   "refundId": (record.get("whatsappRefund") or {}).get("id"),
+                   "transactionId": (record.get("whatsappPayment") or {}).get("id")}
         encrypted = Fernet(config["WHATSAPP_OUTBOX_KEY"].encode()).encrypt(json.dumps(payload).encode()).decode()
         try:
             expiry = as_utc_datetime(auth_challenge(db, auth_context).get("otpExpiresAt")) if is_otp else now() + timedelta(days=1)
@@ -655,6 +656,7 @@ def process_outbox(db, config, limit=50, *, stop_requested=None):
             # Old OTP jobs without a live challenge/explicit request fail closed.
             payload.pop("oneTimeSignupConsent", None)
             refund_id = payload.pop("refundId", None)
+            transaction_id = payload.pop("transactionId", None)
             mapping = payload.pop("mapping", None)
             business_key = payload.pop("businessEventKey", None)
             if not enabled(db, config):
@@ -689,6 +691,8 @@ def process_outbox(db, config, limit=50, *, stop_requested=None):
                 else:
                     valid = bool(consent_phone(db, config, user, record or {}) == payload["recipient"])
                 if valid and payload["event"] in ORDER_EVENTS:
+                    if transaction_id:
+                        record["whatsappPayment"] = next((t for t in record.get("paymentTransactions", []) if t.get("id") == transaction_id), {})
                     if refund_id:
                         record["whatsappRefund"] = next((r for r in record.get("refunds", []) if r.get("id") == refund_id), {})
                     if business_key and business_event_key(record, payload["event"]) != business_key:
@@ -728,6 +732,8 @@ def process_outbox(db, config, limit=50, *, stop_requested=None):
                     if payload["event"] == "admin_notification":
                         latest_record = {}
                     if business_key:
+                        if transaction_id:
+                            latest_record["whatsappPayment"] = next((t for t in latest_record.get("paymentTransactions", []) if t.get("id") == transaction_id), {})
                         if refund_id:
                             latest_record["whatsappRefund"] = next((r for r in latest_record.get("refunds", []) if r.get("id") == refund_id), {})
                         try:
