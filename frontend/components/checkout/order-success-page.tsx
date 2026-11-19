@@ -26,10 +26,10 @@ export function OrderSuccessPage({ orderId }: { orderId: string }) {
     <StickyHeader />
     <div className="mx-auto max-w-2xl py-14 text-center">
       <CheckCircle2 className="mx-auto h-12 w-12 text-gold" strokeWidth={1.1} />
-      <p className="mt-8 text-[0.58rem] uppercase tracking-[0.35em] text-gold">Order confirmed</p>
+      <p className="mt-8 text-[0.58rem] uppercase tracking-[0.35em] text-gold">{order?.payment.gateway === 'manual' ? 'Order received' : 'Order confirmed'}</p>
       <h1 className="mt-4 font-display text-5xl sm:text-6xl">Thank you.</h1>
       {error ? <p className="mt-6 text-sm text-charcoal/65">{error}</p> : !order ? <p className="mt-6 text-sm text-charcoal/60">Loading your order details…</p> : <>
-        <p className="mt-6 text-sm leading-7 text-charcoal/65">Your payment has been verified and your request has reached the RK team.</p>
+        <p className="mt-6 text-sm leading-7 text-charcoal/65">{order.payment.gateway === 'manual' ? 'Your order is pending team review. We will contact you with availability and payment instructions.' : 'Your payment has been verified and your request has reached the RK team.'}</p>
         <div className="mt-10 border border-black/10 p-6 text-left dark:border-white/15 sm:p-8">
           <div className="flex justify-between gap-4 border-b border-black/10 pb-5 text-sm dark:border-white/10"><span>Order</span><span>{order.orderNumber}</span></div>
           <div className="mt-5 flex justify-between gap-4 border-b border-black/10 pb-5 text-sm dark:border-white/10"><span>Payment</span><span className="capitalize">{order.paymentStatus || 'Paid'}</span></div>

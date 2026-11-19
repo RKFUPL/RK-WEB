@@ -87,7 +87,7 @@ class WhatsAppTests(unittest.TestCase):
         return Mock(status_code=status, json=Mock(return_value=body), headers=headers or {})
 
     def outbound(self, **kw):
-        return send(self.db, self.app.config, kw.pop("recipient", self.user["phone"]), kw.pop("event", "processing"),
+        return send(self.db, self.app.config, kw.pop("recipient", self.user["phone"]), kw.pop("event", "payment_failure"),
                     kw.pop("parameters", {"reference": "RK-1", "status": "confirmed"}), kw.pop("key", "order:1"), **kw)
 
     def webhook(self, **values):
@@ -376,7 +376,7 @@ class WhatsAppTests(unittest.TestCase):
     def test_safe_admin_status_configuration_and_logs(self):
         self.outbound()
         status = self.client.get("/api/admin/integrations/whatsapp", headers=self.headers)
-        logs = self.client.get("/api/admin/integrations/whatsapp/messages?status=accepted&type=processing", headers=self.headers)
+        logs = self.client.get("/api/admin/integrations/whatsapp/messages?status=accepted&type=payment_failure", headers=self.headers)
         self.assertEqual(status.status_code, 200); self.assertEqual(logs.status_code, 200)
         body = status.get_data(as_text=True) + logs.get_data(as_text=True)
         for secret in ("private-access-token", "private-app-secret", "private-verify-token", self.config["WHATSAPP_OUTBOX_KEY"], self.user["phone"]):
@@ -952,7 +952,7 @@ class WhatsAppTests(unittest.TestCase):
         from app.whatsapp_templates import registry
         mappings = registry({"WHATSAPP_TEMPLATES": {}})
         self.assertEqual(set(mappings), set(EVENTS))
-        self.assertEqual(len(mappings), 23)  # The original 21 keys plus two separate marketing events.
+        self.assertEqual(len(mappings), 29)  # Existing mappings plus manual checkout and ledger events.
         self.assertTrue(all(not t["approved"] and not t["enabled"] for t in mappings.values()))
         self.assertEqual(mappings["signup_otp"]["name"], "rk_authentication_otp")
         legacy = registry({"WHATSAPP_TEMPLATES": {"shipped": {"name": "existing_approved", "language": "en_GB", "approved": True, "enabled": True}}})
@@ -1393,7 +1393,7 @@ class WhatsAppTests(unittest.TestCase):
             self.assertEqual(self.client.patch(path, headers=self.headers, json=body).status_code, 400)
             self.assertEqual(self.db.whatsapp_outbox.count_documents({}), before)
         events = {item["event"] for item in self.db.whatsapp_order_events.find()}
-        self.assertTrue({"order_confirmation", "shipped", "out_for_delivery", "delivered"}.issubset(events))
+        self.assertTrue({"order_accepted", "processing", "packed", "shipped", "out_for_delivery", "delivered"}.issubset(events))
         self.http.assert_not_called()
 
     def test_staff_cancellation_and_notification_failure_do_not_rollback_order(self):

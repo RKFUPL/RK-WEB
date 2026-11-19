@@ -410,8 +410,6 @@ def _validate_payment_entity(order: dict, payment: dict) -> None:
 @requireAuth
 @limiter.limit("10 per minute")
 def create_razorpay_order():
-    if not is_configured(current_app.config):
-        return jsonify({"error": "Razorpay Test Mode is not configured on the backend."}), 503
     payload = request.get_json(silent=True) or {}
     attempt_id = _safe_text(payload.get("checkoutAttemptId"), 80)
     if "whatsappTransactionalConsent" in payload and not isinstance(payload["whatsappTransactionalConsent"], bool):
@@ -423,6 +421,7 @@ def create_razorpay_order():
     user = current_user()
     user_id = authenticated_user_id()
     db = database()
+    online = (db.admin_settings.find_one({"_id": "store"}) or {}).get("razorpayEnabled") is not False
     _ensure_payment_indexes(db)
     ensure_catalog_seed(db)
     try:
@@ -440,6 +439,13 @@ def create_razorpay_order():
             "whatsappTransactionalConsent" in payload and
             payload["whatsappTransactionalConsent"] != ((existing.get("whatsappConsent") or {}).get("enabled") is True))):
         return jsonify(error="The WhatsApp recipient or consent changed. Start a new checkout attempt."), 409
+    if existing and existing.get("paymentGateway") == "manual":
+        send_order_confirmation(db, existing, current_app.config, current_app.logger)
+        return jsonify(order=_order_view(existing), paymentMode="manual"), 200
+    if not online and existing:
+        return jsonify(error="Payment mode changed. Start a new checkout attempt."), 409
+    if online and not is_configured(current_app.config):
+        return jsonify(error="Razorpay is not configured on the backend."), 503
     if existing and existing.get("razorpayOrderId"):
         if existing.get("paymentStatus") in {"failed", "cancelled"}:
             existing = db.orders.find_one_and_update(
@@ -452,11 +458,15 @@ def create_razorpay_order():
     now = datetime.now(timezone.utc)
     order = existing or _new_order_document(user, shipping, items, subtotal, attempt_id, now, display_currency)
     if not existing:
+        if not online:
+            order.update(paymentGateway="manual", paymentStatus="pending", status="order_placed",
+                         payment={"gateway": "manual", "status": "pending"},
+                         paymentTransactions=[], paymentLedgerVersion=0, amountReceived=0, balanceDue=subtotal)
         try:
             order["_id"] = ObjectId()
             if payload.get("whatsappTransactionalConsent") is True:
                 consent = record_consent(db, current_app.config, user_id, whatsapp["phone"], True, "checkout", order_id=order["_id"], update_user=False)
-            elif whatsapp["consent"]:
+            elif online and whatsapp["consent"]:
                 consent = {**whatsapp["consent"], "orderId": str(order["_id"])}
             else:
                 consent = {"customerId": str(user_id), "phone": whatsapp["phone"], "category": "transactional", "enabled": False, "status": "declined", "timestamp": now, "source": "checkout", "orderId": str(order["_id"])}
@@ -472,8 +482,14 @@ def create_razorpay_order():
                 db.orders.update_one({"_id": order["_id"]}, {"$set": {"whatsappMarketingConsent": marketing}})
         except DuplicateKeyError:
             order = db.orders.find_one({"customerId": user_id, "checkoutAttemptId": attempt_id})
-            if not order or order.get("whatsappRecipient") != whatsapp["phone"]:
+            if (not order or order.get("whatsappRecipient") != whatsapp["phone"]
+                    or ("whatsappTransactionalConsent" in payload and payload["whatsappTransactionalConsent"] != ((order.get("whatsappConsent") or {}).get("enabled") is True))):
                 return jsonify({"error": "Checkout changed. Start a new checkout attempt."}), 409
+    if order.get("paymentGateway") == "manual":
+        send_order_confirmation(db, order, current_app.config, current_app.logger)
+        return jsonify(order=_order_view(order), paymentMode="manual"), 201
+    if not online:
+        return jsonify(error="Payment mode changed. Start a new checkout attempt."), 409
     try:
         razorpay_order = razorpay_api_request(current_app.config, "POST", "/orders", {
             "amount": order["amountPaise"],
@@ -550,6 +566,8 @@ def update_razorpay_state():
     order = db.orders.find_one({"_id": ObjectId(order_id), "customerId": authenticated_user_id()})
     if not order:
         return jsonify({"error": "Order not found."}), 404
+    if order.get("paymentGateway") == "manual":
+        return jsonify(error="Manual orders do not accept Razorpay state changes."), 400
     if order.get("paymentStatus") == "paid":
         return jsonify({"order": _order_view(order), "alreadyProcessed": True}), 200
     now = datetime.now(timezone.utc)
@@ -619,7 +637,8 @@ def razorpay_webhook():
                      "currency": refund["currency"], "source": "razorpay_signed_webhook", "processedAt": now}
             db.orders.update_one({"_id": refunded_order["_id"], "refunds.id": {"$ne": reference}}, {"$push": {"refunds": proof}})
             refunded_order["whatsappRefund"] = proof
-            notify(db, "refund_completed", refunded_order, key=f"refund_processed:{reference}")
+            from ...order_fulfillment import send_status_notification
+            send_status_notification(db, refunded_order, "refund_completed", notification_key=f"refund:{reference}")
             result.update(handled=True, orderId=str(refunded_order["_id"]))
         elif event_name == "payment.captured" and order:
             _validate_payment_entity(order, payment_entity)

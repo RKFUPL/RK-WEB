@@ -94,7 +94,10 @@ def _staff_order_query() -> tuple[dict, str | None]:
     if payment != "all":
         if payment not in PAYMENT_STATUSES:
             return {}, "Choose a valid payment filter."
-        query["payment.status"] = payment
+        if payment in {"pending", "partial", "overdue"}:
+            query["$paymentCollectionFilter"] = payment
+        else:
+            query["payment.status"] = payment
     if fulfillment != "all":
         if fulfillment == "returns":
             query["fulfillment.status"] = {"$in": list(RETURN_FULFILLMENT_STATUSES)}
@@ -141,10 +144,10 @@ def _configured_couriers(database_instance) -> list[str]:
 
 
 def _order_counts(database_instance) -> dict:
-    payment_counts = {
-        status: database_instance.orders.count_documents({"$or": [{"payment.status": status}, {"paymentStatus": status}]})
-        for status in PAYMENT_STATUSES
-    }
+    payment_counts = {status: 0 for status in PAYMENT_STATUSES}
+    for order in database_instance.orders.find({}, {"payment": 1, "paymentStatus": 1, "paymentGateway": 1, "total": 1, "paymentTransactions": 1, "paymentDueAt": 1}):
+        status = canonical_payment_status(order)
+        payment_counts[status] = payment_counts.get(status, 0) + 1
     fulfillment_counts = {
         status: database_instance.orders.count_documents({"$or": [{"fulfillment.status": status}, {"fulfillmentStatus": status}, {"status": status}]})
         for status in FULFILLMENT_STATUSES
@@ -215,7 +218,12 @@ def list_staff_orders():
     query, error = _staff_order_query()
     if error:
         return jsonify({"error": error}), 400
-    orders = db.orders.find(query).sort("createdAt", -1).limit(200)
+    collection_filter = query.pop("$paymentCollectionFilter", None)
+    orders = db.orders.find(query).sort("createdAt", -1)
+    if collection_filter:
+        orders = [order for order in orders if canonical_payment_status(order) == collection_filter][:200]
+    else:
+        orders = orders.limit(200)
     return jsonify({
         "orders": [order_view(ensure_order_tracking(db, order), include_private_payment=True) for order in orders],
         "counts": _order_counts(db),
@@ -258,14 +266,14 @@ def resend_confirmation_email(order_id: str):
     order = db.orders.find_one({"_id": object_id})
     if not order:
         return jsonify({"error": "Order not found."}), 404
-    if canonical_payment_status(order) != "paid":
+    if canonical_payment_status(order) != "paid" and order.get("paymentGateway") != "manual":
         return jsonify({"error": "Confirmation can only be sent after payment is verified."}), 400
     sent = send_order_confirmation(db, order, current_app.config, current_app.logger, force=True)
     updated = db.orders.find_one({"_id": object_id}) or order
     status_code = 200 if sent else 502
     return jsonify({
         "order": _staff_view(db, updated),
-        "message": "Order confirmation sent." if sent else "The order remains confirmed, but email delivery failed and can be retried.",
+        "message": "Order email sent." if sent else "The saved order is unchanged, but email delivery failed and can be retried.",
     }), status_code
 
 
@@ -336,3 +344,95 @@ def accept_return(order_id: str):
     except Exception:
         current_app.logger.exception("Unable to send return acceptance notification")
     return jsonify({"order": _staff_view(db, updated), "returnFormUrl": return_url(token)}), 200
+
+
+@staff_orders_bp.post("/<order_id>/payments")
+@requirePermission("orders:manage")
+def collect_payment(order_id):
+    object_id = _object_id(order_id)
+    db = database()
+    order = db.orders.find_one({"_id": object_id}) if object_id else None
+    if not order:
+        return jsonify(error="Order not found."), 404
+    from ...manual_payments import record_payment
+    try:
+        updated = record_payment(db, order, current_user(), request.get_json(silent=True) or {})
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    return jsonify(order=_staff_view(db, updated)), 200
+
+
+@staff_orders_bp.patch("/<order_id>/payment-instructions")
+@requirePermission("orders:manage")
+def payment_instructions(order_id):
+    from ...manual_payments import is_manual, parse_due
+    from ...time_utils import as_utc_datetime
+    from ...order_fulfillment import actor_view, timeline_event
+    db = database()
+    object_id = _object_id(order_id)
+    order = db.orders.find_one({"_id": object_id}) if object_id else None
+    if not order:
+        return jsonify(error="Order not found."), 404
+    if not is_manual(order):
+        return jsonify(error="Manual payment instructions cannot change Razorpay records."), 400
+    payload = request.get_json(silent=True) or {}
+    text = payload.get("instructions", "")
+    raw = payload.get("dueAt")
+    try:
+        due = parse_due(raw)
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    if not isinstance(text, str) or len(text) > 1000 or (raw and not due):
+        return jsonify(error="Enter valid instructions and payment due date."), 400
+    now = datetime.now(timezone.utc)
+    from pymongo import ReturnDocument
+    updated = db.orders.find_one_and_update({"_id": object_id}, {
+        "$set": {"paymentInstructions": text.strip(), "paymentDueAt": due, "updatedAt": now},
+        "$push": {"timeline": timeline_event("payment_terms_updated", now, actor_view("staff", current_user()), "Payment instructions and due date updated.", {"dueAt": due})}},
+        return_document=ReturnDocument.AFTER)
+    return jsonify(order=_staff_view(db, updated)), 200
+
+
+@staff_orders_bp.post("/<order_id>/payments/reversal")
+@requirePermission("orders:manage")
+def correct_payment(order_id):
+    from ...manual_payments import reverse_payment
+    db = database()
+    object_id = _object_id(order_id)
+    order = db.orders.find_one({"_id": object_id}) if object_id else None
+    if not order:
+        return jsonify(error="Order not found."), 404
+    try:
+        updated = reverse_payment(db, order, current_user(), request.get_json(silent=True) or {})
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    return jsonify(order=_staff_view(db, updated)), 200
+
+
+@staff_orders_bp.post("/<order_id>/notifications/retry")
+@requirePermission("orders:manage")
+def retry_order_notification(order_id):
+    from ...whatsapp_orders import ORDER_NOTIFICATIONS, notify_order_whatsapp
+    from ...whatsapp_events import event_values
+    from ...order_fulfillment import send_status_notification
+    db = database()
+    object_id = _object_id(order_id)
+    order = db.orders.find_one({"_id": object_id}) if object_id else None
+    if not order:
+        return jsonify(error="Order not found."), 404
+    payload = request.get_json(silent=True) or {}
+    event, transaction = payload.get("event"), payload.get("transactionId")
+    if not isinstance(event, str) or event not in ORDER_NOTIFICATIONS:
+        return jsonify(error="Choose a valid order notification event."), 400
+    if transaction:
+        order["whatsappPayment"] = next((t for t in order.get("paymentTransactions", []) if t.get("id") == transaction), {})
+    try:
+        event_values(event, order)
+    except (ValueError, KeyError):
+        return jsonify(error="The persisted event is no longer eligible for notification."), 409
+    if event in {"order_placed", "order_confirmation"}:
+        send_order_confirmation(db, order, current_app.config, current_app.logger)
+    else:
+        send_status_notification(db, order, event, notification_key="payment:" + transaction if transaction else "fulfillment:" + {"order_accepted": "confirmed", "order_rejected": "cancelled"}.get(event, event))
+    notify_order_whatsapp(db, object_id, event, {"transactionId": transaction})
+    return jsonify(order=_staff_view(db, db.orders.find_one({"_id": object_id}))), 200

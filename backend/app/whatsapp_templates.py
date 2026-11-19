@@ -34,6 +34,7 @@ EVENTS = {
     "login_otp": ("AUTHENTICATION", ("code",)),
     "forgot_password_otp": ("AUTHENTICATION", ("code",)),
     **{key: ("UTILITY", ("reference", "status")) for key in (
+        "order_placed", "order_accepted", "order_rejected", "advance_payment_received", "part_payment_received", "payment_received",
         "order_confirmation", "payment_confirmation", "payment_failure", "processing",
         "packed", "shipped", "tracking_update", "out_for_delivery", "delivered",
         "cancelled", "return_requested", "return_status", "refund_initiated",

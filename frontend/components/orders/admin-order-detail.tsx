@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ExternalLink, PackageCheck, X } from "lucide-react";
+import { PaymentCollectionPanel } from "@/components/orders/payment-collection";
 import { apiBaseUrl } from "@/lib/rbac";
 import {
   fulfillmentLabels,
+  orderStatusLabel,
   inr,
   orderDateTime,
   paymentLabels,
@@ -57,6 +59,7 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
   const [message, setMessage] = useState("");
   const [action, setAction] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [retryEvent, setRetryEvent] = useState("");
   const [form, setForm] = useState({
     courier: "",
     trackingNumber: "",
@@ -67,6 +70,7 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
     receivedBy: "",
     proofPhoto: "",
     signature: "",
+    availabilityConfirmed: false,
     rejectionReason: "",
     rejectionExplanation: "",
   });
@@ -97,6 +101,19 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
     void load();
   }, [load]);
 
+  const retryNotification = async () => {
+    if (!order || !retryEvent || busy) return;
+    setBusy(true); setError("");
+    try {
+      const [event, transactionId] = retryEvent.split("|");
+      const response = await fetch(`${apiBaseUrl}/api/staff/orders/${order.id}/notifications/retry`, { method: "POST", headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" }, body: JSON.stringify({ event, transactionId }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to retry notification.");
+      setOrder(data.order); setMessage("Notification eligibility rechecked. Review delivery activity.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to retry notification."); }
+    finally { setBusy(false); }
+  };
+
   const openAction = (next: string) => {
     if (!order) return;
     setForm({
@@ -109,7 +126,8 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
       receivedBy: "",
       proofPhoto: "",
       signature: "",
-      rejectionReason: "",
+      availabilityConfirmed: false,
+    rejectionReason: "",
       rejectionExplanation: "",
     });
     setAction(next);
@@ -240,7 +258,7 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
             Payment: {paymentLabels[order.paymentStatus]}
           </span>
           <span className="rounded-full border border-[#9a7a4d]/35 px-3 py-1 text-[9px] uppercase tracking-[.14em] text-[#9a7a4d]">
-            {fulfillmentLabels[order.fulfillmentStatus]}
+            {orderStatusLabel(order)}
           </span>
         </div>
       </div>
@@ -253,7 +271,7 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
       >
         <div>
           <p className="text-[9px] uppercase tracking-[.18em] text-[#9a7a4d]">
-            Order confirmation email
+            {order.payment.gateway === "manual" ? "Order received email" : "Order confirmation email"}
           </p>
           <p className="mt-2 text-xs text-[#858b94]">
             Status: {titleCase(order.confirmationEmail?.status || "pending")} ·
@@ -278,6 +296,10 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
           </button>
         ) : null}
       </section>
+      <PaymentCollectionPanel order={order} onUpdate={setOrder} />
+      {order.inventoryReservation === "reserving" && <p role="alert" className="mt-4 text-red-700">Stock reservation needs staff reconciliation before acceptance can be retried.</p>}
+      <div className="mt-5 flex flex-wrap items-end gap-3 text-sm"><label>Retry saved notification<select value={retryEvent} onChange={e => setRetryEvent(e.target.value)} className={fieldClass}><option value="">Choose event</option>{["order_placed", "order_confirmation", "order_accepted", "order_rejected", "processing", "packed", "shipped", "out_for_delivery", "delivered", "cancelled"].map(event => <option key={event} value={event}>{titleCase(event)}</option>)}{order.paymentTransactions?.filter(t => ["advance_payment_received", "part_payment_received", "payment_received"].includes(t.event)).map(t => <option key={t.id} value={`${t.event}|${t.id}`}>{titleCase(t.event)} - {inr.format(t.amount)} - {t.id}</option>)}</select></label><button type="button" disabled={busy || !retryEvent} onClick={() => void retryNotification()} className="rounded border border-black/20 px-4 py-2 text-xs disabled:opacity-40">Retry eligible notification</button><p className="text-xs text-[#858b94]">Saved state, consent and template approval are checked again. Successful events remain deduplicated.</p></div>
+      <section aria-label="Email activity" className="mt-5 text-xs"><h2 className="font-semibold">Email activity</h2>{order.notificationLog?.map((event, index) => <p key={`${event.key}-${index}`} className="mt-2">{titleCase(event.key)} / {titleCase(event.status)} / {orderDateTime(event.timestamp)}</p>)}</section>
       <div className="mt-7 grid gap-4 md:grid-cols-2">
         <section className={panelClass}>
           <p className="text-[9px] uppercase tracking-[.18em] text-[#9a7a4d]">
@@ -407,7 +429,7 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
                 Fulfillment
               </p>
               <p className="mt-4 font-medium">
-                {fulfillmentLabels[order.fulfillmentStatus]}
+                {orderStatusLabel(order)}
               </p>
             </div>
             {["shipped", "out_for_delivery", "delivered"].includes(
@@ -462,7 +484,7 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
         <dl className="mt-4 grid gap-3 text-xs sm:grid-cols-2">
           <div><dt className="text-[#858b94]">Customer WhatsApp number</dt><dd>{order.whatsapp?.number || 'No eligible number recorded'}</dd></div>
           <div><dt className="text-[#858b94]">Transactional consent</dt><dd>{order.whatsapp?.consent === 'granted' ? 'Granted for this number' : 'Not eligible (missing or withdrawn consent)'}</dd></div>
-          <div><dt className="text-[#858b94]">Order status</dt><dd>{fulfillmentLabels[order.fulfillmentStatus]}</dd></div>
+          <div><dt className="text-[#858b94]">Order status</dt><dd>{orderStatusLabel(order)}</dd></div>
           <div><dt className="text-[#858b94]">Automated messaging</dt><dd>{order.whatsapp?.automationEnabled ? 'Enabled' : 'Disabled'}</dd></div>
         </dl>
         {order.whatsapp?.eligibilityReason && <p className="mt-3 text-xs">{whatsappReasons[order.whatsapp.eligibilityReason] || titleCase(order.whatsapp.eligibilityReason)}</p>}
@@ -590,6 +612,7 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
                 <X size={18} />
               </button>
             </div>
+            {action === "confirmed" && order.requiresAvailabilityConfirmation && <label className="mt-5 flex gap-3 text-sm"><input type="checkbox" checked={form.availabilityConfirmed} onChange={e => setForm(current => ({ ...current, availabilityConfirmed: e.target.checked }))} />I have confirmed availability and production for the requested items.</label>}
             {action === "shipment_update" || action === "shipped" ? (
               <div className="mt-6 grid gap-4">
                 <label className="text-[9px] uppercase tracking-[.16em] text-[#858b94]">
@@ -635,7 +658,7 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
               </div>
             ) : null}
             {action === "cancelled" &&
-            order.fulfillmentStatus === "awaiting_confirmation" ? (
+            ["order_placed", "awaiting_confirmation"].includes(order.fulfillmentStatus) ? (
               <div className="mt-6 grid gap-4">
                 <label className="text-[9px] uppercase tracking-[.16em] text-[#858b94]">
                   Rejection reason

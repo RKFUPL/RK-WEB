@@ -196,4 +196,13 @@ CATALOGUE = {'rk_authentication_otp': {'name': 'rk_authentication_otp',
                          'header': 'Refund Processed',
                          'footer': 'Rashi Kapoor Official'}}
 
+STATUS_UPDATE_EVENTS = ["order_accepted", "order_rejected", "processing", "packed", "advance_payment_received", "part_payment_received", "payment_received"]
+CATALOGUE["rk_order_placed"] = utility("rk_order_placed", ["order_placed"], ["customer_name", "order_number", "order_total"],
+    "Dear {{1}},\n\nWe have received your order {{2}} for {{3}}.\n\nYour order is currently pending review by our team. Payment is pending. Our team will contact you shortly with the next steps.\n\nPlease wait for payment instructions.", "manual checkout")
+CATALOGUE["rk_order_placed"]["header"] = "Order Received"
+CATALOGUE["rk_order_status_update"] = utility("rk_order_status_update", STATUS_UPDATE_EVENTS,
+    ["customer_name", "order_number", "event_label", "payment_status", "amount_received", "balance_due"],
+    "Dear {{1}},\n\nAn update for your Rashi Kapoor order {{2}}: {{3}}.\n\nPayment status: {{4}}\nAmount received: {{5}}\nBalance due: {{6}}\n\nOur team will keep you updated.", "saved order status and manual ledger events")
+CATALOGUE["rk_order_status_update"]["header"] = "Order Update"
+
 EVENT_CATALOGUE = {event: name for name, template in CATALOGUE.items() for event in template["events"]}

@@ -25,7 +25,7 @@ from .mail import SENDERS, send_html_email
 from .time_utils import as_utc_datetime, isoformat_utc, json_value as serialize_json_value
 
 
-PAYMENT_STATUSES = ("pending", "paid", "failed", "refunded")
+PAYMENT_STATUSES = ("pending", "partial", "overdue", "paid", "failed", "refunded")
 FULFILLMENT_STATUSES = (
     "order_placed",
     "awaiting_confirmation",
@@ -135,6 +135,9 @@ def safe_text(value: object, maximum: int = 240) -> str:
 
 
 def canonical_payment_status(order: dict) -> str:
+    from .manual_payments import is_manual, payment_summary
+    if is_manual(order):
+        return payment_summary(order)["status"]
     nested = order.get("payment") if isinstance(order.get("payment"), dict) else {}
     status = safe_text(nested.get("status") or order.get("paymentStatus"), 40).lower()
     if status in PAYMENT_STATUSES:
@@ -248,6 +251,10 @@ def normalisation_updates(order: dict) -> dict:
 
 
 def ensure_order_tracking(database, order: dict) -> dict:
+    # New manual orders already have tracking. Never persist a stale read over
+    # a concurrent ledger update or inventory-backed acceptance.
+    if order.get("paymentGateway") == "manual":
+        return order
     updates = normalisation_updates(order)
     needs_update = any(order.get(key) != value for key, value in updates.items())
     if needs_update:
@@ -331,7 +338,7 @@ def valid_next_statuses(order: dict, actor_type: str = "staff") -> list[str]:
     statuses = list(VALID_TRANSITIONS.get(current, set()))
     if actor_type == "customer":
         return [status for status in statuses if status == "return_requested"]
-    if canonical_payment_status(order) != "paid":
+    if canonical_payment_status(order) != "paid" and order.get("paymentGateway") != "manual":
         statuses = [status for status in statuses if status in {"cancelled"}]
     return sorted(statuses, key=lambda status: FULFILLMENT_STATUSES.index(status))
 
@@ -381,7 +388,7 @@ def validate_transition(order: dict, target_status: str, actor_type: str = "staf
         raise OrderTransitionError(f"The order is already {STATUS_LABELS[target].lower()}.")
     if target not in VALID_TRANSITIONS.get(current, set()):
         raise OrderTransitionError(f"{STATUS_LABELS.get(current, current)} cannot move directly to {STATUS_LABELS.get(target, target)}.")
-    if target == "confirmed" and canonical_payment_status(order) != "paid":
+    if target == "confirmed" and canonical_payment_status(order) != "paid" and order.get("paymentGateway") != "manual":
         raise OrderTransitionError("Payment must be confirmed before fulfillment can begin.")
     if actor_type == "customer" and target != "return_requested":
         raise OrderTransitionError("Customers cannot make that fulfillment change.")
@@ -389,7 +396,14 @@ def validate_transition(order: dict, target_status: str, actor_type: str = "staf
 
 
 def _notification_copy(status: str) -> tuple[str, str] | None:
+    status = {"return_status": "returned", "refund_completed": "refunded"}.get(status, status)
     copies = {
+        "order_placed": ("Your RK order has been received", "Your order is pending review. Payment is pending; please wait for payment instructions."),
+        "order_accepted": ("Your RK order has been accepted", "Our team has accepted your order."),
+        "order_rejected": ("Your RK order has been rejected", "Our team is unable to accept your order."),
+        "advance_payment_received": ("Advance payment received", "Your advance payment has been recorded."),
+        "part_payment_received": ("Part payment received", "Your part payment has been recorded."),
+        "payment_received": ("Payment received in full", "The remaining payment has been recorded. Your balance is now zero."),
         "processing": ("Your RK order has been processed", "Your order has been processed and will be sent for shipping shortly."),
         "packed": ("Your RK order has been packed", "Your order has been packed and is ready for dispatch."),
         "shipped": ("Your RK order has shipped", "Your order has shipped."),
@@ -446,7 +460,9 @@ def _proof_data(value: object, maximum: int = 2_500_000) -> str:
 
 
 def send_status_notification(database, order: dict, status: str, customer_note: str = "", notification_key: str | None = None) -> None:
-    event = {"confirmed": "order_confirmation", "returned": "return_status", "refunded": "refund_completed"}.get(status, status)
+    event = {"confirmed": "order_accepted", "returned": "return_status", "refunded": "refund_completed"}.get(status, status)
+    if notification_key and notification_key.startswith("payment:"):
+        order = {**order, "whatsappPayment": next((t for t in order.get("paymentTransactions", []) if t.get("id") == notification_key[8:]), {})}
     if notification_key and notification_key.startswith("shipment:"):
         event = "shipped"
     if status == "return_requested":
@@ -455,7 +471,7 @@ def send_status_notification(database, order: dict, status: str, customer_note: 
     notify(database, event, order, key=notification_id,
            parameters={"reference": str(order.get("orderNumber") or order.get("_id") or ""),
                        "status": {"returned": "return received", "refunded": "refund completed"}.get(status, status.replace("_", " "))})
-    copy = _notification_copy(status)
+    copy = _notification_copy(event)
     email = safe_text(order.get("email"), 160).lower()
     if not copy or not email:
         return
@@ -496,14 +512,18 @@ def send_status_notification(database, order: dict, status: str, customer_note: 
         tracking += f'<p><a href="{html.escape(feedback_link, quote=True)}">Share your experience</a></p>'
     note = html.escape(safe_text(customer_note, 500))
     note_html = f"<div style='border-left:2px solid #c09355;padding:12px 16px;margin:24px 0'>{note}</div>" if note else ""
+    from .order_confirmation import render_order_confirmation
+    from .manual_payments import payment_summary
+    summary = payment_summary(order)
+    payment_html = f"<p>Payment: {html.escape(summary['status'])}. Received: INR {summary['received']:,.2f}. Balance due: INR {summary['balanceDue']:,.2f}.</p>"
     try:
         response = send_html_email(
             sender=SENDERS["orders"], recipients=[email], subject=f"{subject} — {number}",
-            html=f"<div style='background:#f8f5ef;padding:32px;color:#27221d;font-family:Arial,sans-serif'><p style='letter-spacing:.28em;text-transform:uppercase;font-size:11px'>RASHI KAPOOR</p><h1 style='font-family:Georgia,serif;font-weight:400'>{html.escape(subject)}</h1><p>Dear {customer_name},</p><p>{html.escape(message)}</p>{note_html}{tracking}<p>We will keep you updated as your order progresses.</p><p>Yours sincerely,<br>The Rashi Kapoor Team</p></div>",
+            html=render_order_confirmation(order, title=subject, message=message, details_html=note_html + tracking + payment_html),
         )
         database.orders.update_one({"_id": order["_id"]}, {"$push": {"notificationLog": {"key": key, "status": "sent", "timestamp": datetime.now(timezone.utc), "providerId": safe_text((response or {}).get("id") if isinstance(response, dict) else "", 160)}}})
     except Exception as error:
-        database.orders.update_one({"_id": order["_id"]}, {"$push": {"notificationLog": {"key": key, "status": "failed", "timestamp": datetime.now(timezone.utc), "error": safe_text(error, 240)}}})
+        database.orders.update_one({"_id": order["_id"]}, {"$pull": {"notificationKeys": key}, "$push": {"notificationLog": {"key": key, "status": "failed", "timestamp": datetime.now(timezone.utc), "error": safe_text(error, 240)}}})
         current_app.logger.exception("Unable to send order status notification")
 
 
@@ -516,7 +536,7 @@ def apply_transition(database, order: dict, target_status: str, actor_type: str,
     internal_note = safe_text(payload.get("internalNote") or payload.get("note") or payload.get("shippingNote"), 500)
     rejection_reason = ""
     rejection_explanation = ""
-    if current == "awaiting_confirmation" and target == "cancelled":
+    if current in {"order_placed", "awaiting_confirmation"} and target == "cancelled":
         rejection_reason, rejection_explanation = rejection_decision(payload)
         customer_note = rejection_explanation or rejection_reason.replace("_", " ").capitalize()
         internal_note = customer_note
@@ -550,7 +570,7 @@ def apply_transition(database, order: dict, target_status: str, actor_type: str,
         "status": target,
         "updatedAt": now,
     }
-    if current == "awaiting_confirmation" and target in {"confirmed", "cancelled"}:
+    if current in {"order_placed", "awaiting_confirmation"} and target in {"confirmed", "cancelled"}:
         fields["availabilityDecision"] = {
             "status": "accepted" if target == "confirmed" else "rejected",
             "reason": rejection_reason or None,
@@ -562,24 +582,41 @@ def apply_transition(database, order: dict, target_status: str, actor_type: str,
         payment = dict(order.get("payment") or {})
         payment["status"] = "refunded"
         fields.update({"payment": payment, "paymentStatus": "refunded", "refundedAt": now})
-    event = timeline_event(target, now, actor_view(actor_type, actor_user), note, metadata)
+    notification_status = "order_accepted" if target == "confirmed" else "order_rejected" if current in {"order_placed", "awaiting_confirmation"} and target == "cancelled" else target
+    event = timeline_event(notification_status, now, actor_view(actor_type, actor_user), note, metadata)
     if internal_note and actor_type != "customer":
         event["internalNote"] = internal_note
     if customer_note:
         event["customerNote"] = customer_note
     event["notifyCustomer"] = send_customer_notification
-    updated = database.orders.find_one_and_update(
-        {"_id": order["_id"], "fulfillment.status": current},
-        {"$set": fields, "$push": {"timeline": event}},
-        return_document=ReturnDocument.AFTER,
-    )
+    reservations = None
+    if order.get("paymentGateway") == "manual" and target == "confirmed":
+        from .manual_inventory import reserve_manual_acceptance
+        reservations = reserve_manual_acceptance(database, order, payload)
+        fields["inventoryReservation"] = "reserved"
+    try:
+        updated = database.orders.find_one_and_update(
+            {"_id": order["_id"], "fulfillment.status": current},
+            {"$set": fields, "$push": {"timeline": event}},
+            return_document=ReturnDocument.AFTER,
+        )
+    except Exception:
+        # If acknowledgement was lost, never release stock for a committed acceptance.
+        persisted = database.orders.find_one({"_id": order["_id"]})
+        if reservations is not None and (persisted or {}).get("inventoryReservation") == "reserving" and (persisted.get("fulfillment") or {}).get("status") == current:
+            from .manual_inventory import rollback_manual_acceptance
+            rollback_manual_acceptance(database, order, reservations)
+        raise
     if not updated:
+        if reservations is not None:
+            from .manual_inventory import rollback_manual_acceptance
+            rollback_manual_acceptance(database, order, reservations)
         raise OrderTransitionConflict("The order changed in another session. Refresh and try again.")
     if send_customer_notification:
-        send_status_notification(database, updated, target, customer_note)
+        send_status_notification(database, updated, notification_status, customer_note)
     else:
         from .whatsapp_orders import ORDER_NOTIFICATIONS, notify_order_whatsapp
-        whatsapp_event = {"confirmed": "order_confirmation", "refunded": "refund_completed"}.get(target, target)
+        whatsapp_event = {"confirmed": "order_accepted", "refunded": "refund_completed"}.get(notification_status, notification_status)
         if whatsapp_event in ORDER_NOTIFICATIONS:
             notify_order_whatsapp(database, updated["_id"], whatsapp_event, {"suppressed": True})
     return updated
@@ -630,7 +667,7 @@ def order_view(order: dict, include_private_payment: bool = False) -> dict:
     payment = dict(order.get("payment") or {})
     payment["status"] = canonical_payment_status(order)
     payment["gateway"] = payment.get("gateway") or order.get("paymentGateway") or "razorpay"
-    if include_private_payment:
+    if include_private_payment and payment["gateway"] != "manual":
         payment["razorpayOrderId"] = payment.get("razorpayOrderId") or order.get("razorpayOrderId")
         payment["razorpayPaymentId"] = payment.get("razorpayPaymentId") or order.get("razorpayPaymentId")
     else:
@@ -646,6 +683,12 @@ def order_view(order: dict, include_private_payment: bool = False) -> dict:
         "tax", "discount", "total", "amountPaise", "currency", "confirmationEmail", "requiresAvailabilityConfirmation", "availabilityDecision", "createdAt", "updatedAt",
     )
     view = {"id": str(order["_id"]), **{key: json_value(order.get(key)) for key in fields if key in order}}
+    from .manual_payments import payment_summary
+    view["paymentCollection"] = json_value(payment_summary(order))
+    if include_private_payment:
+        view["paymentTransactions"] = json_value(order.get("paymentTransactions", []))
+        view["notificationLog"] = json_value(order.get("notificationLog", []))
+        view["inventoryReservation"] = order.get("inventoryReservation")
     view.update({
         "shippingAddress": json_value(order.get("shipping") or {}),
         "payment": json_value(payment),

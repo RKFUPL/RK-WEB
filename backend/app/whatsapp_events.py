@@ -3,7 +3,7 @@ from decimal import Decimal, InvalidOperation
 from datetime import timedelta
 from .time_utils import as_utc_datetime
 
-ORDER_EVENTS = {"order_confirmation", "payment_confirmation", "shipped", "tracking_update", "out_for_delivery", "delivered", "cancelled", "refund_completed"}
+ORDER_EVENTS = {"order_placed", "order_accepted", "order_rejected", "processing", "packed", "advance_payment_received", "part_payment_received", "payment_received", "order_confirmation", "payment_confirmation", "shipped", "tracking_update", "out_for_delivery", "delivered", "cancelled", "refund_completed"}
 
 
 def money(value, currency="INR"):
@@ -31,7 +31,32 @@ def event_values(event, record):
     number = str(record.get("orderNumber") or "").strip()
     name = str(record.get("customerName") or "").strip()
     values = {"customer_name": name, "order_number": number}
-    if event == "order_confirmation":
+    from .manual_payments import payment_summary, MANUAL_PAYMENT_EVENTS
+    from .whatsapp_catalogue import STATUS_UPDATE_EVENTS
+    if event == "order_placed":
+        if record.get("paymentGateway") != "manual" or not record.get("createdAt") or status != "order_placed" or payment_summary(record)["status"] != "pending":
+            raise ValueError("manual_order_not_placed")
+        values["order_total"] = money(record.get("total"), record.get("currency", "INR"))
+    elif event in STATUS_UPDATE_EVENTS:
+        summary = payment_summary(record)
+        if event in MANUAL_PAYMENT_EVENTS:
+            transaction = record.get("whatsappPayment") or {}
+            if (not transaction or transaction not in record.get("paymentTransactions", []) or transaction.get("event") != event
+                    or any(t.get("reverses") == transaction.get("id") for t in record.get("paymentTransactions", []))):
+                raise ValueError("payment_transaction_not_recorded")
+            summary = {"status": "paid" if transaction["balancePaise"] == 0 else "partial",
+                       "received": transaction["receivedPaise"] / 100, "balanceDue": transaction["balancePaise"] / 100}
+        else:
+            expected = {"order_accepted": "confirmed", "order_rejected": "cancelled"}.get(event, event)
+            if status != expected:
+                raise ValueError("order_state_not_recorded")
+            if event == "order_accepted" and (record.get("availabilityDecision") or {}).get("status") != "accepted":
+                raise ValueError("acceptance_not_recorded")
+            if event == "order_rejected" and (record.get("availabilityDecision") or {}).get("status") != "rejected":
+                raise ValueError("rejection_not_recorded")
+        values.update(event_label=event.replace("_", " ").title(), payment_status=summary["status"].title(),
+                      amount_received=money(summary["received"]), balance_due=money(summary["balanceDue"]))
+    elif event == "order_confirmation":
         if (paid != "paid" or not (record.get("paymentVerifiedAt") or payment.get("verifiedAt"))
                 or not (record.get("razorpayPaymentId") or payment.get("razorpayPaymentId"))
                 or status not in {"confirmed", "processing", "packed", "shipped", "out_for_delivery", "delivered"}):
