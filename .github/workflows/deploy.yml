@@ -11,6 +11,8 @@ concurrency:
 
 jobs:
   deploy:
+    # CI-only commits use [skip deploy]; this keeps validation pushes off the VPS.
+    if: ${{ !contains(github.event.head_commit.message, '[skip deploy]') }}
     runs-on: ubuntu-latest
 
     steps:
