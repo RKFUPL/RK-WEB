@@ -57,6 +57,9 @@ def event_values(event, record):
             # ledger, never caller values or cached client-calculated balances.
             receipt_index = next(index for index, entry in enumerate(record["paymentTransactions"]) if entry.get("id") == transaction["id"])
             summary = payment_summary({**record, "paymentTransactions": record["paymentTransactions"][:receipt_index + 1]})
+            if (int(transaction.get("amountPaise", 0)) <= 0 or not 0 < summary["received"] <= summary["total"]
+                    or (event == "payment_received") != (summary["balanceDue"] == 0)):
+                raise ValueError("payment_event_ledger_mismatch")
         else:
             expected = {"order_accepted": "confirmed", "order_rejected": "cancelled"}.get(event, event)
             if status != expected:
@@ -126,4 +129,15 @@ def event_values(event, record):
         values.update(update_message=message, payment_status=summary["status"].title(),
                       order_total=money(record.get("total"), "").strip(),
                       amount_received=money(summary["received"], "").strip(), balance_due=money(summary["balanceDue"], "").strip())
+    return values
+
+
+def template_event_values(event, record, template):
+    """Keep event authority shared; adapt only the exact reviewed text contract."""
+    values = event_values(event, record)
+    if template.get("catalogue") in {"order_received", "order_and_payment_update"} and record.get("currency", "INR") != "INR":
+        raise ValueError("template_requires_inr_order")
+    if template.get("catalogue") == "order_and_payment_update":
+        # Meta's approved body owns the period immediately after {{3}}.
+        values["update_message"] = values["update_message"].removesuffix(".")
     return values

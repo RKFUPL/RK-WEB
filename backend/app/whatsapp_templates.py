@@ -208,6 +208,7 @@ def registry(config):
             category, parameters = spec["category"], tuple(spec["parameters"])
         default_name = LOCAL_TEST_TEMPLATE["name"] if event == "test" and config.get("WHATSAPP_ENVIRONMENT") == "development" else (spec["name"] if spec else "rk_" + event)
         name = entry.get("name", default_name)
+        activation_block = (catalogue.get(name) or {}).get("activationBlock") if isinstance(name, str) else None
         language = entry.get("language", "en_US")
         local_test = name == LOCAL_TEST_TEMPLATE["name"]
         # Every mapping needs provider evidence; legacy operator flags never
@@ -245,7 +246,8 @@ def registry(config):
             "templateGroup": "Integration Test" if local_test else "Authentication" if category == "AUTHENTICATION" else "Marketing" if category == "MARKETING" else "Internal only" if event == "admin_notification" else "Transactional" if event in set(STATUS_UPDATE_EVENTS) | {"order_placed", "order_confirmation", "payment_confirmation"} else "Optional lifecycle drafts",
             "buttons": (spec or {}).get("buttons", []), "buttonParameters": (spec or {}).get("buttonParameters", []),
             "definitionEvents": (spec or {}).get("events", []),
-            "enabled": bool(valid and entry.get("enabled") is True),
+            "activationBlock": activation_block,
+            "enabled": bool(valid and entry.get("enabled") is True and not activation_block),
             "approved": False,
         }
     return result
@@ -288,7 +290,7 @@ def template_registry(db, config):
             template["componentsVerified"] = bool(observed and same_account and not stale and observed.get("componentsVerified") is True and observed.get("componentSignature") == component_signature(template["components"]))
             template["metaComponents"] = observed.get("metaComponents", []) if observed else []
             template["componentMismatches"] = observed.get("mismatches", []) if observed else []
-            template["approved"] = bool(template["configured"] and template["componentContractValid"] and template["components"] and observed and same_account and not stale and observed.get("source") == "meta_api_read"
+            template["approved"] = bool(not template.get("activationBlock") and template["configured"] and template["componentContractValid"] and template["components"] and observed and same_account and not stale and observed.get("source") == "meta_api_read"
                 and observed.get("name") == template["name"] and observed.get("language") == template["language"]
                 and observed.get("presentInMeta") is True
                 and observed.get("status") == "APPROVED" and observed.get("category") == template["category"]
@@ -296,4 +298,6 @@ def template_registry(db, config):
                 and observed.get("componentsVerified") is True
                 and observed.get("componentSignature") == component_signature(template["components"]))
         template["disabledReasons"] = (["invalid_or_missing_mapping"] if not template["configured"] else []) + (["local_mapping_disabled"] if not template["enabled"] else []) + (["meta_approval_or_components_unconfirmed"] if not template["approved"] else [])
+        if template.get("activationBlock"):
+            template["disabledReasons"].append(template["activationBlock"])
     return result

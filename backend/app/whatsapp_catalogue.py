@@ -213,3 +213,30 @@ EVENT_CATALOGUE = {}
 for name, template in CATALOGUE.items():
     for event in template["events"]:
         EVENT_CATALOGUE.setdefault(event, name)
+
+# Exact contracts read from current-account Meta observations on 2026-11-20.
+# These names are explicit opt-ins; adding them never changes event defaults,
+# enables a mapping, or supplies approval evidence.
+CATALOGUE["rk_processing"] = utility("rk_processing", ["processing"],
+    ["customer_name", "order_number"],
+    "Dear {{1}},\n\nYour Rashi Kapoor order {{2}} is now being prepared.\n\nOur team is carefully processing your order, and we will notify you once it progresses to the next stage.\n\nThank you for shopping with Rashi Kapoor.",
+    "persisted processing transition")
+CATALOGUE["rk_processing"].update(header="Order Being Prepared", footer="Rashi Kapoor Official",
+    buttons=[{"type": "URL", "text": "Visit website", "url": "https://rashikapoor.co.in/"}])
+CATALOGUE["rk_packed"] = utility("rk_packed", ["packed"],
+    ["customer_name", "order_number"],
+    "Dear {{1}},\n\nYour Rashi Kapoor order {{2}} has been packed and is ready for dispatch.\n\nWe will share the courier and tracking information once your parcel has been handed over to the delivery partner.\n\nThank you for choosing Rashi Kapoor.",
+    "persisted packed transition")
+CATALOGUE["rk_packed"].update(header="Your Order Has Been Packed", footer="Rashi Kapoor Official")
+CATALOGUE["order_received"] = utility("order_received", ["order_placed"],
+    ["customer_name", "order_number", "items_summary", "order_total"],
+    CATALOGUE["rk_order_placed"]["body"] + "Hello", "persisted unpaid manual checkout")
+CATALOGUE["order_received"].update(header="Order Received", footer="Rashi Kapoor Official",
+    contentWarning="The exact approved Meta BODY ends with 'progresses.Hello'. Correct the Meta template and obtain fresh approval before activation.",
+    activationBlock="meta_body_correction_required")
+CATALOGUE["order_and_payment_update"] = utility("order_and_payment_update",
+    ["order_accepted", "order_rejected", "advance_payment_received", "part_payment_received", "payment_received"],
+    ["customer_name", "order_number", "update_message", "payment_status", "order_total", "amount_received", "balance_due"],
+    "Dear {{1}},\n\nThere is an update on your Rashi Kapoor order {{2}}.\n{{3}}.\n\nPayment status: {{4}}\n\nOrder total: \u20b9{{5}}\n\nAmount received: \u20b9{{6}}\n\nBalance due: \u20b9{{7}}\n\nThank you for choosing Rashi Kapoor. We will keep you informed as your order progresses.",
+    "persisted acceptance/rejection and immutable manual payment receipt")
+CATALOGUE["order_and_payment_update"].update(header="Order Update", footer="Rashi Kapoor Official")

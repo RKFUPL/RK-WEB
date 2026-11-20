@@ -22,7 +22,7 @@ from urllib.parse import urlsplit
 
 from .whatsapp_templates import registry, template_registry, test_parameter_fields
 from .whatsapp_consent import consent_phone, opted_out, record_consent
-from .whatsapp_events import ORDER_EVENTS, event_values
+from .whatsapp_events import ORDER_EVENTS, template_event_values
 from .time_utils import as_utc_datetime
 
 CALLBACK = "https://rashikapoor.co.in/api/webhooks/whatsapp"
@@ -534,7 +534,7 @@ def _enqueue_notification(db, event, record, *, key=None, parameters=None, user=
             return {"status": "skipped", "reason": "template_not_approved_or_enabled"}
         if event in ORDER_EVENTS:
             try:
-                values = event_values(event, record)
+                values = template_event_values(event, record, template)
             except ValueError:
                 return {"status": "skipped", "reason": "business_event_not_confirmed"}
             if template.get("catalogue"):
@@ -697,8 +697,8 @@ def process_outbox(db, config, limit=50, *, stop_requested=None):
                         record["whatsappRefund"] = next((r for r in record.get("refunds", []) if r.get("id") == refund_id), {})
                     if business_key and business_event_key(record, payload["event"]) != business_key:
                         raise ValueError("business_event_changed")
-                    values = event_values(payload["event"], record or {})
                     template = template_registry(db, config)[payload["event"]]
+                    values = template_event_values(payload["event"], record or {}, template)
                     if template.get("catalogue"):
                         payload["parameters"] = {p: values[p] for p in template["parameters"]}
                     if business_key:
@@ -737,7 +737,7 @@ def process_outbox(db, config, limit=50, *, stop_requested=None):
                         if refund_id:
                             latest_record["whatsappRefund"] = next((r for r in latest_record.get("refunds", []) if r.get("id") == refund_id), {})
                         try:
-                            latest_values = event_values(payload["event"], latest_record)
+                            latest_values = template_event_values(payload["event"], latest_record, current_template)
                             if current_template.get("catalogue") and payload["parameters"] != {p: latest_values[p] for p in current_template["parameters"]}:
                                 return False
                             from .whatsapp_definitions import order_button_parameters

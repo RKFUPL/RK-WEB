@@ -284,8 +284,11 @@ def test_individually_authorized_lifecycle_events_use_existing_worker(order_case
     elif event == "order_rejected":
         fields.update({"fulfillment.status": "cancelled", "availabilityDecision.status": "rejected"})
     elif event in {"advance_payment_received", "part_payment_received", "payment_received"}:
-        transaction = {"id": "txn_recorded", "event": event, "amountPaise": 125000, "receivedPaise": 125000, "balancePaise": 0}
-        fields.update(paymentGateway="manual", paymentTransactions=[transaction])
+        # Advance/part receipts must leave a balance; only the final receipt
+        # may claim that the order has been paid in full.
+        amount = 125000 if event == "payment_received" else 25000
+        transaction = {"id": "txn_recorded", "event": event, "amountPaise": amount, "receivedPaise": amount, "balancePaise": 125000 - amount}
+        fields.update(paymentGateway="manual", paymentTransactions=[transaction], paymentStatus="paid" if event == "payment_received" else "partial")
         c.order["whatsappPayment"] = transaction
     if event in {"shipped", "out_for_delivery", "delivered"}:
         fields.update({"fulfillment.status": event, "fulfillment.shippedAt": now(),
@@ -303,6 +306,10 @@ def test_individually_authorized_lifecycle_events_use_existing_worker(order_case
     assert process_outbox(c.db, c.app.config) == 1
     c.http.assert_called_once()
     assert c.db.whatsapp_messages.find_one()["type"] == event
+    if event in {"advance_payment_received", "part_payment_received", "payment_received"}:
+        parameters = c.http.call_args.kwargs["json"]["template"]["components"][0]["parameters"]
+        assert parameters[3]["text"] == ("Paid" if event == "payment_received" else "Partial")
+        assert [item["text"] for item in parameters[5:]] == (["1,250.00", "0.00"] if event == "payment_received" else ["250.00", "1,000.00"])
 
 
 def test_existing_worker_cli_can_process_order_only_mode(order_case):
