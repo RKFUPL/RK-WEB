@@ -17,16 +17,18 @@ export type TemplateLibraryEntry = {
   presentInMeta?: boolean;
   componentsVerified?: boolean;
   statusStale?: boolean;
+  draftExplanation?: string;
+  versionOf?: string;
 };
 
 const DRAFT_DISPOSITIONS: Record<string, { status: string; availability: string }> = {
   rk_order_placed: {
     status: 'Superseded',
-    availability: 'Superseded by order_received; retained for reference and unavailable for sending.',
+    availability: 'Superseded by order_received. This local draft must not be submitted to Meta and is unavailable for sending.',
   },
   rk_order_status_update: {
     status: 'Superseded',
-    availability: 'Superseded by order_and_payment_update; retained for reference and unavailable for sending.',
+    availability: 'Superseded by order_and_payment_update. This local draft must not be submitted to Meta and is unavailable for sending.',
   },
   rk_authentication_otp: {
     status: 'Blocked',
@@ -66,6 +68,39 @@ export function templateLibraryAvailability(template: TemplateLibraryEntry, mark
   if (DRAFT_DISPOSITIONS[template.name]) return DRAFT_DISPOSITIONS[template.name].availability;
   if (template.locallyMapped) return template.mappingEnabled ? 'Mapped and enabled' : 'Mapped but disabled';
   return 'Not mapped locally; unavailable for sending.';
+}
+
+export function templateLibraryDraftExplanation(template: TemplateLibraryEntry, marketingEnabled: boolean): string {
+  // Known dispositions take priority over older API submission instructions.
+  return DRAFT_DISPOSITIONS[template.name]?.availability
+    ?? template.draftExplanation
+    ?? templateLibraryAvailability(template, marketingEnabled);
+}
+
+export function visibleTemplateLibraryEntries<T extends TemplateLibraryEntry>(templates: T[]): T[] {
+  // Production's unused legacy test event defaults to rk_test / UTILITY / en_US.
+  // Suppress only its absent, unmapped draft; preserve real Meta Marketing rows
+  // and any actually configured or present Utility template with that name.
+  return templates.filter(template => !(template.name === 'rk_test' && template.category === 'UTILITY'
+    && template.localDraft === true && template.presentInMeta !== true && !template.locallyMapped
+    && !template.mappingEnabled && !template.enabled && !template.approved));
+}
+
+export function templateLibraryCounts(templates: TemplateLibraryEntry[]) {
+  const counts = { approved: 0, review: 0, unknown: 0, drafts: 0 };
+  const unique = new Map(visibleTemplateLibraryEntries(templates)
+    .filter(template => !template.versionOf).map(template => [`${template.name}:${template.language}`, template]));
+  for (const template of unique.values()) {
+    if (template.localDraft) {
+      counts.drafts++;
+      continue;
+    }
+    const status = templateLibraryStatus(template);
+    if (status === 'APPROVED') counts.approved++;
+    else if (status.toUpperCase().startsWith('PENDING')) counts.review++;
+    else if (status === 'MISSING_OR_UNKNOWN' || status === 'UNKNOWN') counts.unknown++;
+  }
+  return counts;
 }
 
 export function marketingInventoryRow(item: {

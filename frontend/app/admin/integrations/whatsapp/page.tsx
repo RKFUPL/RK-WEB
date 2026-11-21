@@ -5,7 +5,7 @@ import { apiBaseUrl } from '@/lib/rbac';
 import { WhatsAppTestMessage, testErrorText, validTestRecipient } from '@/components/admin/whatsapp-test-message';
 import { DiagnosticSummary, WhatsAppDiagnostics, type DiagnosticCheck } from '@/components/admin/whatsapp-diagnostics';
 import { WhatsAppCampaigns } from '@/components/admin/whatsapp-campaigns';
-import { marketingInventoryRow, templateLibraryAvailability, templateLibraryStatus } from '@/lib/whatsapp-template-library';
+import { marketingInventoryRow, templateLibraryAvailability, templateLibraryCounts, templateLibraryDraftExplanation, templateLibraryStatus, visibleTemplateLibraryEntries } from '@/lib/whatsapp-template-library';
 
 type TemplateComponent = { type: string; format?: string; text?: string; buttons?: { type: string; text: string; url?: string }[]; add_security_recommendation?: boolean; code_expiration_minutes?: number };
 type TestParameterField = { key: string; label: string; component: 'header' | 'body' | 'button'; index?: number | null; number: number };
@@ -92,16 +92,17 @@ function TemplateLibrary({ templates, unmapped = [], marketingEnabled = false, s
   const [category, setCategory] = useState('All');
   const [stateFilter, setStateFilter] = useState('All');
   const [optionalExpanded, setOptionalExpanded] = useState(false);
-  const versions = templates.filter(template => template.versionOf);
-  const base = templates.filter(template => !template.versionOf && [
+  const visibleTemplates = visibleTemplateLibraryEntries(templates);
+  const versions = visibleTemplates.filter(template => template.versionOf);
+  const base = visibleTemplates.filter(template => !template.versionOf && [
     'APPROVED', 'PENDING / IN_REVIEW', 'PENDING / REFRESH REQUIRED', 'REJECTED', 'PAUSED', 'MISSING_OR_UNKNOWN', 'DISABLED', 'DELETED', 'IN_APPEAL', 'PENDING_DELETION', 'LIMIT_EXCEEDED', 'ARCHIVED',
   ].includes(metaStatus(template)));
   const matches = (template: Template) => {
-    const status = metaStatus(template);
+    const status = templateLibraryStatus(template);
     const term = search.trim().toLowerCase();
     return (!term || [template.name, template.category, template.language, ...template.parameters, ...(template.buttons ?? []).map(button => button.text)].join(' ').toLowerCase().includes(term))
       && (category === 'All' || template.category === category)
-      && (stateFilter === 'All' || (stateFilter === 'In Review' ? status.startsWith('PENDING') : stateFilter === 'Local draft' ? template.localDraft === true : status === stateFilter));
+      && (stateFilter === 'All' || (stateFilter === 'In Review' ? status.toUpperCase().startsWith('PENDING') : stateFilter === 'Local draft' ? template.localDraft === true : status === stateFilter));
   };
   const groups = [
     { name: 'Integration Test', rows: base.filter(template => template.templateGroup === 'Integration Test' || template.name === '3p_direct_integration_test_template') },
@@ -113,6 +114,7 @@ function TemplateLibrary({ templates, unmapped = [], marketingEnabled = false, s
   ];
   const optional = groups[5].rows.filter(matches);
   const localDrafts = base.filter(template => template.localDraft && matches(template));
+  const counts = templateLibraryCounts(base);
   const unmappedMatches = unmapped.filter(item => item.name !== 'rk_test').filter(item => {
     const status = item.status === 'PENDING' || item.status === 'IN_REVIEW' ? 'PENDING / IN_REVIEW' : item.status;
     return (!search || `${item.name} ${item.category} ${item.language}`.toLowerCase().includes(search.toLowerCase()))
@@ -130,7 +132,7 @@ function TemplateLibrary({ templates, unmapped = [], marketingEnabled = false, s
       <label className="text-sm">Category<select aria-label="Template category filter" className={`${input} mt-1 block`} value={category} onChange={event => setCategory(event.target.value)}>{['All', 'AUTHENTICATION', 'UTILITY', 'MARKETING'].map(value => <option key={value}>{value}</option>)}</select></label>
       <label className="text-sm">Meta status<select aria-label="Template status filter" className={`${input} mt-1 block`} value={stateFilter} onChange={event => setStateFilter(event.target.value)}>{['All', 'APPROVED', 'In Review', 'Local draft', 'REJECTED', 'PAUSED', 'DISABLED', 'IN_APPEAL', 'PENDING_DELETION', 'DELETED', 'LIMIT_EXCEEDED', 'ARCHIVED', 'MISSING_OR_UNKNOWN'].map(value => <option key={value}>{value}</option>)}</select></label>
     </div>
-    <div className="flex flex-wrap gap-2 text-xs"><span className="rounded-full bg-gray-100 px-3 py-1">{base.filter(template => metaStatus(template) === 'APPROVED').length} approved</span><span className="rounded-full bg-amber-50 px-3 py-1">{base.filter(template => metaStatus(template).startsWith('PENDING')).length} in review / refresh required</span><span className="rounded-full bg-gray-100 px-3 py-1">{base.filter(template => metaStatus(template) === 'MISSING_OR_UNKNOWN' && !template.localDraft).length} missing / unknown</span><span className="rounded-full bg-slate-100 px-3 py-1">{base.filter(template => template.localDraft).length} local drafts not submitted</span></div>
+    <div className="flex flex-wrap gap-2 text-xs"><span className="rounded-full bg-gray-100 px-3 py-1">{counts.approved} approved</span><span className="rounded-full bg-amber-50 px-3 py-1">{counts.review} in review / refresh required</span><span className="rounded-full bg-gray-100 px-3 py-1">{counts.unknown} missing / unknown</span><span className="rounded-full bg-slate-100 px-3 py-1">{counts.drafts} local drafts not submitted</span></div>
     {visibleGroups.map(group => {
       const rows = group.rows;
       if (!rows.length) return null;
@@ -141,7 +143,7 @@ function TemplateLibrary({ templates, unmapped = [], marketingEnabled = false, s
       </div>;
     })}
     {optional.length > 0 && <section className="rounded-xl border border-black/10 p-4"><button type="button" className="rounded-lg border px-3 py-2 text-sm font-semibold text-gray-900" aria-expanded={optionalExpanded} onClick={() => setOptionalExpanded(value => !value)}>{optionalExpanded ? 'Hide optional templates' : `Show optional templates (${optional.length})`}</button>{optionalExpanded && <div className="mt-4 space-y-2"><h3 className="text-sm font-semibold uppercase tracking-wide text-[#755c3a]">Optional lifecycle drafts</h3><div className="overflow-x-auto rounded-xl border border-black/10"><table className="w-full min-w-[1060px] text-left text-sm"><thead className="bg-[#f7f4ef]"><tr>{['Template name / version', 'Category', 'Language', 'Meta status', 'Local mapping', 'Variables', 'Buttons', 'Last verified', 'Availability'].map(label => <th className="p-3 font-medium" key={label}>{label}</th>)}</tr></thead><tbody>{optional.map(template => <tr key={template.name} className="border-t align-top"><td className="p-3"><details><summary className="cursor-pointer break-all font-semibold">{template.name}</summary><p className="mt-2 rounded-lg bg-gray-50 p-3 text-sm">{evidenceLabel(template)}</p><pre className="overflow-x-auto whitespace-pre-wrap break-all text-xs">{JSON.stringify(template.components ?? [], null, 2)}</pre></details></td><td className="p-3">{template.category}</td><td className="p-3">{template.language}</td><td className="p-3"><span className={chip(templateLibraryStatus(template) === 'APPROVED', templateLibraryStatus(template))}>{templateLibraryStatus(template)}</span><p className="text-xs">{qualityLabel(template)}</p><p className="mt-1 max-w-[190px] text-xs text-gray-700">{template.statusStale ? 'Stale evidence' : evidenceLabel(template)}</p></td><td className="p-3">{template.locallyMapped ? (template.mappingEnabled ? 'Mapped · enabled' : 'Mapped · disabled') : template.localDraft ? 'Local draft · not mapped' : 'Not mapped'}</td><td className="p-3">{template.parameters.length} variables</td><td className="p-3">{template.buttons?.map(item => `${item.type}: ${item.text}`).join(', ') || 'None'}</td><td className="p-3 whitespace-nowrap">{template.approvalCheckedAt ? date(template.approvalCheckedAt) : 'Not verified'}</td><td className="min-w-[240px] p-3 text-sm">{templateLibraryAvailability(template, marketingEnabled)}</td></tr>)}</tbody></table></div></div>}</section>}
-    {localDrafts.length > 0 && <section className="space-y-2"><h3 className="text-sm font-semibold uppercase tracking-wide text-[#755c3a]">Local drafts - not submitted</h3><div className="overflow-x-auto rounded-xl border border-black/10"><table className="w-full min-w-[820px] text-left text-sm"><thead className="bg-[#f7f4ef]"><tr>{['Local name', 'Category', 'Meta state', 'Reason', 'Availability'].map(label => <th className="p-3 font-medium" key={label}>{label}</th>)}</tr></thead><tbody>{localDrafts.map(template => <tr className="border-t align-top" key={template.name}><td className="p-3 font-semibold">{template.name}</td><td className="p-3">{template.category}</td><td className="p-3">{templateLibraryStatus(template)}</td><td className="p-3">{template.draftExplanation ?? templateLibraryAvailability(template, marketingEnabled)}</td><td className="p-3">Not sendable</td></tr>)}</tbody></table></div></section>}
+    {localDrafts.length > 0 && <section className="space-y-2"><h3 className="text-sm font-semibold uppercase tracking-wide text-[#755c3a]">Local drafts - not submitted</h3><div className="overflow-x-auto rounded-xl border border-black/10"><table className="w-full min-w-[820px] text-left text-sm"><thead className="bg-[#f7f4ef]"><tr>{['Local name', 'Category', 'Meta state', 'Reason', 'Availability'].map(label => <th className="p-3 font-medium" key={label}>{label}</th>)}</tr></thead><tbody>{localDrafts.map(template => <tr className="border-t align-top" key={template.name}><td className="p-3 font-semibold">{template.name}</td><td className="p-3">{template.category}</td><td className="p-3">{templateLibraryStatus(template)}</td><td className="p-3">{templateLibraryDraftExplanation(template, marketingEnabled)}</td><td className="p-3">Not sendable</td></tr>)}</tbody></table></div></section>}
     {unmappedMatches.length > 0 && <section className="space-y-2"><h3 className="text-sm font-semibold uppercase tracking-wide text-[#755c3a]">Found in Meta · not mapped locally</h3><div className="overflow-x-auto rounded-xl border border-black/10"><table className="w-full min-w-[700px] text-left text-sm"><thead className="bg-[#f7f4ef]"><tr>{['Template name', 'Category', 'Language', 'Meta status', 'Quality', 'Local mapping', 'Last verified'].map(label => <th className="p-3 font-medium" key={label}>{label}</th>)}</tr></thead><tbody>{unmappedMatches.map(item => <tr className="border-t" key={`${item.name}:${item.language}`}><td className="p-3 font-semibold">{item.name}</td><td className="p-3">{item.category}</td><td className="p-3">{item.language}</td><td className="p-3"><span className={chip(item.status === 'APPROVED', item.status)}>{item.status === 'PENDING' ? 'PENDING / IN_REVIEW' : item.status}</span></td><td className="p-3">{item.qualityRating === 'UNKNOWN' ? 'Quality pending' : item.qualityRating ?? 'Not reported'}</td><td className="p-3">Not mapped; unavailable for sending</td><td className="p-3">{date(item.checkedAt)}</td></tr>)}</tbody></table></div></section>}
     {!base.some(matches) && !optional.length && !unmappedMatches.length && <p className="rounded-lg border p-4 text-sm text-gray-700">No templates match these search and status filters.</p>}
   </section>;
@@ -251,7 +253,7 @@ export default function WhatsAppIntegrationPage() {
     && template.category === 'MARKETING'
     && !mappedRows.some(row => row.name === template.name && row.language === template.language))
     .map(marketingInventoryRow);
-  const libraryRows = [...mappedRows, ...marketingRows];
+  const libraryRows = visibleTemplateLibraryEntries([...mappedRows, ...marketingRows]);
   const approvedCount = libraryRows.filter(template => templateLibraryStatus(template) === 'APPROVED' && template.componentsVerified).length;
   const reviewCount = libraryRows.filter(template => templateLibraryStatus(template).toUpperCase().startsWith('PENDING')).length;
   const filteredTestTemplates = Object.entries(status?.templates ?? {}).filter(([, template]) => template.category === 'UTILITY' && !template.versionOf && !['DELETED', 'PENDING_DELETION'].includes(metaStatus(template)))

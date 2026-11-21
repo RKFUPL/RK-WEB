@@ -4,6 +4,7 @@ from flask_limiter import Limiter
 from flask import current_app, g, request
 from flask_mail import Mail
 from flask_pymongo import PyMongo
+from .rate_limit_storage import ShutdownSafeMongoDBStorage  # Register safe MongoDB cleanup before Limiter.init_app.
 import hashlib
 import hmac
 import ipaddress

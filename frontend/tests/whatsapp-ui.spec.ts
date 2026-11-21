@@ -996,6 +996,66 @@ test('three absent local records are identified as unsubmitted drafts with reaso
   await expect(library.getByRole('row').filter({ hasText: 'rk_test' })).toContainText('MARKETING');
 });
 
+for (const width of [1440, 390]) test(`local draft dispositions and inventory counts stay consistent at ${width}px`, async ({ page }) => {
+  const calls = await mockApi(page);
+  const draft = (name: string, category = 'UTILITY') => ({ name, category, language: 'en_US', parameters: [],
+    enabled: false, approved: false, localDraft: true, presentInMeta: false, observedStatus: 'MISSING_OR_UNKNOWN',
+    draftExplanation: 'Submit the exact old contract and refresh Meta status.' });
+  const confirmation = { name: 'rk_order_confirmation', category: 'UTILITY', language: 'en_US', parameters: ['customer_name'],
+    enabled: true, approved: true, observedStatus: 'APPROVED', componentsVerified: true, locallyMapped: true, mappingEnabled: true, templateGroup: 'Transactional' };
+  await page.route('**/api/admin/integrations/whatsapp', route => route.fulfill({ json: {
+    ...integration, configured: true, missing: [], environment: 'production', marketingEnabled: false,
+    templates: { order_confirmation: confirmation },
+    catalogue: {
+      confirmation,
+      placed: draft('rk_order_placed'), status: draft('rk_order_status_update'),
+      authentication: draft('rk_authentication_otp', 'AUTHENTICATION'),
+      offer: draft('rk_exclusive_offer', 'MARKETING'), admin: draft('rk_admin_notification'),
+      obsoleteTest: draft('rk_test'),
+      replacement: { ...draft('order_received'), localDraft: false, presentInMeta: true,
+        observedStatus: 'APPROVED', templateGroup: 'Optional lifecycle drafts' },
+    },
+    unmappedTemplates: [{ name: 'rk_test', category: 'MARKETING', language: 'en', status: 'APPROVED',
+      qualityRating: 'UNKNOWN', evidenceState: 'found_not_locally_mapped' }],
+  } }));
+  await page.setViewportSize({ width, height: 900 });
+  await page.goto('/admin/integrations/whatsapp');
+  await openSection(page, 'Template Library');
+  const library = page.getByRole('region', { name: 'Template Library' });
+  for (const count of ['2 approved', '1 in review / refresh required', '0 missing / unknown', '5 local drafts not submitted']) {
+    await expect(library.getByText(count, { exact: true })).toBeVisible();
+  }
+  for (const [name, replacement] of [['rk_order_placed', 'order_received'], ['rk_order_status_update', 'order_and_payment_update']]) {
+    const row = library.getByRole('row').filter({ hasText: name });
+    await expect(row).toContainText('Superseded');
+    await expect(row).toContainText(`Superseded by ${replacement}.`);
+    await expect(row).toContainText('must not be submitted to Meta');
+    await expect(row).not.toContainText('Submit the exact old');
+  }
+  await expect(library.getByRole('row').filter({ hasText: 'rk_authentication_otp' })).toContainText('Meta has denied Authentication-template creation for this WABA');
+  await expect(library.getByRole('row').filter({ hasText: 'rk_exclusive_offer' })).toContainText('coupon and promotion system');
+  await expect(library.getByRole('row').filter({ hasText: 'rk_admin_notification' })).toContainText('Internal-only template');
+  const marketingRow = library.getByRole('row').filter({ hasText: 'rk_test' });
+  await expect(marketingRow).toHaveCount(1);
+  await expect(marketingRow).toContainText('MARKETING');
+  await expect(marketingRow).not.toContainText('UTILITY');
+  await expect(marketingRow).toContainText('Marketing gate is disabled; unavailable for sending.');
+  await library.getByLabel('Template status filter').selectOption('Local draft');
+  await expect(library.getByRole('row').filter({ hasText: 'rk_test' })).toHaveCount(0);
+  await expect(library.getByRole('row')).toHaveCount(6); // Header plus the five retained drafts.
+  await library.getByLabel('Template status filter').selectOption('In Review');
+  await library.getByRole('button', { name: /Show optional templates/ }).click();
+  const pending = library.getByRole('row').filter({ hasText: 'order_received' });
+  await expect(pending).toContainText('Pending Meta Review');
+  await expect(pending).toContainText('Unavailable for sending');
+  await library.getByLabel('Template status filter').selectOption('APPROVED');
+  await expect(library.getByRole('row').filter({ hasText: 'order_received' })).toHaveCount(0);
+  await expect(library.getByRole('row').filter({ hasText: 'rk_order_confirmation' })).toContainText('Mapped · enabled');
+  expect(calls.sent).toEqual([]);
+  await library.getByLabel('Template status filter').selectOption('Local draft');
+  await page.screenshot({ path: `test-results/template-library-drafts-${width}.png`, fullPage: true });
+});
+
 test('optional lifecycle submissions are collapsed and expand separately', async ({ page }) => {
   await mockApi(page, { active: true, catalogue: true });
   await page.goto('/admin/integrations/whatsapp');

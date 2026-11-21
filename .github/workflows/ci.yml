@@ -39,6 +39,114 @@ jobs:
         working-directory: backend
         run: python -m pytest -q
 
+  backend-production-image-validation:
+    name: Backend production image and WhatsApp shutdown validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build the production backend image locally
+        # Production Compose builds this service from context `.` with
+        # Dockerfile.backend and no target or build arguments. Worker and
+        # template-refresh run this same backend service image.
+        run: docker build --file Dockerfile.backend --tag rk-web-backend:ci-validation .
+
+      - name: Verify production runtime, dependencies, and source
+        run: |
+          docker run --rm --entrypoint python rk-web-backend:ci-validation -c '
+          import importlib.metadata as metadata
+          import sys
+          from pathlib import Path
+          from app.rate_limit_storage import ShutdownSafeMongoDBStorage
+
+          assert sys.version_info[:2] == (3, 12), sys.version
+          expected = {"dnspython": "2.9.2", "pymongo": "4.20.0", "limits": "5.8.0"}
+          actual = {name: metadata.version(name) for name in expected}
+          assert actual == expected, actual
+          root = Path("/app/app")
+          assert (root / "rate_limit_storage.py").is_file()
+          extensions = (root / "extensions.py").read_text()
+          assert "from .rate_limit_storage import ShutdownSafeMongoDBStorage" in extensions
+          print(f"Python {sys.version.split()[0]}; {actual}; updated storage source present")
+          '
+
+      - name: Run Linux rate-limit storage regression tests in the production image
+        env:
+          IMAGE: rk-web-backend:ci-validation
+        run: |
+          docker run --rm \
+            --mount "type=bind,src=${GITHUB_WORKSPACE}/backend/tests/test_rate_limit_storage.py,dst=/tmp/test_rate_limit_storage.py,readonly" \
+            --env PYTHONPATH=/app \
+            --entrypoint sh "$IMAGE" -ec '
+              python -m pip install --no-cache-dir pytest==8.4.2
+              python -m pytest -q /tmp/test_rate_limit_storage.py
+            '
+
+      - name: Exercise worker and template-refresh CLIs with isolated boundaries
+        env:
+          IMAGE: rk-web-backend:ci-validation
+        run: |
+          cat > "$RUNNER_TEMP/whatsapp-cli-smoke.py" <<'PY'
+          import json
+          from unittest.mock import patch
+
+          from app import create_app
+          import app.whatsapp_ops as operations
+          import app.whatsapp_routes as routes
+
+          app = create_app()
+          app.config.update(
+              WHATSAPP_ACCESS_TOKEN="ci-isolated-token",
+              WHATSAPP_APP_SECRET="ci-isolated-app-secret",
+              WHATSAPP_WEBHOOK_VERIFY_TOKEN="ci-isolated-verify-token",
+              WHATSAPP_APP_ID="123456",
+              WHATSAPP_OUTBOX_KEY="MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+              WHATSAPP_PHONE_NUMBER_ID="123456789",
+              WHATSAPP_BUSINESS_ACCOUNT_ID="987654321",
+              WHATSAPP_API_VERSION="v99.0",
+              WHATSAPP_ENABLED=False,
+              WHATSAPP_ORDER_NOTIFICATIONS_ENABLED=False,
+              WHATSAPP_MARKETING_ENABLED=False,
+              WHATSAPP_TEST_SEND_ENABLED=False,
+              WHATSAPP_PRODUCTION_TEST_SEND_ENABLED=False,
+              MONGO_URI="mongodb://127.0.0.1:1/ci_isolated",
+              MONGO_DBNAME="ci_isolated",
+              WHATSAPP_EXPECTED_DATABASE="ci_isolated",
+          )
+          runner = app.test_cli_runner()
+
+          worker = runner.invoke(args=["whatsapp-worker"])
+          assert worker.exit_code == 0, worker.output
+          assert json.loads(worker.output)["status"] == "disabled", worker.output
+
+          class Collection:
+              def find_one(self, *_args, **_kwargs):
+                  return {"templateStatusSync": {"pagesRead": 1, "recordsRead": 0, "outcome": "success"}}
+
+          class IsolatedDatabase:
+              integrations = Collection()
+
+          isolated_db = IsolatedDatabase()
+          with patch.object(operations, "guarded_database", return_value=isolated_db), \
+               patch.object(routes, "refresh_template_observations") as refresh:
+              refreshed = runner.invoke(args=["whatsapp-template-refresh"])
+          assert refreshed.exit_code == 0, refreshed.output
+          refresh.assert_called_once_with(isolated_db, app.config)
+          assert json.loads(refreshed.output)["event"] == "whatsapp_inventory_refreshed", refreshed.output
+          print("Worker CLI remained disabled; template-refresh CLI used only isolated mocks.")
+          PY
+          docker run --rm \
+            --mount "type=bind,src=$RUNNER_TEMP/whatsapp-cli-smoke.py,dst=/tmp/whatsapp-cli-smoke.py,readonly" \
+            --env FLASK_ENV=development \
+            --env SECRET_KEY=ci-only-secret-key-long-enough-for-validation \
+            --env JWT_SECRET_KEY=ci-only-jwt-key-long-enough-for-validation \
+            --env MONGO_DB=mongodb://127.0.0.1:1/ci_isolated \
+            --env DB_NAME=ci_isolated \
+            --env WHATSAPP_EXPECTED_DATABASE=ci_isolated \
+            --entrypoint python "$IMAGE" /tmp/whatsapp-cli-smoke.py
+
   frontend-validation:
     name: Frontend tests, types, and production build
     runs-on: ubuntu-latest
