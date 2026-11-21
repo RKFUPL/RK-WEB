@@ -60,6 +60,8 @@ def saved_order(c, event):
     order["fulfillment"] = {"status": state if event in {"order_placed", "order_accepted", "order_rejected", "processing", "packed"} else "confirmed"}
     if event in {"order_accepted", "order_rejected"}:
         order["availabilityDecision"] = {"status": "accepted" if event == "order_accepted" else "rejected"}
+        if event == "order_rejected":
+            order["availabilityDecision"]["reason"] = "requested_size_unavailable"
     if event in {"advance_payment_received", "part_payment_received", "payment_received"}:
         first = {"id": "receipt-first", "event": "advance_payment_received", "amountPaise": 10000, "timestamp": now()}
         ledger = [first]

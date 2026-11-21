@@ -103,6 +103,8 @@ def test_status_labels_require_actual_persisted_state(order_case, event, state):
         event_values(event, order)
     order["fulfillment"]["status"] = state
     order["availabilityDecision"] = {"status": "accepted" if event == "order_accepted" else "rejected"}
+    if event == "order_rejected":
+        order["availabilityDecision"]["reason"] = "requested_size_unavailable"
     values = event_values(event, order)
     assert values["update_message"] and values["payment_status"] == "Pending"
 

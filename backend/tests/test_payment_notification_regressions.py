@@ -161,7 +161,8 @@ def retry_route(c, event):
 def email_order(c, event):
     c.db.orders.update_one({"_id": c.order["_id"]}, {"$set": {
         "email": "fixture@example.test", "fulfillment.status": "cancelled" if event == "order_rejected" else "confirmed",
-        "availabilityDecision.status": "rejected" if event == "order_rejected" else "accepted"}})
+        "availabilityDecision.status": "rejected" if event == "order_rejected" else "accepted",
+        "availabilityDecision.reason": "requested_size_unavailable" if event == "order_rejected" else None}})
     return c.db.orders.find_one({"_id": c.order["_id"]})
 
 

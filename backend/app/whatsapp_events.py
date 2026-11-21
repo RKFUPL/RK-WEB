@@ -1,9 +1,37 @@
 """Read existing persisted business results; never perform business transitions."""
 from decimal import Decimal, InvalidOperation
 from datetime import timedelta
+import re
 from .time_utils import as_utc_datetime
 
 ORDER_EVENTS = {"order_placed", "order_accepted", "order_rejected", "processing", "packed", "advance_payment_received", "part_payment_received", "payment_received", "order_confirmation", "payment_confirmation", "shipped", "tracking_update", "out_for_delivery", "delivered", "cancelled", "refund_completed"}
+
+
+def _rejection_message(record):
+    from .order_fulfillment import REJECTION_REASONS, safe_text
+
+    decision = record.get("availabilityDecision")
+    if not isinstance(decision, dict) or decision.get("status") != "rejected":
+        raise ValueError("rejection_not_recorded")
+    reason = decision.get("reason")
+    if not isinstance(reason, str) or reason not in REJECTION_REASONS:
+        raise ValueError("rejection_reason_not_recorded")
+    explanation = decision.get("explanation")
+    if explanation is not None and not isinstance(explanation, str):
+        raise ValueError("invalid_rejection_explanation")
+    explanation = safe_text(" ".join(re.sub(r"[\x00-\x1f\x7f]", " ", explanation or "").split()), 500)
+    if reason == "other" and not explanation:
+        raise ValueError("rejection_explanation_not_recorded")
+    labels = {
+        "requested_size_unavailable": "Requested size unavailable",
+        "fabric_or_material_unavailable": "Fabric or material unavailable",
+        "production_or_fulfilment_limitation": "Production/fulfilment limitation",
+        "other": "Other",
+    }
+    message = "Order status: REJECTED. Reason: " + labels[reason] + "."
+    if explanation:
+        message += " Additional details: " + explanation
+    return message
 
 
 def money(value, currency="INR"):
@@ -66,8 +94,8 @@ def event_values(event, record):
                 raise ValueError("order_state_not_recorded")
             if event == "order_accepted" and (record.get("availabilityDecision") or {}).get("status") != "accepted":
                 raise ValueError("acceptance_not_recorded")
-            if event == "order_rejected" and (record.get("availabilityDecision") or {}).get("status") != "rejected":
-                raise ValueError("rejection_not_recorded")
+            if event == "order_rejected":
+                rejection_message = _rejection_message(record)
 
     elif event == "order_confirmation":
         if (paid != "paid" or not (record.get("paymentVerifiedAt") or payment.get("verifiedAt"))
@@ -108,7 +136,6 @@ def event_values(event, record):
             summary = payment_summary(record)
         messages = {
             "order_accepted": "Your order has been accepted by our team.",
-            "order_rejected": "Our team is unable to accept your order. Please contact us for assistance.",
             "processing": "Your order is being prepared by our team.",
             "packed": "Your order has been packed and is ready for dispatch.",
             "shipped": "Your order has shipped.",
@@ -120,7 +147,7 @@ def event_values(event, record):
             "cancelled": "Your order has been cancelled.",
             "refund_completed": "Your refund has been processed.",
         }
-        message = messages[event]
+        message = rejection_message if event == "order_rejected" else messages[event]
         if event in {"shipped", "out_for_delivery", "delivered"} and fulfillment.get("shippedAt") and fulfillment.get("courier") and fulfillment.get("trackingNumber"):
             message += " Courier: " + str(fulfillment["courier"])[:100] + ". Tracking: " + str(fulfillment["trackingNumber"])[:120] + "."
         if event in MANUAL_PAYMENT_EVENTS:

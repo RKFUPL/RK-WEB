@@ -282,7 +282,8 @@ def test_individually_authorized_lifecycle_events_use_existing_worker(order_case
     elif event == "order_accepted":
         fields["availabilityDecision.status"] = "accepted"
     elif event == "order_rejected":
-        fields.update({"fulfillment.status": "cancelled", "availabilityDecision.status": "rejected"})
+        fields.update({"fulfillment.status": "cancelled", "availabilityDecision.status": "rejected",
+                       "availabilityDecision.reason": "requested_size_unavailable"})
     elif event in {"advance_payment_received", "part_payment_received", "payment_received"}:
         # Advance/part receipts must leave a balance; only the final receipt
         # may claim that the order has been paid in full.
