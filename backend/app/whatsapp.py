@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import re
-import time
+from time import sleep as retry_sleep
 import json
 from uuid import uuid4
 
@@ -380,7 +380,7 @@ def send(db, config, recipient, event, parameters, key, *, order_id=None, text=N
                 retry = response.headers.get("Retry-After", "")
                 delay = int(retry) if str(retry).isdigit() else 2 ** attempt
                 if delay <= 5:
-                    time.sleep(max(1, delay))
+                    retry_sleep(max(1, delay))
                     continue
             ambiguous = bool(message_id) or response.status_code >= 500 or (200 <= response.status_code < 300)
             result = {"status": "unknown" if ambiguous else "failed", "error": error, "httpStatus": response.status_code}
@@ -682,6 +682,9 @@ def process_outbox(db, config, limit=50, *, stop_requested=None):
                 record = {}
                 if payload.get("order_id"):
                     record = db.orders.find_one({"_id": ObjectId(payload["order_id"])}) or db.custom_order_requests.find_one({"_id": ObjectId(payload["order_id"])}) or {}
+                from .inventory_operations import persisted_inventory_block_reason
+                if business_key and payload.get("event") in {"order_confirmation", "order_accepted", "processing", "packed", "shipped", "out_for_delivery", "delivered"} and persisted_inventory_block_reason(db, record):
+                    raise ValueError("inventory_reconciliation_required")
                 if payload["event"] == "admin_notification":
                     record = {}
                 if business_key:
@@ -729,6 +732,9 @@ def process_outbox(db, config, limit=50, *, stop_requested=None):
                     latest_record = {}
                     if payload.get("order_id"):
                         latest_record = db.orders.find_one({"_id": ObjectId(payload["order_id"])}) or db.custom_order_requests.find_one({"_id": ObjectId(payload["order_id"])}) or {}
+                    from .inventory_operations import persisted_inventory_block_reason
+                    if business_key and payload.get("event") in {"order_confirmation", "order_accepted", "processing", "packed", "shipped", "out_for_delivery", "delivered"} and persisted_inventory_block_reason(db, latest_record):
+                        return False
                     if payload["event"] == "admin_notification":
                         latest_record = {}
                     if business_key:

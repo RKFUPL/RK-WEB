@@ -155,7 +155,7 @@ def test_manual_test_rechecks_provider_proofs_before_dispatch_and_retry(case,mut
                     'sender':('sender.evidence.registration','UNREGISTERED'), 'billing':('billing.evidence.providerEligibilityVerified',False)}[mutation]
         case.db.integrations.update_one({'_id':'whatsapp'},{'$set':{'diagnosticChecks.'+path:value}})
     case.http.return_value=case.response(429,{'error':{'code':130429}},{'Retry-After':'1'})
-    with patch('app.whatsapp.time.sleep',side_effect=change):
+    with patch('app.whatsapp.retry_sleep',side_effect=change):
         assert submit(case).status_code in {403,409}
     assert case.http.call_count==1
     case.http.reset_mock()

@@ -192,8 +192,23 @@ def render_order_confirmation(order: dict, *, title=None, message=None, details_
 
 
 def send_order_confirmation(database, order: dict, config, logger, *, force: bool = False) -> bool:
+    from .notification_activity import email_failure_reason, claim_email, finish_email, email_heartbeat, SAFE_EMAIL_FAILURES
+    from .inventory_operations import persisted_inventory_block_reason
+    order = database.orders.find_one({"_id": order.get("_id")})
+    if not order:
+        return False
+    if order.get("paymentGateway") != "manual" and persisted_inventory_block_reason(database, order):
+        from .notification_activity import record_channel
+        record_channel(database, order["_id"], "order_confirmation", "email", "skipped", "inventory_reconciliation_required", key="order_confirmation")
+        record_channel(database, order["_id"], "order_confirmation", "whatsapp", "skipped", "inventory_reconciliation_required", key="order_confirmation")
+        return False
     # Channel claims are independent of email retry/resend claims.
     manual = order.get("paymentGateway") == "manual"
+    from .whatsapp_events import event_values
+    try:
+        event_values("order_placed" if manual else "order_confirmation", order)
+    except (ValueError, KeyError):
+        return False
     notify(database, "order_placed" if manual else "order_confirmation", order)
     # The restricted order-only gate sends one initial order confirmation. A
     # separately enabled payment confirmation is not a second initial message.
@@ -208,35 +223,28 @@ def send_order_confirmation(database, order: dict, config, logger, *, force: boo
     if not order_id or not recipient:
         return False
     existing = order.get("confirmationEmail") if isinstance(order.get("confirmationEmail"), dict) else {}
-    if existing.get("status") == "sent" and not force:
+    if existing.get("status") == "sent":
         return True
-    now = datetime.now(timezone.utc)
-    query = {"_id": order_id} if force else {"_id": order_id, "confirmationEmail.status": {"$nin": ["sent", "sending"]}}
-    claimed = database.orders.update_one(query, {
-        "$set": {"confirmationEmail.status": "sending", "confirmationEmail.lastAttemptAt": now, "confirmationEmail.error": None},
-        "$inc": {"confirmationEmail.attempts": 1},
-    })
-    if claimed.modified_count != 1:
+    event = "order_placed" if manual else "order_confirmation"
+    claim = claim_email(database, order_id, event, "order_confirmation", snapshot=order)
+    if not claim:
         current = database.orders.find_one({"_id": order_id}, {"confirmationEmail": 1}) or {}
         return (current.get("confirmationEmail") or {}).get("status") == "sent"
     try:
-        response = send_html_email(
-            sender=SENDERS["orders"],
-            recipients=[recipient],
-            bcc=confirmation_bcc_recipients(database, config.get("ORDER_CONFIRMATION_BCC", "")),
-            subject=f"Rashi Kapoor order {'received' if manual else 'confirmed'} — {_text(order.get('orderNumber'), 100)}",
-            html=render_order_confirmation(order),
-        )
-        provider_id = _text((response or {}).get("id") if isinstance(response, dict) else "", 180)
-        database.orders.update_one({"_id": order_id}, {
-            "$set": {"confirmationEmail.status": "sent", "confirmationEmail.sentAt": datetime.now(timezone.utc), "confirmationEmail.providerId": provider_id, "confirmationEmail.error": None},
-            "$push": {"notificationLog": {"key": "order_confirmation", "status": "sent", "timestamp": datetime.now(timezone.utc), "providerId": provider_id}},
-        })
-        return True
+        with email_heartbeat(database, order_id, event, "order_confirmation", claim):
+            response = send_html_email(
+                sender=SENDERS["orders"], recipients=[recipient],
+                bcc=confirmation_bcc_recipients(database, config.get("ORDER_CONFIRMATION_BCC", "")),
+                subject=f"Rashi Kapoor order {'received' if manual else 'confirmed'} — {_text(order.get('orderNumber'), 100)}",
+                html=render_order_confirmation(order),
+            )
     except Exception as error:
-        database.orders.update_one({"_id": order_id}, {
-            "$set": {"confirmationEmail.status": "failed", "confirmationEmail.error": _text(error, 240)},
-            "$push": {"notificationLog": {"key": "order_confirmation", "status": "failed", "timestamp": datetime.now(timezone.utc), "error": _text(error, 240)}},
-        })
-        logger.exception("Unable to send order confirmation email")
+        reason = email_failure_reason(error)
+        state = "failed" if reason in SAFE_EMAIL_FAILURES else "held"
+        finish_email(database, order_id, event, "order_confirmation", claim, state, reason, getattr(error, "submission", None))
+        logger.warning("Order confirmation email failed: %s", reason)
         return False
+    # Retain the in-flight claim if persistence fails after provider acceptance.
+    response = response if isinstance(response, dict) else {}
+    finish_email(database, order_id, event, "order_confirmation", claim, "accepted", response.get("reason"), response.get("submission"), response.get("id"))
+    return True

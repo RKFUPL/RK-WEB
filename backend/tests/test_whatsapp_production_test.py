@@ -177,7 +177,7 @@ def test_restrictions_rechecked_after_retry_backoff(case, mutation):
             case.app.config["WHATSAPP_PRODUCTION_TEST_SEND_ENABLED"] = False
         else:
             case.db.whatsapp_template_status.update_one({"name": "rk_order_confirmation"}, {"$set": {"status": "PENDING"}})
-    with patch("app.whatsapp.time.sleep", side_effect=change):
+    with patch("app.whatsapp.retry_sleep", side_effect=change):
         assert submit(case).status_code in {403, 409}
     assert case.http.call_count == 1
 

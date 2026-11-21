@@ -18,6 +18,7 @@ from ...order_fulfillment import (
     ensure_order_tracking,
     migrate_legacy_orders,
     order_view,
+    payment_confirmation_changes,
     update_shipment,
 )
 from ...order_confirmation import send_order_confirmation
@@ -52,8 +53,53 @@ def _prepare(database_instance) -> None:
 
 
 def _staff_view(db, order):
+    from ...notification_activity import expire_stale_email_claims
+    expire_stale_email_claims(db, order["_id"])
+    order = db.orders.find_one({"_id": order["_id"]}) or order
     view = order_view(order, include_private_payment=True)
+    view["captureFulfillmentStatus"] = order.get("captureFulfillmentStatus")
+    from ...inventory_operations import inventory_block_reason, operation_evidence, persisted_inventory_block_reason, capture_recoverable, manual_reservation_recoverable
+    blocked = bool(persisted_inventory_block_reason(db, order))
+    evidence = operation_evidence(db, order)
+    reconcilable = capture_recoverable(evidence) if evidence["capture"] else manual_reservation_recoverable(evidence)
+    view["inventoryReconciliation"] = {
+        "blocked": blocked,
+        "reason": inventory_block_reason(order) or ("inventory_operation_unresolved" if blocked else None),
+        "captureFulfillmentStatus": order.get("captureFulfillmentStatus"),
+        "operations": json_value(evidence),
+        "markerReconciliationAvailable": reconcilable,
+        "manualInvestigationRequired": bool(blocked and (evidence["capture"] or evidence["manual"]) and not reconcilable),
+        "investigations": json_value(order.get("inventoryInvestigations", [])),
+    }
+    if blocked:
+        view["availableActions"] = [action for action in view.get("availableActions", []) if action in {"cancelled", "refunded", "return_requested"}]
     view["whatsapp"] = json_value(order_whatsapp_activity(db, current_app.config, order))
+    from ...notification_activity import staff_channel_activity
+    view["notificationActivity"] = json_value(staff_channel_activity(db, order, view["whatsapp"]))
+    for entry in view["timeline"]:
+        event = {"confirmed": "order_accepted", "refunded": "refund_completed"}.get(entry["status"], entry["status"])
+        entry["notificationOutcomes"] = [row for row in view["notificationActivity"] if row["event"] == event]
+        metadata = entry.get("metadata") or {}
+        reference = metadata.get("transactionId") or metadata.get("refundId")
+        if reference:
+            entry["notificationOutcomes"] = [row for row in entry["notificationOutcomes"]
+                if row.get("reference") == reference or row.get("notificationKey") in {"payment:" + reference, "refund:" + reference}]
+    return view
+
+
+def _customer_view(db, order):
+    view = order_view(order)
+    from ...inventory_operations import persisted_inventory_block_reason
+    if not persisted_inventory_block_reason(db, order):
+        return view
+    successful = {"confirmed", "order_accepted", "processing", "packed", "shipped", "out_for_delivery", "delivered"}
+    actual = canonical_fulfillment_status(order)
+    if actual in successful:
+        view["fulfillmentStatus"] = "order_placed"
+        view["fulfillment"]["status"] = "order_placed"
+        view["timeline"] = [event for event in view.get("timeline", []) if event.get("status") not in successful]
+        view["latestStatus"] = view["timeline"][-1] if view["timeline"] else None
+        view["customerNotice"] = "Your payment is recorded. Our team is confirming order availability before fulfilment proceeds."
     return view
 
 
@@ -165,7 +211,7 @@ def list_customer_orders():
     _prepare(db)
     user_id = authenticated_user_id()
     orders = list(db.orders.find(_customer_order_query(user_id)).sort("createdAt", -1).limit(100))
-    views = [order_view(ensure_order_tracking(db, order)) for order in orders]
+    views = [_customer_view(db, ensure_order_tracking(db, order)) for order in orders]
     active = db.orders.count_documents({"customerId": user_id, "fulfillment.status": {"$in": list(ACTIVE_FULFILLMENT_STATUSES)}})
     past = db.orders.count_documents({"customerId": user_id, "fulfillment.status": {"$in": ["delivered", "cancelled", "return_requested", "returned", "refunded"]}})
     total = db.orders.count_documents({"customerId": user_id})
@@ -183,7 +229,7 @@ def get_customer_order(order_id: str):
     order = db.orders.find_one({"_id": object_id, "customerId": authenticated_user_id()})
     if not order:
         return jsonify({"error": "Order not found."}), 404
-    view = order_view(ensure_order_tracking(db, order))
+    view = _customer_view(db, ensure_order_tracking(db, order))
     view["whatsappUpdates"] = order_consent_status(db, current_app.config, current_user(), order)
     return jsonify({"order": view}), 200
 
@@ -216,7 +262,7 @@ def grant_order_whatsapp_consent(order_id: str):
         update["$push"] = {"whatsappConsentHistory": previous}
     db.orders.update_one({"_id": object_id, "customerId": user["_id"]}, update)
     updated = db.orders.find_one({"_id": object_id, "customerId": user["_id"]})
-    view = order_view(updated)
+    view = _customer_view(db, updated)
     view["whatsappUpdates"] = order_consent_status(db, current_app.config, user, updated)
     return jsonify(order=view), 200
 
@@ -240,11 +286,11 @@ def request_order_return(order_id: str):
     try:
         updated = apply_transition(db, order, "return_requested", "customer", user, {"internalNote": reason, "customerNote": reason, "sendCustomerNotification": False})
     except OrderTransitionError as error:
-        return jsonify({"error": str(error)}), 400
+        return jsonify({"error": str(error), "code": error.code}), 400
     except OrderTransitionConflict as error:
         return jsonify({"error": str(error)}), 409
     db.orders.update_one({"_id": updated["_id"]}, {"$set": {"returnRequest": {"status": "requested", "reason": reason, "requestedAt": datetime.now(timezone.utc)}}})
-    return jsonify({"order": order_view(db.orders.find_one({"_id": updated["_id"]}))}), 200
+    return jsonify({"order": _customer_view(db, db.orders.find_one({"_id": updated["_id"]}))}), 200
 
 
 @staff_orders_bp.get("")
@@ -262,7 +308,7 @@ def list_staff_orders():
     else:
         orders = orders.limit(200)
     return jsonify({
-        "orders": [order_view(ensure_order_tracking(db, order), include_private_payment=True) for order in orders],
+        "orders": [_staff_view(db, ensure_order_tracking(db, order)) for order in orders],
         "counts": _order_counts(db),
         "courierOptions": _configured_couriers(db),
     }), 200
@@ -293,6 +339,151 @@ def get_staff_order(order_id: str):
     }), 200
 
 
+@staff_orders_bp.get("/<order_id>/inventory-reconciliation")
+@requirePermission("inventory:manage")
+def get_inventory_reconciliation(order_id: str):
+    object_id = _object_id(order_id)
+    if not object_id:
+        return jsonify({"error": "Order not found."}), 404
+    db = database()
+    order = db.orders.find_one({"_id": object_id})
+    if not order:
+        return jsonify({"error": "Order not found."}), 404
+    from ...inventory_operations import operation_evidence, capture_recoverable, manual_reservation_recoverable, persisted_inventory_block_reason
+    evidence = operation_evidence(db, order)
+    recoverable = capture_recoverable(evidence) if evidence["capture"] else manual_reservation_recoverable(evidence)
+    return jsonify({"blocked": bool(persisted_inventory_block_reason(db, order)),
+                    "evidence": json_value(evidence), "markerReconciliationAvailable": recoverable,
+                    "manualInvestigationRequired": bool((evidence["capture"] or evidence["manual"]) and not recoverable)}), 200
+
+
+@staff_orders_bp.post("/<order_id>/inventory-reconciliation")
+@requirePermission("inventory:manage")
+def reconcile_inventory_operations(order_id: str):
+    object_id = _object_id(order_id)
+    if not object_id:
+        return jsonify({"error": "Order not found."}), 404
+    db = database()
+    order = db.orders.find_one({"_id": object_id})
+    if not order:
+        return jsonify({"error": "Order not found."}), 404
+    payload = request.get_json(silent=True) or {}
+    reason = str(payload.get("reason") or "").strip()[:500]
+    if payload.get("action") != "reconcile_product_markers" or len(reason) < 8:
+        return jsonify({"error": "Choose marker reconciliation and provide a reason of at least 8 characters.", "code": "reconciliation_input_required"}), 400
+    from ...inventory_operations import operation_evidence, capture_recoverable, manual_reservation_recoverable
+    actor = current_user() or {}
+    before = operation_evidence(db, order)
+    audit = {"actorId": str(actor.get("_id") or ""), "actorName": str(actor.get("name") or actor.get("email") or "Staff")[:120],
+             "at": datetime.now(timezone.utc), "reason": reason, "action": "reconcile_product_markers",
+             "operationIds": [r["operationId"] for r in before["capture"] + before["manual"]], "before": before}
+    if before["capture"]:
+        if canonical_fulfillment_status(order) not in {"order_placed", "awaiting_confirmation"}:
+            return jsonify(error="Only an open, unconfirmed order can complete capture recovery.", code="capture_lifecycle_ineligible"), 409
+        if not capture_recoverable(before) or order.get("captureFulfillmentStatus") not in {"held", "processing", "unresolved"}:
+            return jsonify({"error": "Product markers do not prove every capture adjustment. Manual investigation is required; the order remains blocked.", "code": "inventory_evidence_ambiguous"}), 409
+        payment_id = order.get("razorpayPaymentId") or (order.get("payment") or {}).get("razorpayPaymentId")
+        token = order.get("captureClaimToken")
+        capture = order.get("captureEvidence") or {}
+        if (not payment_id or not token or order.get("refunds")
+                or order.get("paymentStatus") in {"refunded", "partially_refunded"}
+                or (order.get("payment") or {}).get("status") in {"refunded", "partially_refunded"}
+                or not order.get("paymentVerifiedAt") or capture.get("paymentId") != payment_id
+                or capture.get("status") != "captured" or capture.get("currency") != order.get("currency", "INR")
+                or not isinstance(capture.get("amountPaise"), int) or isinstance(capture.get("amountPaise"), bool)
+                or capture.get("amountPaise", 0) <= 0 or capture.get("amountPaise") != order.get("amountPaise")):
+            return jsonify({"error": "Capture identity or payment state is inconsistent. Manual investigation is required.", "code": "capture_state_inconsistent"}), 409
+        from ...inventory_operations import capture_operation_id, reconcile_capture_ledger_from_product
+        reconcile_capture_ledger_from_product(db, order["_id"])
+        for index, item in enumerate(order.get("items", [])):
+            op_id = capture_operation_id(order["_id"], payment_id, index)
+            result = db.inventory_operations.update_one(
+                {"_id": op_id, "orderId": str(order["_id"]), "captureId": str(payment_id), "claimToken": token,
+                 "state": {"$in": ["planned", "applying", "unresolved", "applied"]}},
+                {"$set": {"state": "applied", "productMarkerObserved": True, "reconciledAt": datetime.now(timezone.utc), "updatedAt": datetime.now(timezone.utc)}},
+            )
+            if result.matched_count != 1:
+                return jsonify({"error": "The operation ledger is inconsistent. The order remains blocked for manual investigation.", "code": "inventory_ledger_inconsistent"}), 409
+        now = datetime.now(timezone.utc)
+        fields, events = payment_confirmation_changes(order, str(payment_id), str((order.get("captureEvidence") or {}).get("source") or "staff_reconciliation"), "", now)
+        audit["after"] = {"captureFulfillmentStatus": "completed", "paymentStatus": "paid", "operations": before["capture"]}
+        query = {"_id": object_id, "captureClaimToken": token, "captureFulfillmentStatus": order.get("captureFulfillmentStatus"),
+                 "fulfillment": order.get("fulfillment"), "payment": order.get("payment"), "refunds": order.get("refunds", {"$exists": False})}
+        # payment_confirmation_changes already merges the saved payment fields
+        # and sets payment.status to paid. Keep that single parent update under
+        # the payment snapshot fence; a dotted child update would conflict.
+        fields.update({"captureFulfillmentStatus": "completed", "paymentStatus": "paid", "updatedAt": now})
+        updated = db.orders.find_one_and_update(query, {"$set": fields, "$push": {"timeline": {"$each": events}, "inventoryRecoveryAudit": audit}}, return_document=__import__("pymongo").ReturnDocument.AFTER)
+        if not updated:
+            return jsonify({"error": "The order changed during reconciliation. Refresh and inspect evidence; it remains blocked unless already completed.", "code": "inventory_reconciliation_conflict"}), 409
+        from ...order_confirmation import send_order_confirmation
+        send_order_confirmation(db, updated, current_app.config, current_app.logger)
+        return jsonify({"order": _staff_view(db, updated), "message": "Capture inventory markers were verified and the capture was reconciled."}), 200
+    if before["manual"]:
+        if order.get("inventoryReservation") not in {"reserving", "unresolved"} or not manual_reservation_recoverable(before):
+            return jsonify({"error": "Manual reservation markers do not prove every required item. Manual investigation is required; the order remains blocked.", "code": "inventory_evidence_ambiguous"}), 409
+        audit["after"] = {"inventoryReservation": "reserved", "operations": before["manual"]}
+        changed = db.orders.update_one({"_id": object_id, "inventoryReservation": order.get("inventoryReservation"),
+            "inventoryReservationClaimToken": order.get("inventoryReservationClaimToken"), "fulfillment": order.get("fulfillment")},
+            {"$set": {"inventoryReservation": "reserved",
+                       "inventoryReservationReconciledAt": datetime.now(timezone.utc)}, "$push": {"inventoryRecoveryAudit": audit}})
+        if changed.modified_count != 1:
+            return jsonify({"error": "The order changed during reconciliation. Refresh and inspect evidence.", "code": "inventory_reconciliation_conflict"}), 409
+        return jsonify({"order": _staff_view(db, db.orders.find_one({"_id": object_id})), "message": "Manual reservation markers were verified. Staff may now retry the explicit acceptance transition."}), 200
+    return jsonify({"error": "No interrupted inventory operation is eligible for marker reconciliation.", "code": "no_reconciliation_required"}), 409
+
+
+@staff_orders_bp.post("/<order_id>/inventory-investigations")
+@requirePermission("inventory:manage")
+def record_inventory_investigation(order_id):
+    from ...inventory_operations import operation_evidence
+    from uuid import uuid4
+    object_id = _object_id(order_id)
+    db = database()
+    order = db.orders.find_one({"_id": object_id}) if object_id else None
+    if not order:
+        return jsonify(error="Order not found."), 404
+    payload = request.get_json(silent=True) or {}
+    evidence = operation_evidence(db, order)
+    rows = evidence["capture"] + evidence["manual"]
+    operation = next((row for row in rows if row["operationId"] == payload.get("operationId")), None)
+    if (not operation or payload.get("productId") != operation["productId"]
+            or isinstance(payload.get("itemIndex"), bool) or not isinstance(payload.get("itemIndex"), int)
+            or payload.get("itemIndex") != operation["itemIndex"]):
+        return jsonify(error="Choose an operation belonging to this order and item."), 400
+    texts = {key: payload.get(key, "") for key in ("reason", "findings", "evidenceReference")}
+    if any(not isinstance(value, str) for value in texts.values()):
+        return jsonify(error="Investigation fields must be text."), 400
+    texts = {key: value.strip() for key, value in texts.items()}
+    if not 8 <= len(texts["reason"]) <= 500 or not 8 <= len(texts["findings"]) <= 1500 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{2,119}", texts["evidenceReference"]):
+        return jsonify(error="Provide a reason, warehouse findings and an internal evidence document identifier."), 400
+    if re.search(r"mongodb(?:\+srv)?://|PRIVATE KEY|[\w.+-]+@[\w.-]+|\+?\d[\d -]{8,}\d", texts["reason"] + " " + texts["findings"], re.I):
+        return jsonify(error="Record inventory facts only; omit credentials and personal contact details."), 400
+    outcome, follow_up = payload.get("outcome"), payload.get("followUpStatus")
+    if outcome not in {"unresolved", "evidence_collected", "escalated"} or follow_up not in {"awaiting_warehouse", "awaiting_administrator", "under_review"}:
+        return jsonify(error="Choose a supported investigation outcome and follow-up status."), 400
+    count = payload.get("externalStockCount")
+    if isinstance(count, bool) or not isinstance(count, int) or not 0 <= count <= 1_000_000_000:
+        return jsonify(error="Provide a nonnegative integer warehouse count."), 400
+    prior_id = payload.get("supersedesId")
+    if prior_id and not any(row.get("id") == prior_id and row.get("operationId") == operation["operationId"] for row in order.get("inventoryInvestigations", [])):
+        return jsonify(error="The correction must reference this order's original operation investigation."), 400
+    actor = current_user() or {}
+    entry = {"id": uuid4().hex, "orderId": str(object_id), "operationId": operation["operationId"],
+             "productId": operation["productId"], "itemIndex": operation["itemIndex"],
+             "recordedAt": datetime.now(timezone.utc), "actorId": str(actor.get("_id")),
+             **texts, "externalStockCount": count, "outcome": outcome, "followUpStatus": follow_up,
+             "unresolved": True, "supersedesId": prior_id or None}
+    query = {"_id": object_id, "items": order.get("items"),
+             "captureClaimToken": order.get("captureClaimToken"),
+             "inventoryReservationClaimToken": order.get("inventoryReservationClaimToken")}
+    if prior_id:
+        query["inventoryInvestigations.id"] = prior_id
+    if db.orders.update_one(query, {"$push": {"inventoryInvestigations": entry}}).modified_count != 1:
+        return jsonify(error="The operation changed. Refresh before recording findings."), 409
+    return jsonify(investigation=json_value(entry), order=_staff_view(db, db.orders.find_one({"_id": object_id}))), 201
+
+
 @staff_orders_bp.post("/<order_id>/confirmation-email")
 @requirePermission("orders:manage")
 def resend_confirmation_email(order_id: str):
@@ -321,7 +512,6 @@ def change_fulfillment(order_id: str):
     if not object_id:
         return jsonify({"error": "Order not found."}), 404
     db = database()
-    _prepare(db)
     order = db.orders.find_one({"_id": object_id})
     if not order:
         return jsonify({"error": "Order not found."}), 404
@@ -330,7 +520,7 @@ def change_fulfillment(order_id: str):
     try:
         updated = apply_transition(db, order, target, "staff", current_user(), payload)
     except OrderTransitionError as error:
-        return jsonify({"error": str(error)}), 400
+        return jsonify({"error": str(error), "code": error.code}), 400
     except OrderTransitionConflict as error:
         return jsonify({"error": str(error)}), 409
     return jsonify({"order": _staff_view(db, updated)}), 200
@@ -452,6 +642,7 @@ def retry_order_notification(order_id):
     from ...whatsapp_orders import ORDER_NOTIFICATIONS, notify_order_whatsapp
     from ...whatsapp_events import event_values
     from ...order_fulfillment import send_status_notification
+    from ...notification_activity import notification_key
     db = database()
     object_id = _object_id(order_id)
     order = db.orders.find_one({"_id": object_id}) if object_id else None
@@ -470,6 +661,6 @@ def retry_order_notification(order_id):
     if event in {"order_placed", "order_confirmation"}:
         send_order_confirmation(db, order, current_app.config, current_app.logger)
     else:
-        send_status_notification(db, order, event, notification_key="payment:" + transaction if transaction else "fulfillment:" + {"order_accepted": "confirmed", "order_rejected": "cancelled"}.get(event, event))
+        send_status_notification(db, order, event, notification_key=notification_key(event, "payment:" + transaction if transaction else None))
     notify_order_whatsapp(db, object_id, event, {"transactionId": transaction})
     return jsonify(order=_staff_view(db, db.orders.find_one({"_id": object_id}))), 200

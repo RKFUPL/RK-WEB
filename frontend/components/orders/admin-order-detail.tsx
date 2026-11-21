@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, ExternalLink, PackageCheck, X } from "lucide-react";
 import { PaymentCollectionPanel } from "@/components/orders/payment-collection";
 import { apiBaseUrl } from "@/lib/rbac";
+import { notificationStatusLabel, notificationReasonLabel } from "@/lib/order-notifications";
 import {
   fulfillmentLabels,
   orderStatusLabel,
@@ -60,6 +61,8 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
   const [action, setAction] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [retryEvent, setRetryEvent] = useState("");
+  const [recoveryReason, setRecoveryReason] = useState("");
+  const [investigation, setInvestigation] = useState({ operationId: "", findings: "", evidenceReference: "", externalStockCount: "", outcome: "unresolved", followUpStatus: "awaiting_warehouse", supersedesId: "" });
   const [form, setForm] = useState({
     courier: "",
     trackingNumber: "",
@@ -111,6 +114,41 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
       if (!response.ok) throw new Error(data.error || "Unable to retry notification.");
       setOrder(data.order); setMessage("Notification eligibility rechecked. Review delivery activity.");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to retry notification."); }
+    finally { setBusy(false); }
+  };
+
+  const reconcileInventory = async () => {
+    if (!order || busy || recoveryReason.trim().length < 8) return;
+    setBusy(true); setError("");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/staff/orders/${order.id}/inventory-reconciliation`, {
+        method: "POST", headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reconcile_product_markers", reason: recoveryReason.trim() }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Inventory reconciliation could not be completed.");
+      setOrder(data.order); setMessage(data.message || "Inventory evidence reconciled."); setRecoveryReason("");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Inventory reconciliation could not be completed."); }
+    finally { setBusy(false); }
+  };
+
+  const saveInvestigation = async () => {
+    if (!order || busy) return;
+    const operations = [...(order.inventoryReconciliation?.operations?.capture || []), ...(order.inventoryReconciliation?.operations?.manual || [])];
+    const operation = operations.find(row => row.operationId === investigation.operationId);
+    if (!operation) return;
+    setBusy(true); setError("");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/staff/orders/${order.id}/inventory-investigations`, {
+        method: "POST", headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ ...investigation, reason: recoveryReason.trim(), productId: operation.productId, itemIndex: operation.itemIndex,
+          externalStockCount: investigation.externalStockCount.trim() === "" ? null : Number(investigation.externalStockCount), supersedesId: investigation.supersedesId || null }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Investigation could not be recorded.");
+      setOrder(data.order); setMessage("Investigation recorded. Stock and fulfilment are unchanged; unresolved cases remain blocked.");
+      setInvestigation({ operationId: "", findings: "", evidenceReference: "", externalStockCount: "", outcome: "unresolved", followUpStatus: "awaiting_warehouse", supersedesId: "" });
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Investigation could not be recorded."); }
     finally { setBusy(false); }
   };
 
@@ -274,30 +312,55 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
             {order.payment.gateway === "manual" ? "Order received email" : "Order confirmation email"}
           </p>
           <p className="mt-2 text-xs text-[#858b94]">
-            Status: {titleCase(order.confirmationEmail?.status || "pending")} ·
+            Status: {order.confirmationEmail?.status === "sent" ? 'Accepted by provider' : titleCase(order.confirmationEmail?.status || "pending")} ·
             Attempts: {order.confirmationEmail?.attempts || 0}
           </p>
           {order.confirmationEmail?.error ? (
             <p className="mt-1 max-w-2xl text-xs text-red-600">
-              {order.confirmationEmail.error}
+              {notificationReasonLabel(order.confirmationEmail.error)}
             </p>
           ) : null}
         </div>
         {order.paymentStatus === "paid" ? (
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || Boolean(order.inventoryReconciliation?.blocked) || ['sent', 'sending', 'held'].includes(order.confirmationEmail?.status || '')}
             onClick={() => void resendConfirmation()}
             className="rounded-lg border border-[#9a7a4d]/40 px-4 py-2.5 text-[9px] uppercase tracking-[.14em] text-[#9a7a4d] disabled:opacity-40"
           >
             {order.confirmationEmail?.status === "sent"
-              ? "Resend confirmation"
+              ? "Email accepted"
               : "Send confirmation"}
           </button>
         ) : null}
       </section>
       <PaymentCollectionPanel order={order} onUpdate={setOrder} />
       {order.inventoryReservation === "reserving" && <p role="alert" className="mt-4 text-red-700">Stock reservation needs staff reconciliation before acceptance can be retried.</p>}
+      {order.inventoryReconciliation?.blocked && <section role="alert" className="mt-5 rounded-lg border border-amber-700/30 bg-amber-50 p-4 text-sm text-amber-950 dark:bg-amber-950/20 dark:text-amber-100">
+        <h3 className="font-medium">Inventory reconciliation required</h3>
+        <p className="mt-1">Fulfillment and success notifications remain blocked until persisted inventory evidence is resolved. Payment evidence is retained.</p>
+        <p className="mt-1 text-xs">Capture state: {order.captureFulfillmentStatus || "Not applicable"}. Reservation state: {order.inventoryReservation || "Not started"}.</p>
+        {[...(order.inventoryReconciliation.operations?.capture || []), ...(order.inventoryReconciliation.operations?.manual || [])].map((operation) => <div key={operation.operationId} className="mt-2 break-all text-xs">
+          Item {operation.itemIndex + 1}: {operation.state}; product marker {operation.productMarkerPresent ? (operation.markerMatches ? "verified" : "does not match") : "not found"}; quantity {operation.quantity}.
+          {operation.stockDelta != null ? ` Stock delta ${operation.stockDelta}.` : ""} {operation.createdAt ? ` Recorded ${orderDateTime(operation.createdAt)}.` : ""}
+        </div>)}
+        <label className="mt-3 block text-xs">Recovery reason<input value={recoveryReason} onChange={(event) => setRecoveryReason(event.target.value)} maxLength={500} className={fieldClass} /></label>
+        {order.inventoryReconciliation.markerReconciliationAvailable && <button type="button" disabled={busy || recoveryReason.trim().length < 8} onClick={() => void reconcileInventory()} className="mt-3 rounded border border-amber-800/40 px-3 py-2 text-xs disabled:opacity-40">Reconcile verified product markers</button>}
+        {order.inventoryReconciliation.manualInvestigationRequired && <p className="mt-3 text-xs font-medium">The persisted records cannot prove the complete stock operation. This order remains blocked and requires manual inventory investigation.</p>}
+        <fieldset className="mt-4 space-y-3 border-t border-amber-800/20 pt-4">
+          <legend className="text-sm font-medium">Record warehouse investigation</legend>
+          <p className="text-xs">Records findings only. It does not adjust stock, complete recovery or send notifications. Enter inventory facts and internal document IDs; omit customer details and credentials.</p>
+          <label className="block text-xs">Inventory operation<select value={investigation.operationId} onChange={e => setInvestigation({ ...investigation, operationId: e.target.value, supersedesId: "" })} className={fieldClass}><option value="">Choose operation</option>{[...(order.inventoryReconciliation.operations?.capture || []), ...(order.inventoryReconciliation.operations?.manual || [])].map(row => <option key={row.operationId} value={row.operationId}>Item {row.itemIndex + 1}: {row.operationId}</option>)}</select></label>
+          <label className="block text-xs">Warehouse findings<textarea maxLength={1500} value={investigation.findings} onChange={e => setInvestigation({ ...investigation, findings: e.target.value })} className={fieldClass} /></label>
+          <label className="block text-xs">External stock count<input type="number" min="0" step="1" value={investigation.externalStockCount} onChange={e => setInvestigation({ ...investigation, externalStockCount: e.target.value })} className={fieldClass} /></label>
+          <label className="block text-xs">Evidence document ID<input maxLength={120} value={investigation.evidenceReference} onChange={e => setInvestigation({ ...investigation, evidenceReference: e.target.value })} className={fieldClass} /></label>
+          <label className="block text-xs">Investigation outcome<select value={investigation.outcome} onChange={e => setInvestigation({ ...investigation, outcome: e.target.value })} className={fieldClass}><option value="unresolved">Unresolved</option><option value="evidence_collected">Evidence collected — remains unresolved</option><option value="escalated">Escalated</option></select></label>
+          <label className="block text-xs">Follow-up status<select value={investigation.followUpStatus} onChange={e => setInvestigation({ ...investigation, followUpStatus: e.target.value })} className={fieldClass}><option value="awaiting_warehouse">Awaiting warehouse</option><option value="awaiting_administrator">Awaiting administrator</option><option value="under_review">Under review</option></select></label>
+          <label className="block text-xs">Correct previous entry<select value={investigation.supersedesId} onChange={e => setInvestigation({ ...investigation, supersedesId: e.target.value })} className={fieldClass}><option value="">New investigation</option>{order.inventoryReconciliation.investigations?.filter(row => row.operationId === investigation.operationId).map(row => <option key={row.id} value={row.id}>{row.id}</option>)}</select></label>
+          <button type="button" disabled={busy || !investigation.operationId || recoveryReason.trim().length < 8 || investigation.findings.trim().length < 8 || !investigation.evidenceReference || !investigation.externalStockCount.trim()} onClick={() => void saveInvestigation()} className="rounded border border-amber-800/40 px-3 py-2 text-xs disabled:opacity-40">Record investigation only</button>
+        </fieldset>
+        {order.inventoryReconciliation.investigations?.map(row => <article key={row.id} className="mt-3 border-t border-amber-800/20 pt-3 text-xs"><p>{orderDateTime(row.recordedAt)} · {row.outcome} · {row.followUpStatus} · Unresolved</p><p>{row.findings}</p><p>Warehouse count: {row.externalStockCount}. Evidence: {row.evidenceReference}. Recorded by staff {row.actorId}.</p>{row.supersedesId && <p>Corrects entry {row.supersedesId}; the original record is retained.</p>}</article>)}
+      </section>}
       <div className="mt-5 flex flex-wrap items-end gap-3 text-sm"><label>Retry saved notification<select value={retryEvent} onChange={e => setRetryEvent(e.target.value)} className={fieldClass}><option value="">Choose event</option>{["order_placed", "order_confirmation", "order_accepted", "order_rejected", "processing", "packed", "shipped", "out_for_delivery", "delivered", "cancelled"].map(event => <option key={event} value={event}>{titleCase(event)}</option>)}{order.paymentTransactions?.filter(t => ["advance_payment_received", "part_payment_received", "payment_received"].includes(t.event)).map(t => <option key={t.id} value={`${t.event}|${t.id}`}>{titleCase(t.event)} - {inr.format(t.amount)} - {t.id}</option>)}</select></label><button type="button" disabled={busy || !retryEvent} onClick={() => void retryNotification()} className="rounded border border-black/20 px-4 py-2 text-xs disabled:opacity-40">Retry eligible notification</button><p className="text-xs text-[#858b94]">Saved state, consent and template approval are checked again. Successful events remain deduplicated.</p></div>
       <section aria-label="Email activity" className="mt-5 text-xs"><h2 className="font-semibold">Email activity</h2>{order.notificationLog?.map((event, index) => <p key={`${event.key}-${index}`} className="mt-2">{titleCase(event.key)} / {titleCase(event.status)} / {orderDateTime(event.timestamp)}</p>)}</section>
       <div className="mt-7 grid gap-4 md:grid-cols-2">
@@ -583,11 +646,14 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
                     {event.note}
                   </p>
                 ) : null}
-                {event.notifyCustomer ? (
-                  <p className="mt-1 text-[10px] uppercase tracking-[.12em] text-emerald-700">
-                    Customer notification requested
-                  </p>
-                ) : null}
+                {event.notificationOutcomes?.length ? <ul aria-label="Notification outcomes" className="mt-2 space-y-2 text-[11px]">
+                  {event.notificationOutcomes.map((outcome, index) => <li key={`${outcome.channel}-${index}`}>
+                    <p>{outcome.channel === 'whatsapp' ? 'WhatsApp' : 'Email'}: {notificationStatusLabel(outcome.status)}</p>
+                    {outcome.reason ? <p className="mt-1 text-[#727780]">{notificationReasonLabel(outcome.reason)}</p> : null}
+                    {outcome.submission ? <p className="mt-1 text-[#727780]">Customer recipients: {outcome.submission.customerAccepted ?? 0} accepted, {outcome.submission.customerRefused ?? 0} refused. Copy recipients: {outcome.submission.otherAccepted ?? 0} accepted, {outcome.submission.otherRefused ?? 0} refused.</p> : null}
+                    {outcome.updatedAt ? <time className="text-[10px] text-[#858b94]">{orderDateTime(outcome.updatedAt)}</time> : null}
+                  </li>)}
+                </ul> : event.notifyCustomer ? <p className="mt-1 text-[10px] text-[#858b94]">Notification requested; channel outcome unavailable.</p> : null}
               </div>
               <span className="text-[9px] uppercase tracking-[.14em] text-[#9a7a4d]">
                 {event.actor.name || event.actor.type}

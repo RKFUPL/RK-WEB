@@ -1,6 +1,6 @@
 import { formatDate, formatDateTime, formatLongDate } from "@/lib/date-time";
 
-export type PaymentStatus = "pending" | "partial" | "overdue" | "paid" | "failed" | "refunded";
+export type PaymentStatus = "pending" | "partial" | "overdue" | "paid" | "failed" | "refunded" | "partially_refunded";
 export type FulfillmentStatus =
   | "order_placed"
   | "awaiting_confirmation"
@@ -30,6 +30,7 @@ export type OrderTimelineEvent = {
   customerNote?: string;
   internalNote?: string;
   notifyCustomer?: boolean;
+  notificationOutcomes?: NotificationOutcome[];
   metadata?: { courier?: string; trackingNumber?: string };
 };
 export type OrderItem = {
@@ -86,7 +87,7 @@ export type OrderFulfillment = {
   };
 };
 export type ConfirmationEmailState = {
-  status?: "pending" | "sending" | "sent" | "failed";
+  status?: "pending" | "sending" | "sent" | "failed" | "held";
   attempts?: number;
   lastAttemptAt?: string;
   sentAt?: string;
@@ -95,12 +96,28 @@ export type ConfirmationEmailState = {
 };
 
 export type PaymentTransaction = { reverses?: string; id: string; amount: number; amountPaise: number; method: string; reference?: string; note?: string; timestamp: string; recordedBy: string; event: string };
-export type PaymentCollection = { total: number; received: number; balanceDue: number; status: PaymentStatus; dueAt?: string; instructions?: string };
+export type InventoryInvestigation = { id: string; operationId: string; productId: string; itemIndex: number; reason: string; findings: string; evidenceReference: string; externalStockCount: number; outcome: string; followUpStatus: string; unresolved: boolean; recordedAt: string; actorId: string; supersedesId?: string | null };
+export type NotificationOutcome = { event: string; channel: string; status: string; reason?: string; updatedAt?: string; submission?: { customerAccepted?: number; customerRefused?: number; otherAccepted?: number; otherRefused?: number }; history?: { status: string; reason?: string; timestamp: string }[] };
+export type PaymentCollection = { total: number; received: number; refunded?: number; netReceived?: number; collectibleBalance?: number; refundableAmount?: number; evidenceIssue?: string; balanceDue: number; status: PaymentStatus; dueAt?: string; instructions?: string };
 export type Order = {
+  notificationActivity?: NotificationOutcome[];
   whatsappUpdates?: { number?: string | null; enabled: boolean };
   paymentCollection?: PaymentCollection;
   paymentTransactions?: PaymentTransaction[];
   inventoryReservation?: string;
+  captureFulfillmentStatus?: string;
+  inventoryReconciliation?: {
+    investigations?: InventoryInvestigation[];
+    blocked: boolean;
+    reason?: string | null;
+    captureFulfillmentStatus?: string;
+    markerReconciliationAvailable?: boolean;
+    manualInvestigationRequired?: boolean;
+    operations?: {
+      capture?: { operationId: string; itemIndex: number; productId: string; quantity: number; stockDelta?: number | null; state: string; productMarkerPresent: boolean; markerMatches: boolean; compensated: boolean; createdAt?: string; updatedAt?: string }[];
+      manual?: { operationId: string; itemIndex: number; productId: string; quantity: number; stockDelta?: number | null; state: string; productMarkerPresent: boolean; markerMatches: boolean; compensated: boolean; required: boolean; createdAt?: string; updatedAt?: string }[];
+    };
+  };
   notificationLog?: { key: string; status: string; timestamp: string; error?: string }[];
   id: string;
   refunds?: { id: string; status: string; amountPaise: number; currency: string; processedAt?: string }[];
@@ -158,6 +175,7 @@ export type Order = {
 };
 
 export const paymentLabels: Record<PaymentStatus, string> = {
+  partially_refunded: "Partially refunded",
   pending: "Pending",
   partial: "Partially paid / balance due",
   overdue: "Overdue",

@@ -47,9 +47,30 @@ def payment_summary(order, at=None):
             status = "overdue"
     else:
         status = (order.get("payment") or {}).get("status") or order.get("paymentStatus", "pending")
-        received = total if status in {"paid", "refunded"} else 0
+        from .refund_evidence import captured_paise
+        received = captured_paise(order)
         balance = max(0, total - received)
+        if status in {"refunded", "partially_refunded"}:
+            status = "paid" if received else "pending"
+    from .refund_evidence import verified_refunds
+    evidence_issue = None
+    try:
+        refunded = sum(r["amountPaise"] for r in verified_refunds(order))
+    except ValueError:
+        refunded = 0
+        evidence_issue = "refund_evidence_invalid"
+    if refunded:
+        status = "refunded" if refunded == received else "partially_refunded"
+    closed = ((order.get("fulfillment") or {}).get("status") or order.get("fulfillmentStatus") or order.get("status")) in {"cancelled", "rejected", "returned", "refunded"}
+    if closed and status == "overdue":
+        status = "partial" if received else "pending"
+    collectible = 0 if closed else balance
+    if closed and not refunded and ((order.get("fulfillment") or {}).get("status") or order.get("status")) == "refunded":
+        evidence_issue = evidence_issue or "refund_evidence_missing"
     return {"total": total / 100, "received": received / 100, "balanceDue": balance / 100,
+            "refunded": refunded / 100, "netReceived": (received - refunded) / 100,
+            "collectibleBalance": collectible / 100, "refundableAmount": max(0, received - refunded) / 100,
+            "evidenceIssue": evidence_issue,
             "status": status, "dueAt": order.get("paymentDueAt"), "instructions": order.get("paymentInstructions", "")}
 
 

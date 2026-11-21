@@ -53,7 +53,8 @@ def saved_order(c, event):
     order = deepcopy(c.order)
     order.update(paymentGateway="manual", paymentStatus="pending", payment={"gateway": "manual", "status": "pending"},
                  paymentTransactions=[], amountReceived=999999, balanceDue=0,
-                 items=[{"name": "Fixture couture", "quantity": 2}])
+                 items=[{"name": "Fixture couture", "quantity": 2, "requiresAvailabilityConfirmation": True}],
+                 inventoryReservation="reserved", inventoryReservationClaimToken="fixture-availability-confirmed")
     order.pop("razorpayPaymentId", None); order.pop("paymentVerifiedAt", None)
     state = {"order_accepted": "confirmed", "order_rejected": "cancelled"}.get(event, event)
     order["fulfillment"] = {"status": state if event in {"order_placed", "order_accepted", "order_rejected", "processing", "packed"} else "confirmed"}

@@ -216,6 +216,27 @@ def test_multi_item_reservation_rolls_back_when_a_later_item_fails(shop):
     assert not shop[0].orders.find_one().get("inventoryReservation")
 
 
+def test_safely_rolled_back_acceptance_can_be_retried_with_a_new_operation_identity(shop):
+    from copy import deepcopy
+    other = deepcopy(shop[3]); other["_id"] = ObjectId()
+    shop[0].products.insert_one(other)
+    shop[5]["cart"].append({**shop[5]["cart"][0], "productId": str(other["_id"])})
+    order = checkout(shop)
+    shop[0].products.update_one({"_id": other["_id"]}, {"$set": {"variants.0.sizeInventory.0.stock": 0}})
+    with pytest.raises(OrderTransitionError):
+        apply_transition(shop[0], order, "confirmed", "staff", shop[2], {})
+    first = shop[0].products.find_one({"_id": shop[3]["_id"]})
+    old_marker = next(marker for marker in first["inventoryOperationMarkers"] if marker.get("operationType") == "manual_reservation")
+    assert old_marker["state"] == "compensated"
+    shop[0].products.update_one({"_id": other["_id"]}, {"$set": {"variants.0.sizeInventory.0.stock": 1}})
+    accepted = apply_transition(shop[0], shop[0].orders.find_one({"_id": order["_id"]}), "confirmed", "staff", shop[2], {})
+    assert accepted["inventoryReservation"] == "reserved"
+    first = shop[0].products.find_one({"_id": shop[3]["_id"]})
+    active = [marker for marker in first["inventoryOperationMarkers"] if marker.get("operationType") == "manual_reservation" and marker.get("state") == "reserved"]
+    assert len(active) == 1 and active[0]["operationId"] != old_marker["operationId"]
+    assert first["variants"][0]["stock"] == 2
+
+
 def test_failed_attempt_does_not_release_preexisting_reservation_marker(shop):
     from copy import deepcopy
     other = deepcopy(shop[3]); other["_id"] = ObjectId()

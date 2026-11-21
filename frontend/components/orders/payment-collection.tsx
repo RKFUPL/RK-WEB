@@ -41,9 +41,13 @@ export function PaymentCollectionPanel({ order, onUpdate }: { order: Order; onUp
   return <section aria-label="Payment collection" className="mt-6 rounded-xl border border-black/10 p-5">
     <h2 className="font-display text-2xl">Payment Collection</h2>
     <dl className="mt-4 grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
-      <div><dt>Total</dt><dd>{inr.format(summary.total)}</dd></div><div><dt>Received</dt><dd>{inr.format(summary.received)}</dd></div>
-      <div><dt>Balance due</dt><dd>{inr.format(summary.balanceDue)}</dd></div><div><dt>Payment status</dt><dd>{paymentLabels[summary.status]}</dd></div>
+      <div><dt>Total</dt><dd>{inr.format(summary.total)}</dd></div><div><dt>Gross received</dt><dd>{inr.format(summary.received)}</dd></div>
+      <div><dt>Verified refunded</dt><dd>{inr.format(summary.refunded ?? 0)}</dd></div>
+      <div><dt>Net retained</dt><dd>{inr.format(summary.netReceived ?? summary.received - (summary.refunded ?? 0))}</dd></div>
+      {onUpdate ? <div><dt>Unpaid contractual balance</dt><dd>{inr.format(summary.balanceDue)}</dd></div> : null}
+      <div><dt>Remaining collectible balance</dt><dd>{inr.format(summary.collectibleBalance ?? summary.balanceDue)}</dd></div><div><dt>Payment status</dt><dd>{paymentLabels[summary.status]}</dd></div>
     </dl>
+    {onUpdate && summary.evidenceIssue ? <p role="alert" className="mt-3 text-sm text-amber-800">The recorded refund status has no valid payment/refund evidence. Staff reconciliation is required; no refund is inferred from the order status.</p> : null}
     {summary.dueAt && <p className="mt-3 text-sm">Payment due: {orderDateTime(summary.dueAt)}</p>}
     {summary.instructions && <p className="mt-3 whitespace-pre-wrap text-sm">{summary.instructions}</p>}
     {onUpdate && manual && <>

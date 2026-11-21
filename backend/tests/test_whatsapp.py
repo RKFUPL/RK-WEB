@@ -68,6 +68,7 @@ class WhatsAppTests(unittest.TestCase):
                   "createdAt": now(),
                   "orderNumber": "RK-1", "currency": "INR", "total": 1250, "amountPaise": 125000,
                   "paymentStatus": "paid", "paymentVerifiedAt": now(), "razorpayPaymentId": "pay_fixture",
+                  "captureFulfillmentStatus": "completed",
                   "fulfillment": {"status": "confirmed"}}
         self.db.orders.insert_one(record)
         return record
@@ -280,7 +281,7 @@ class WhatsAppTests(unittest.TestCase):
         self.assertEqual(result["error"]["kind"], "invalid_credentials")
         self.assertNotIn("private-access-token", str(result)); self.assertEqual(self.http.call_count, 1)
 
-    @patch("app.whatsapp.time.sleep")
+    @patch("app.whatsapp.retry_sleep")
     def test_rate_limit_retries_are_bounded(self, sleep):
         self.http.return_value = self.response(429, {"error": {"code": 130429}}, {"Retry-After": "1"})
         self.assertEqual(self.outbound()["status"], "failed")
@@ -507,8 +508,9 @@ class WhatsAppTests(unittest.TestCase):
 
     def test_order_email_independent_and_whatsapp_db_failure_isolated(self):
         from app.order_confirmation import send_order_confirmation
-        from test_order_confirmation import sample_order
+        from test_order_confirmation import sample_order, seed_completed_capture
         order = sample_order(); order.update(customerId=self.user["_id"], shipping={"phone": self.user["phone"]}, fulfillment={"status": "confirmed"}, paymentVerifiedAt=now())
+        seed_completed_capture(self.db, order)
         self.db.orders.insert_one(order)
         with self.app.app_context(), patch("app.order_confirmation.send_html_email", return_value={"id": "email-1"}) as email, patch("app.whatsapp.enabled", side_effect=RuntimeError("database failure")):
             self.assertTrue(send_order_confirmation(self.db, order, self.app.config, self.app.logger))
@@ -517,8 +519,9 @@ class WhatsAppTests(unittest.TestCase):
 
     def test_order_whatsapp_queued_even_when_email_fails(self):
         from app.order_confirmation import send_order_confirmation
-        from test_order_confirmation import sample_order
+        from test_order_confirmation import sample_order, seed_completed_capture
         order = sample_order(); order.update(customerId=self.user["_id"], shipping={"phone": self.user["phone"]}, fulfillment={"status": "confirmed"}, paymentVerifiedAt=now())
+        seed_completed_capture(self.db, order)
         self.db.orders.insert_one(order)
         with self.app.app_context(), patch("app.order_confirmation.send_html_email", side_effect=RuntimeError("smtp unavailable")):
             self.assertFalse(send_order_confirmation(self.db, order, self.app.config, self.app.logger))
@@ -794,7 +797,7 @@ class WhatsAppTests(unittest.TestCase):
 
     def test_text_retry_stops_if_the_service_window_expires_during_backoff(self):
         self.http.return_value = self.response(429, {"error": {"code": 130429}})
-        with patch("app.whatsapp.customer_window", side_effect=[{"open": True}, {"open": True}, {"open": False}]), patch("app.whatsapp.time.sleep"):
+        with patch("app.whatsapp.customer_window", side_effect=[{"open": True}, {"open": True}, {"open": False}]), patch("app.whatsapp.retry_sleep"):
             response = self.text_test()
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json["reason"], "service_window_closed")
@@ -851,7 +854,7 @@ class WhatsAppTests(unittest.TestCase):
         self.http.return_value = self.response(429, {"error": {"code": 130429}})
         def revoke(_):
             self.db.users.update_one({"_id": self.user["_id"]}, {"$set": {"whatsappNotifications": False}})
-        with patch("app.whatsapp.time.sleep", side_effect=revoke):
+        with patch("app.whatsapp.retry_sleep", side_effect=revoke):
             process_outbox(self.db, self.app.config)
         self.assertEqual(self.http.call_count, 1)
         self.assertEqual(self.db.whatsapp_messages.find_one()["error"]["kind"], "no_consent")

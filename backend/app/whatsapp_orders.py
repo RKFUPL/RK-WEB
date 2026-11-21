@@ -93,6 +93,17 @@ def notify_order_whatsapp(db, order_id, event, event_data=None):
         order = db.orders.find_one({"_id": ObjectId(str(order_id))})
         if not order:
             return {"status": "skipped", "reason": "order_not_found"}
+        from .inventory_operations import persisted_inventory_block_reason
+        if event in {"order_confirmation", "order_accepted", "processing", "packed", "shipped", "out_for_delivery", "delivered"} and persisted_inventory_block_reason(db, order):
+            blocked_key = business_event_key(order, event)
+            blocked_id = hashlib.sha256(blocked_key.encode()).hexdigest()
+            db.whatsapp_order_events.update_one({"_id": blocked_id}, {
+                "$set": {"orderId": str(order["_id"]), "event": event, "status": "skipped",
+                         "reason": "inventory_reconciliation_required", "updatedAt": now()},
+                "$setOnInsert": {"createdAt": now()},
+                "$push": {"history": {"status": "skipped", "reason": "inventory_reconciliation_required", "timestamp": now()}},
+            }, upsert=True)
+            return {"status": "skipped", "reason": "inventory_reconciliation_required"}
         if event in {"advance_payment_received", "part_payment_received", "payment_received"}:
             transaction_id = (event_data or {}).get("transactionId")
             order["whatsappPayment"] = next((t for t in order.get("paymentTransactions", []) if t.get("id") == transaction_id), {})
@@ -115,6 +126,10 @@ def notify_order_whatsapp(db, order_id, event, event_data=None):
             except (ValueError, KeyError):
                 result = {"status": "skipped", "reason": "shipment_not_recorded" if event == "shipped" else "business_event_not_confirmed"}
         template = template_registry(db, config).get(event, {})
+        template_reason = ("template_mapping_disabled" if not template.get("enabled") else
+                           "template_evidence_stale" if template.get("statusStale") else
+                           "template_components_unverified" if not template.get("componentsVerified") else
+                           "template_approval_unverified" if not template.get("approved") else None)
         if not result and (event not in template.get("definitionEvents", []) or template.get("category") != "UTILITY" or not template.get("requiresMetaApproval")
                            or not template.get("enabled") or not template.get("approved")):
             result = {"status": "skipped", "reason": "template_not_approved_or_enabled"}
@@ -133,10 +148,15 @@ def notify_order_whatsapp(db, order_id, event, event_data=None):
         reason = result.get("reason")
         state = "waiting_for_approved_template" if reason == "template_not_approved_or_enabled" else "not_eligible" if reason in {"missing_phone", "invalid_recipient", "missing_or_withdrawn_consent"} else result["status"]
         values = {"orderId": str(order["_id"]), "event": event, "status": state, "reason": reason,
+                  "reference": (event_data or {}).get("refundId") or (event_data or {}).get("transactionId"),
+                  "reasonDetail": template_reason if reason == "template_not_approved_or_enabled" else reason,
                   "contactSource": recipient["source"], "updatedAt": now()}
         if result.get("correlationId") and result["status"] in {"queued", "duplicate"}:
             values["queueId"] = result["correlationId"]
-        db.whatsapp_order_events.update_one({"_id": audit_id}, {"$set": values, "$setOnInsert": {"createdAt": now()}}, upsert=True)
+        outcome = "skipped" if result["status"] == "skipped" else result["status"]
+        db.whatsapp_order_events.update_one({"_id": audit_id}, {"$set": values, "$setOnInsert": {"createdAt": now()},
+            "$push": {"history": {"$each": [{"status": "requested", "timestamp": now()},
+                {"status": outcome, "reason": values["reasonDetail"], "timestamp": now()}]}}}, upsert=True)
         if result["status"] not in {"queued", "duplicate"}:
             db.whatsapp_messages.update_one({"_id": "order-attempt:" + audit_id}, {"$set": {
                 "orderId": str(order["_id"]), "orderNumber": order.get("orderNumber"), "customerId": str(order.get("customerId") or ""),
@@ -166,7 +186,7 @@ def order_whatsapp_activity(db, config, order):
         templates = template_registry(db, config)
         activity = []
         for audit in db.whatsapp_order_events.find({"orderId": str(order["_id"])}).sort("updatedAt", -1).limit(50):
-            row = {key: audit.get(key) for key in ("event", "status", "reason", "createdAt", "updatedAt")}
+            row = {key: audit.get(key) for key in ("event", "status", "reason", "reasonDetail", "createdAt", "updatedAt", "history", "reference")}
             queue_id = audit.get("queueId")
             if queue_id:
                 queue = db.whatsapp_outbox.find_one({"_id": queue_id}) or {}

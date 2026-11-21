@@ -99,7 +99,8 @@ def event_values(event, record):
             values["cancellation_reference"] = str(reference)
     elif event == "refund_completed":
         refund = record.get("whatsappRefund") or {}
-        if refund.get("status") != "processed" or refund.get("source") != "razorpay_signed_webhook" or not refund.get("id"):
+        from .refund_evidence import verified_refunds
+        if refund not in verified_refunds(record):
             raise ValueError("refund_not_processed")
         values.update(refund_amount=money(Decimal(str(refund["amountPaise"])) / 100, refund["currency"]), refund_reference=refund["id"])
     if event in STATUS_UPDATE_EVENTS and record.get("total") is not None:

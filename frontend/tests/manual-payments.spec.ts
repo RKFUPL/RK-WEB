@@ -332,3 +332,95 @@ test('customer can explicitly opt into future order updates after checkout', asy
   await page.goto('/account/orders/manual-order');
   await expect(page.getByRole('region', { name: 'Transactional WhatsApp updates' })).toContainText('Transactional WhatsApp updates are enabled for this order');
 });
+
+for (const width of [1440, 390]) {
+  test(`staff sees independent channel outcomes and unpaid refund reconciliation at ${width}px`, async ({ page }) => {
+    await setup(page, false, true);
+    await page.setViewportSize({ width, height: 1000 });
+    await page.route('**/api/staff/orders/manual-order', route => route.fulfill({ json: { order: {
+      ...fixtureOrder(), fulfillment: { status: 'refunded' }, fulfillmentStatus: 'refunded', availableActions: [],
+      paymentCollection: { total: 1000, received: 0, refunded: 0, collectibleBalance: 0, balanceDue: 1000, status: 'pending', evidenceIssue: 'refund_evidence_missing' },
+      timeline: [{ id: 'rejected-event', label: 'Order Rejected', status: 'order_rejected', timestamp: '2026-11-21T11:57:01Z', actor: { type: 'staff' }, notificationOutcomes: [
+        { event: 'order_rejected', channel: 'whatsapp', status: 'skipped', reason: 'template_mapping_disabled' },
+        { event: 'order_rejected', channel: 'email', status: 'failed', reason: 'smtp_authentication_failed' },
+      ] }],
+    } } }));
+    await page.goto('/admin/orders/manual-order');
+    const collection = page.getByRole('region', { name: 'Payment collection' });
+    await expect(collection).toContainText('Gross received');
+    await expect(collection).toContainText('Verified refunded');
+    await expect(collection).toContainText('Net retained');
+    await expect(collection).toContainText('Unpaid contractual balance');
+    await expect(collection).toContainText('Remaining collectible balance');
+    await expect(collection).toContainText('Pending');
+    await expect(collection.getByRole('alert')).toContainText('no valid payment/refund evidence');
+    const outcomes = page.getByRole('list', { name: 'Notification outcomes' });
+    await expect(outcomes).toContainText('WhatsApp: Skipped');
+    await expect(outcomes).toContainText('Template mapping is disabled in this environment.');
+    await expect(outcomes).toContainText('Email: Failed');
+    await expect(outcomes).toContainText('SMTP authentication failed');
+    await expect(page.getByText('Customer notification requested', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Mark Refunded', exact: true })).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  });
+}
+
+test('SMTP provider acceptance is distinct from delivery in the staff timeline', async ({ page }) => {
+  await setup(page, false, true);
+  await page.route('**/api/staff/orders/manual-order', route => route.fulfill({ json: { order: {
+    ...fixtureOrder(), timeline: [{ id: 'accepted-event', label: 'Order Accepted', status: 'order_accepted', timestamp: '2026-11-21T11:57:01Z', actor: { type: 'staff' }, notificationOutcomes: [
+      { event: 'order_accepted', channel: 'email', status: 'accepted' },
+      { event: 'order_accepted', channel: 'whatsapp', status: 'delivered' },
+    ] }],
+  } } }));
+  await page.goto('/admin/orders/manual-order');
+  const outcomes = page.getByRole('list', { name: 'Notification outcomes' });
+  await expect(outcomes).toContainText('Email: Accepted by provider');
+  await expect(outcomes).toContainText('WhatsApp: Delivered');
+  await expect(outcomes).not.toContainText('Email: Delivered');
+});
+
+test('payment collection distinguishes gross receipts, refund evidence and net retained', async ({ page }) => {
+  await setup(page, false, true);
+  await page.route('**/api/staff/orders/manual-order', route => route.fulfill({ json: { order: {
+    ...fixtureOrder(),
+    paymentCollection: { total: 1000, received: 1000, refunded: 250, netReceived: 750, balanceDue: 0, collectibleBalance: 0, status: 'partially_refunded' },
+  } } }));
+  await page.goto('/admin/orders/manual-order');
+  const collection = page.getByRole('region', { name: 'Payment collection' });
+  for (const [label, amount] of [['Gross received', '1,000'], ['Verified refunded', '250'], ['Net retained', '750'], ['Unpaid contractual balance', '0'], ['Remaining collectible balance', '0']]) {
+    await expect(collection.locator('dl > div').filter({ has: page.getByText(label, { exact: true }) })).toContainText(amount);
+  }
+});
+
+for (const width of [1440, 768, 390]) test(`staff records investigation without changing held inventory at ${width}px`, async ({ page }) => {
+  await setup(page, false, true);
+  await page.setViewportSize({ width, height: 1000 });
+  const operation = { operationId: `inv_${'a'.repeat(64)}`, productId: 'product-test', itemIndex: 0, quantity: 1, stockDelta: -1, state: 'unresolved', productMarkerPresent: false, markerMatches: false, compensated: false };
+  let order = { ...fixtureOrder(), captureFulfillmentStatus: 'held', availableActions: [], inventoryReconciliation: {
+    blocked: true, markerReconciliationAvailable: false, manualInvestigationRequired: true,
+    operations: { capture: [operation] }, investigations: [] as Record<string, unknown>[],
+  } };
+  const submissions: Record<string, unknown>[] = [];
+  await page.route('**/api/staff/orders/manual-order', route => route.fulfill({ json: { order } }));
+  await page.route('**/api/staff/orders/manual-order/inventory-investigations', route => {
+    const body = route.request().postDataJSON(); submissions.push(body);
+    order = { ...order, inventoryReconciliation: { ...order.inventoryReconciliation, investigations: [
+      ...order.inventoryReconciliation.investigations, { ...body, id: 'investigation-test', actorId: 'staff-test', recordedAt: new Date().toISOString(), unresolved: true },
+    ] } };
+    return route.fulfill({ status: 201, json: { order } });
+  });
+  await page.goto('/admin/orders/manual-order');
+  await page.getByLabel('Recovery reason', { exact: true }).fill('Verify warehouse operation');
+  await page.getByRole('combobox', { name: 'Inventory operation', exact: true }).selectOption(operation.operationId);
+  await page.getByLabel('Warehouse findings', { exact: true }).fill('Count requires supervisor review');
+  await page.getByLabel('External stock count', { exact: true }).fill('0');
+  await page.getByLabel('Evidence document ID', { exact: true }).fill('WAREHOUSE-TEST-01');
+  await page.getByRole('button', { name: 'Record investigation only', exact: true }).click();
+  await expect(page.getByText('Investigation recorded. Stock and fulfilment are unchanged; unresolved cases remain blocked.')).toBeVisible();
+  expect(submissions).toHaveLength(1);
+  expect(submissions[0]).toMatchObject({ operationId: operation.operationId, productId: 'product-test', itemIndex: 0, externalStockCount: 0 });
+  await expect(page.getByRole('button', { name: 'Reconcile verified product markers', exact: true })).toHaveCount(0);
+  await expect(page.getByText(/This order remains blocked and requires manual inventory investigation/)).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+});

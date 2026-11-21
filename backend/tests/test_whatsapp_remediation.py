@@ -221,7 +221,7 @@ def test_stale_worker_cannot_send_retry_or_overwrite_new_claim(case):
         case.db.whatsapp_outbox.update_one({}, {"$set": {"claimToken": "replacement"}})
         return case.response(429, {"error": {"code": 130429}})
     case.http.side_effect = rejection
-    with patch("app.whatsapp.time.sleep"):
+    with patch("app.whatsapp.retry_sleep"):
         process_outbox(case.db, case.app.config)
     assert case.http.call_count == 1
     assert case.db.whatsapp_outbox.find_one()["claimToken"] == "replacement"

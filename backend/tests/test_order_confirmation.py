@@ -2,6 +2,8 @@ import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+import mongomock
+import smtplib
 
 from bson import ObjectId
 
@@ -46,6 +48,36 @@ def sample_order():
     }
 
 
+def seed_completed_capture(database, order):
+    """Give paid-order notification tests authoritative inventory evidence."""
+    from app.inventory_operations import capture_operation_id
+
+    capture_id = order["payment"]["razorpayPaymentId"]
+    claim_token = "test-capture-claim"
+    order["captureFulfillmentStatus"] = "completed"
+    order["captureClaimToken"] = claim_token
+    order["paymentVerifiedAt"] = datetime.now(timezone.utc)
+    order["fulfillment"] = {"status": "confirmed"}
+    for index, item in enumerate(order["items"]):
+        product_id = ObjectId(item["productId"])
+        operation_id = capture_operation_id(order["_id"], capture_id, index)
+        quantity = int(item["quantity"])
+        database.products.insert_one({
+            "_id": product_id,
+            "inventoryOperationMarkers": [{
+            "operationId": operation_id,
+                "orderId": str(order["_id"]),
+                "captureId": str(capture_id),
+                "itemIndex": index,
+                "quantity": quantity,
+                "operationType": "capture_deduction",
+                "state": "applied",
+                "claimToken": claim_token,
+                "stockDelta": -quantity,
+            }],
+        })
+
+
 class OrderConfirmationTests(unittest.TestCase):
     def test_email_contains_every_variant_measurement_address_and_total(self):
         markup = render_order_confirmation(sample_order())
@@ -77,12 +109,10 @@ class OrderConfirmationTests(unittest.TestCase):
 
     def test_provider_receives_customer_to_and_backend_only_bcc(self):
         order = sample_order()
-        orders = SimpleNamespace(
-            update_one=MagicMock(return_value=SimpleNamespace(modified_count=1)),
-            find_one=MagicMock(return_value={"confirmationEmail": {"status": "sent"}}),
-        )
-        users = SimpleNamespace(find=MagicMock(return_value=[{"email": "admin@example.com", "role": "admin", "isActive": True}]))
-        database = SimpleNamespace(orders=orders, users=users)
+        database = mongomock.MongoClient(tz_aware=True).confirmation_tests
+        seed_completed_capture(database, order)
+        database.orders.insert_one(order)
+        database.users.insert_one({"email": "admin@example.com", "role": "admin", "isActive": True})
         config = {
             "ORDER_CONFIRMATION_BCC": "",
         }
@@ -94,24 +124,28 @@ class OrderConfirmationTests(unittest.TestCase):
         self.assertEqual(payload["bcc"], ["operations@chemo.in", "admin@example.com"])
         self.assertNotIn("customer@example.com", payload["bcc"])
         self.assertIn("AK-CK45-IVORY", payload["html"])
-        self.assertEqual(orders.update_one.call_count, 2)
+        saved = database.orders.find_one({"_id": order["_id"]})
+        self.assertEqual(saved["confirmationEmail"]["status"], "sent")
+        self.assertEqual(saved["confirmationEmail"]["attempts"], 1)
 
     def test_email_failure_is_retryable_and_does_not_mutate_payment_state(self):
         order = sample_order()
-        orders = SimpleNamespace(
-            update_one=MagicMock(return_value=SimpleNamespace(modified_count=1)),
-            find_one=MagicMock(return_value={"confirmationEmail": {"status": "failed"}}),
-        )
-        database = SimpleNamespace(orders=orders, users=SimpleNamespace(find=MagicMock(return_value=[])))
+        database = mongomock.MongoClient(tz_aware=True).confirmation_tests
+        seed_completed_capture(database, order)
+        database.orders.insert_one(order)
         logger = MagicMock()
-        with patch("app.order_confirmation.send_html_email", side_effect=RuntimeError("temporary outage")):
+        with patch("app.order_confirmation.send_html_email", side_effect=smtplib.SMTPAuthenticationError(535, b"isolated rejection")):
             sent = send_order_confirmation(database, order, {
                 "ORDER_CONFIRMATION_BCC": "",
             }, logger)
         self.assertFalse(sent)
-        failure_update = orders.update_one.call_args_list[-1].args[1]
-        self.assertEqual(failure_update["$set"]["confirmationEmail.status"], "failed")
-        self.assertNotIn("paymentStatus", failure_update["$set"])
+        saved = database.orders.find_one({"_id": order["_id"]})
+        self.assertEqual(saved["confirmationEmail"]["status"], "failed")
+        self.assertEqual(saved["paymentStatus"], order["paymentStatus"])
+        self.assertEqual(saved["payment"], order["payment"])
+        with patch("app.order_confirmation.send_html_email", return_value={}):
+            self.assertTrue(send_order_confirmation(database, saved, {}, logger))
+        self.assertEqual(database.orders.find_one({"_id": order["_id"]})["confirmationEmail"]["attempts"], 2)
 
 
 if __name__ == "__main__":

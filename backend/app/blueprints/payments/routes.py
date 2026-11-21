@@ -14,6 +14,7 @@ from ...inventory import STANDARD_SIZES, has_size_system, validate_custom_size
 from ...order_fulfillment import (
     actor_view,
     ensure_order_tracking,
+    normalisation_updates,
     order_view as tracked_order_view,
     payment_confirmation_changes,
     payment_failure_changes,
@@ -30,6 +31,7 @@ from ...product_variants import find_variant, sync_product_variants
 from ...rbac import authenticated_user_id, current_user, database, requireAuth
 from ...time_utils import json_value as serialize_json_value
 from ...extensions import limiter
+from ...payment_state import failure_fence, failure_snapshot
 
 
 payments_bp = Blueprint("payments", __name__)
@@ -283,110 +285,185 @@ def _revalidate_variant_order_item(db, item: dict) -> tuple[dict, dict, str]:
     return product, variant, size
 
 
-def _decrement_tracked_variant_inventory(db, product: dict, variant: dict, size: str, quantity: int, now: datetime) -> tuple[ObjectId, int, str, str] | None:
-    """Decrement known stock when available, without making it a sales gate."""
+def _decrement_tracked_variant_inventory(db, product: dict, variant: dict, size: str, quantity: int, now: datetime, operation: dict) -> tuple[ObjectId, int, str, str] | None:
+    """CAS the exact persisted variant snapshot and its truthful stock marker."""
+    from copy import deepcopy
+    from ...inventory_operations import record_capture_product_marker
+    marker = record_capture_product_marker(db, product["_id"], operation)
+    marker.update(stockDelta=-quantity, stockPath="variant", variantId=str(variant.get("id") or ""), size=size or None)
     variant_id = str(variant.get("id") or "")
-    if size:
-        entry = next((item for item in variant.get("sizeInventory", []) if str(item.get("size") or "").upper() == size), None)
-        if not entry or int(entry.get("stock") or 0) < quantity:
+    if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity <= 0:
+        return None
+    for _ in range(5):
+        saved = db.products.find_one({"_id": product["_id"], "status": {"$ne": "archived"}, "isActive": {"$ne": False}})
+        if not saved:
             return None
-        result = db.products.update_one(
-            {"_id": product["_id"]},
-            {"$inc": {"variants.$[variant].sizeInventory.$[size].stock": -quantity, "variants.$[variant].stock": -quantity}, "$set": {"updatedAt": now}},
-            array_filters=[
-                {"variant.id": variant_id, "variant.status": "active"},
-                {"size.size": size, "size.stock": {"$gte": quantity}},
-            ],
-        )
-    else:
-        if int(variant.get("stock") or 0) < quantity:
+        prior = [row for row in saved.get("inventoryOperationMarkers", []) if row.get("operationId") == operation["operationId"]]
+        if prior:
+            matching = len(prior) == 1 and prior[0].get("state") == "applied" and all(
+                prior[0].get(key) == marker.get(key) for key in
+                ("orderId", "captureId", "itemIndex", "quantity", "claimToken", "operationType", "stockDelta", "variantId", "size"))
+            return (product["_id"], quantity, size, variant_id) if matching else None
+        variants = deepcopy(saved.get("variants", []))
+        matches = [row for row in variants if str(row.get("id")) == variant_id]
+        if len(matches) != 1 or matches[0].get("status") != "active":
             return None
+        current = matches[0]
+        if int(current.get("stock") or 0) < quantity:
+            return None
+        if size:
+            sizes = [row for row in current.get("sizeInventory", []) if str(row.get("size") or "").upper() == size]
+            if len(sizes) != 1 or int(sizes[0].get("stock") or 0) < quantity:
+                return None
+            sizes[0]["stock"] -= quantity
+        current["stock"] -= quantity
         result = db.products.update_one(
-            {"_id": product["_id"]},
-            {"$inc": {"variants.$[variant].stock": -quantity}, "$set": {"updatedAt": now}},
-            array_filters=[{"variant.id": variant_id, "variant.status": "active", "variant.stock": {"$gte": quantity}}],
+            {"_id": product["_id"], "status": {"$ne": "archived"}, "isActive": {"$ne": False},
+             "variants": saved.get("variants", []),
+             "inventoryOperationMarkers": saved.get("inventoryOperationMarkers", {"$exists": False})},
+            {"$set": {"variants": variants, "updatedAt": now}, "$push": {"inventoryOperationMarkers": marker}},
         )
-    return (product["_id"], quantity, size, variant_id) if result.modified_count == 1 else None
+        if result.modified_count == 1:
+            return product["_id"], quantity, size, variant_id
+    return None
 
 
 def _fulfil_paid_order(db, order: dict, payment_id: str, source: str, payment_signature: str = "") -> tuple[dict, bool]:
+    from ...payment_state import has_capture, failure_fence, CLOSED_ORDER_STATES, reconcile, capture_evidence
     now = datetime.now(timezone.utc)
-    order = ensure_order_tracking(db, order)
-    if order.get("paymentStatus") == "paid":
-        send_order_confirmation(db, order, current_app.config, current_app.logger)
+    order = db.orders.find_one({"_id": order["_id"]}) or order
+    if has_capture(order) or order.get("paymentStatus") == "processing":
+        recorded_id = order.get("razorpayPaymentId") or (order.get("payment") or {}).get("razorpayPaymentId")
+        state = (order.get("fulfillment") or {}).get("status") or order.get("fulfillmentStatus") or order.get("status")
+        if recorded_id == payment_id and order.get("paymentStatus") == "paid" and not order.get("refunds") and state not in CLOSED_ORDER_STATES:
+            send_order_confirmation(db, order, current_app.config, current_app.logger)
+        else:
+            reconcile(db, order, payment_id, "capture_after_verified_payment_or_refund", source)
         return order, False
-
+    state = (order.get("fulfillment") or {}).get("status") or order.get("fulfillmentStatus") or order.get("status")
+    if state in CLOSED_ORDER_STATES:
+        # Genuine capture on a closed order is money received, not authority to reopen it.
+        evidence = capture_evidence(order, payment_id, source, now)
+        query = failure_fence(order["_id"])
+        query.update({"fulfillment": order.get("fulfillment"), "status": order.get("status")})
+        updated = db.orders.find_one_and_update(query, {"$set": {
+            "captureEvidence": evidence, "razorpayPaymentId": payment_id, "paymentVerifiedAt": now,
+            "paymentStatus": "paid", "payment.status": "paid", "payment.razorpayPaymentId": payment_id,
+            "payment.verifiedAt": now, "captureFulfillmentStatus": "held"}}, return_document=ReturnDocument.AFTER)
+        current = updated or db.orders.find_one({"_id": order["_id"]})
+        reconcile(db, current, payment_id, "capture_on_closed_order", source)
+        return current, False
+    claim_token = secrets.token_hex(16)
+    query = failure_fence(order["_id"])
+    query.update({"fulfillment": order.get("fulfillment"), "status": order.get("status"),
+                  "payment": order.get("payment"), "timeline": order.get("timeline", {"$exists": False})})
+    normalized = normalisation_updates(order)
+    normalized["payment"].update({"status": "paid", "razorpayPaymentId": payment_id, "verifiedAt": now})
     locked = db.orders.find_one_and_update(
-        {"_id": order["_id"], "paymentStatus": {"$in": ["pending", "order_created", "verification_pending", "failed", "cancelled"]}},
-        {"$set": {"paymentStatus": "processing", "updatedAt": now}},
+        query,
+        {"$set": {**normalized, "paymentStatus": "processing", "updatedAt": now, "captureEvidence": capture_evidence(order, payment_id, source, now),
+                  "razorpayPaymentId": payment_id, "paymentVerifiedAt": now, "captureFulfillmentStatus": "processing", "captureClaimToken": claim_token}},
         return_document=ReturnDocument.AFTER,
     )
     if not locked:
         current = db.orders.find_one({"_id": order["_id"]})
-        if current and current.get("paymentStatus") == "paid":
-            send_order_confirmation(db, current, current_app.config, current_app.logger)
+        if current:
+            reconcile(db, current, payment_id, "capture_transition_conflict", source)
             return current, False
         raise ValueError("This payment is already being processed. Please refresh in a moment.")
 
-    decremented: list[tuple[ObjectId, int, str, str]] = []
     try:
-        for item in locked.get("items", []):
+        from ...inventory_operations import prepare_capture_operation, mark_capture_operation, reconcile_capture_ledger_from_product
+        capture_id = payment_id
+        for item_index, item in enumerate(locked.get("items", [])):
             product_id = ObjectId(str(item["productId"]))
-            quantity = int(item.get("quantity") or 0)
+            raw_quantity = item.get("quantity")
+            if isinstance(raw_quantity, bool) or not isinstance(raw_quantity, int) or raw_quantity <= 0:
+                raise ValueError("Captured order contains an invalid inventory quantity.")
+            quantity = raw_quantity
+            operation = prepare_capture_operation(db, locked, capture_id, item_index, item, claim_token)
+            if operation.get("state") == "applied":
+                continue
+            mark_capture_operation(db, operation["operationId"], claim_token, "applying")
             if item.get("variantId") or (isinstance(item.get("variant"), dict) and (item.get("variant") or {}).get("sku")):
                 product, variant, size = _revalidate_variant_order_item(db, item)
-                adjustment = _decrement_tracked_variant_inventory(db, product, variant, size, quantity, now)
+                adjustment = _decrement_tracked_variant_inventory(db, product, variant, size, quantity, now, operation)
                 if adjustment:
-                    decremented.append(adjustment)
+                    mark_capture_operation(db, operation["operationId"], claim_token, "applied", productMarkerObserved=True, stockDelta=-quantity)
+                else:
+                    mark_capture_operation(db, operation["operationId"], claim_token, "unresolved", productMarkerObserved=False, reason="stock_adjustment_not_confirmed")
+                    raise ValueError("Captured payment is held for inventory reconciliation.")
                 continue
             size = str(item.get("size") or "").strip().upper()
             product = db.products.find_one({"_id": product_id}, {"sizeInventoryConfigured": 1, "sizeSystemEnabled": 1, "sizeInventory": 1}) or {}
             if size and has_size_system(product):
+                if len([row for row in product.get("sizeInventory", []) if row.get("size") == size and row.get("enabled") is True]) != 1:
+                    raise ValueError("The captured size inventory is ambiguous.")
+                from ...inventory_operations import record_capture_product_marker
+                marker = record_capture_product_marker(db, product_id, operation)
+                marker.update(stockDelta=-quantity, stockPath=f"sizeInventory[{size}].stock;stock")
                 result = db.products.update_one(
-                    {"_id": product_id, "status": {"$ne": "archived"}, "isActive": {"$ne": False}, "sizeInventory": {"$elemMatch": {"size": size, "enabled": True}}},
-                    {"$inc": {"sizeInventory.$.stock": -quantity, "stock": -quantity}, "$set": {"updatedAt": now}},
+                    {"_id": product_id, "status": {"$ne": "archived"}, "isActive": {"$ne": False}, "stock": {"$gte": quantity}, "inventoryOperationMarkers.operationId": {"$ne": operation["operationId"]}, "sizeInventory": {"$elemMatch": {"size": size, "enabled": True, "stock": {"$gte": quantity}}}},
+                    {"$inc": {"sizeInventory.$.stock": -quantity, "stock": -quantity}, "$set": {"updatedAt": now}, "$push": {"inventoryOperationMarkers": marker}},
                 )
             else:
+                from ...inventory_operations import record_capture_product_marker
+                marker = record_capture_product_marker(db, product_id, operation)
+                marker.update(stockDelta=-quantity, stockPath="stock")
                 result = db.products.update_one(
-                    {"_id": product_id, "status": {"$ne": "archived"}, "isActive": {"$ne": False}},
-                    {"$inc": {"stock": -quantity}, "$set": {"updatedAt": now}},
+                    {"_id": product_id, "status": {"$ne": "archived"}, "isActive": {"$ne": False}, "stock": {"$gte": quantity}, "inventoryOperationMarkers.operationId": {"$ne": operation["operationId"]}},
+                    {"$inc": {"stock": -quantity}, "$set": {"updatedAt": now}, "$push": {"inventoryOperationMarkers": marker}},
                 )
-            # Legacy orders may still carry a parent product snapshot. Keep
-            # their inventory accounting best-effort, but never turn a valid
-            # paid order into a stock failure because the count is zero.
+            # Legacy parent-level items still require an atomic stock threshold
+            # and matching marker. Captured funds stay held if stock is unknown.
             if result.modified_count == 1:
-                decremented.append((product_id, quantity, size, ""))
+                mark_capture_operation(db, operation["operationId"], claim_token, "applied", productMarkerObserved=True, stockDelta=-quantity)
+            else:
+                existing_marker = db.products.find_one({"_id": product_id, "inventoryOperationMarkers.operationId": operation["operationId"]})
+                if existing_marker:
+                    mark_capture_operation(db, operation["operationId"], claim_token, "applied", productMarkerObserved=True, recoveredFromMarker=True)
+                else:
+                    mark_capture_operation(db, operation["operationId"], claim_token, "unresolved", productMarkerObserved=False, reason="stock_adjustment_not_confirmed")
+                    raise ValueError("Captured payment is held for inventory reconciliation.")
 
+        from ...inventory_operations import operation_evidence, capture_recoverable
+        if locked.get("items") and not capture_recoverable(operation_evidence(db, locked)):
+            raise ValueError("Captured stock markers require reconciliation before confirmation.")
         fields, events = payment_confirmation_changes(locked, payment_id, source, payment_signature, now)
+        fields["captureFulfillmentStatus"] = "completed"
         updated = db.orders.find_one_and_update(
-            {"_id": locked["_id"], "paymentStatus": "processing"},
+            {"_id": locked["_id"], "paymentStatus": "processing", "captureClaimToken": claim_token,
+             "refunds.0": {"$exists": False}, "fulfillment": locked.get("fulfillment")},
             {"$set": fields, "$push": {"timeline": {"$each": events}}},
             return_document=ReturnDocument.AFTER,
         )
         if not updated:
             raise ValueError("The order could not be confirmed safely.")
     except Exception as error:
-        for product_id, quantity, size, variant_id in decremented:
-            if variant_id and size:
-                db.products.update_one(
-                    {"_id": product_id},
-                    {"$inc": {"variants.$[variant].sizeInventory.$[size].stock": quantity, "variants.$[variant].stock": quantity}, "$set": {"updatedAt": now}},
-                    array_filters=[{"variant.id": variant_id}, {"size.size": size}],
-                )
-            elif variant_id:
-                db.products.update_one(
-                    {"_id": product_id},
-                    {"$inc": {"variants.$[variant].stock": quantity}, "$set": {"updatedAt": now}},
-                    array_filters=[{"variant.id": variant_id}],
-                )
-            elif size:
-                db.products.update_one({"_id": product_id, "sizeInventory.size": size}, {"$inc": {"sizeInventory.$.stock": quantity, "stock": quantity}, "$set": {"updatedAt": now}})
-            else:
-                db.products.update_one({"_id": product_id}, {"$inc": {"stock": quantity}, "$set": {"updatedAt": now}})
+        persisted = db.orders.find_one({"_id": locked["_id"]})
+        if (persisted or {}).get("captureClaimToken") == claim_token and persisted.get("captureFulfillmentStatus") == "completed":
+            # The final commit succeeded but its acknowledgement was lost.
+            return persisted, False
+        # Do not compensate from an in-memory list: a process interruption can
+        # make that list incomplete. Product markers and ledger state are the
+        # evidence; leave stock untouched and the order held for explicit review.
         db.orders.update_one(
-            {"_id": locked["_id"], "paymentStatus": "processing"},
-            {"$set": {"status": "payment_failed", "paymentStatus": "stock_unavailable", "paymentFailureReason": str(error)[:240], "updatedAt": now}},
+            {"_id": locked["_id"], "captureClaimToken": claim_token},
+            {"$set": {"captureFulfillmentStatus": "held", "updatedAt": now}},
         )
+        reconcile_capture_ledger_from_product(db, locked["_id"])
+        if (persisted or {}).get("paymentStatus") == "refunded":
+            from ...inventory_operations import compensate_capture_markers
+            try:
+                compensate_capture_markers(db, locked["_id"], claim_token)
+            except Exception as compensation_error:
+                current_app.logger.error("Capture inventory compensation remains unresolved (%s)", type(compensation_error).__name__)
+        db.inventory_operations.update_many(
+            {"orderId": str(locked["_id"]), "claimToken": claim_token,
+             "state": {"$in": ["planned", "applying"]}},
+            {"$set": {"state": "unresolved", "updatedAt": now, "reason": "capture_interrupted"}},
+        )
+        reconcile(db, persisted or locked, payment_id, "capture_fulfillment_interrupted", source)
         raise
 
     # Delivery state is deliberately separate from payment/order state. A
@@ -593,7 +670,8 @@ def update_razorpay_state():
     now = datetime.now(timezone.utc)
     fields, event = payment_failure_changes(order, reason or ("Payment failed." if state == "failed" else "Customer cancelled payment."), now, cancelled=state == "cancelled")
     updated = db.orders.find_one_and_update(
-        {"_id": order["_id"], "paymentStatus": {"$in": ["pending", "order_created", "verification_pending"]}},
+        {**failure_snapshot(order),
+         "paymentStatus": {"$in": ["pending", "order_created", "verification_pending"]}},
         {"$set": fields, "$push": {"timeline": event}},
         return_document=ReturnDocument.AFTER,
     )
@@ -642,6 +720,13 @@ def razorpay_webhook():
 
     event_name = str(payload.get("event") or "")
     payment_entity = (((payload.get("payload") or {}).get("payment") or {}).get("entity") or {})
+    if event_name in {"payment.captured", "payment.failed"}:
+        evidence = {"paymentId": _safe_text(payment_entity.get("id"), 120),
+                    "providerOrderId": _safe_text(payment_entity.get("order_id"), 120),
+                    "currency": _safe_text(payment_entity.get("currency"), 10), "status": event_name.split(".")[1],
+                    "amountPaise": payment_entity.get("amount") if isinstance(payment_entity.get("amount"), int) and not isinstance(payment_entity.get("amount"), bool) else None,
+                    "source": "razorpay_signed_webhook"}
+        db.razorpay_webhook_events.update_one({"eventId": event_id}, {"$set": {"paymentEvidence": evidence}})
     order_id = str(payment_entity.get("order_id") or "").strip()
     order = db.orders.find_one({"razorpayOrderId": order_id}) if order_id else None
     result = {"received": True, "event": event_name, "handled": False}
@@ -658,24 +743,31 @@ def razorpay_webhook():
                 raise ValueError("Refund result does not match a recorded order.")
             proof = {"id": reference, "paymentId": payment_id, "status": "processed", "amountPaise": amount,
                      "currency": refund["currency"], "source": "razorpay_signed_webhook", "processedAt": now}
-            db.orders.update_one({"_id": refunded_order["_id"], "refunds.id": {"$ne": reference}}, {"$push": {"refunds": proof}})
+            from ...refund_evidence import record_provider_refund
+            refunded_order, proof = record_provider_refund(db, refunded_order, proof)
             refunded_order["whatsappRefund"] = proof
             from ...order_fulfillment import send_status_notification
             send_status_notification(db, refunded_order, "refund_completed", notification_key=f"refund:{reference}")
             result.update(handled=True, orderId=str(refunded_order["_id"]))
         elif event_name == "payment.captured" and order:
             _validate_payment_entity(order, payment_entity)
-            confirmed, _ = _fulfil_paid_order(db, order, str(payment_entity.get("id") or ""), "webhook")
-            result.update({"handled": True, "orderId": str(confirmed["_id"])})
+            confirmed, applied = _fulfil_paid_order(db, order, str(payment_entity.get("id") or ""), "webhook")
+            result.update({"handled": True, "orderId": str(confirmed["_id"]), "fulfillmentApplied": applied,
+                           "reconciliationRequired": bool(confirmed.get("refunds") or confirmed.get("captureFulfillmentStatus") in {"held", "processing"}
+                               or confirmed.get("razorpayPaymentId") != payment_entity.get("id"))})
         elif event_name == "payment.failed" and order:
             fields, event = payment_failure_changes(order, _safe_text(((payment_entity.get("error_description") or payment_entity.get("error_reason"))), 240) or "Razorpay reported a failed payment.", now)
             changed = db.orders.update_one(
-                {"_id": order["_id"], "paymentStatus": {"$ne": "paid"}},
+                failure_snapshot(order),
                 {"$set": fields, "$push": {"timeline": event}},
             )
             if changed.modified_count:
                 notify(db, "payment_failure", order, key=f"payment_failure:{order['_id']}:{order.get('razorpayOrderId')}")
-            result.update({"handled": True, "orderId": str(order["_id"])})
+            else:
+                from ...payment_state import reconcile
+                reconcile(db, order, _safe_text(payment_entity.get("id"), 120), "late_failure_after_financial_transition", "webhook")
+            result.update({"handled": True, "orderId": str(order["_id"]), "transitionApplied": bool(changed.modified_count),
+                           "reconciliationRequired": not bool(changed.modified_count)})
     except (StockUnavailable, ValueError) as error:
         current_app.logger.error("Razorpay webhook could not be applied: %s", error)
         result["error"] = str(error)

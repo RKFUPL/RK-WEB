@@ -140,7 +140,7 @@ def test_order_dispatch_rechecks_after_provider_backoff(order_case, change):
             c.db.orders.update_one({"_id": c.order["_id"]}, {"$set": {"paymentStatus": "failed"}})
         else:
             c.db.whatsapp_template_status.update_one({"_id": "rk_order_confirmation:en_US"}, {"$set": {"status": "REJECTED"}})
-    with patch("app.whatsapp.time.sleep", side_effect=revoke):
+    with patch("app.whatsapp.retry_sleep", side_effect=revoke):
         process_outbox(c.db, c.app.config)
     assert c.http.call_count == 1
     assert c.db.whatsapp_messages.find_one()["status"] == "failed"
@@ -226,7 +226,7 @@ def test_signed_capture_is_idempotent_and_bad_signatures_cannot_enqueue(order_ca
     c = order_case
     c.app.register_blueprint(razorpay_webhook_bp, url_prefix="/api/webhooks")
     c.app.config["RAZORPAY_WEBHOOK_SECRET"] = "synthetic-webhook-secret"
-    c.db.orders.update_one({"_id": c.order["_id"]}, {"$set": {"paymentStatus": "pending"}})
+    c.db.orders.update_one({"_id": c.order["_id"]}, {"$set": {"paymentStatus": "pending"}, "$unset": {"paymentVerifiedAt": "", "razorpayPaymentId": ""}})
     raw = json.dumps({"id": "capture-fixture", "event": "payment.captured", "payload": {"payment": {"entity": {
         "id": "pay_capture", "order_id": "order_fixture", "amount": 125000, "currency": "INR", "status": "captured"}}}}).encode()
     signature = hmac.new(b"synthetic-webhook-secret", raw, hashlib.sha256).hexdigest()
@@ -247,7 +247,7 @@ def test_checkout_verification_remains_the_payment_authority(order_case, scenari
     c = order_case
     c.app.register_blueprint(payments_bp, url_prefix="/api/payments")
     c.app.config["RAZORPAY_KEY_SECRET"] = "synthetic-checkout-secret"
-    c.db.orders.update_one({"_id": c.order["_id"]}, {"$set": {"paymentStatus": "pending"}})
+    c.db.orders.update_one({"_id": c.order["_id"]}, {"$set": {"paymentStatus": "pending"}, "$unset": {"paymentVerifiedAt": "", "razorpayPaymentId": ""}})
     signature = hmac.new(b"synthetic-checkout-secret", b"order_fixture|pay_checkout", hashlib.sha256).hexdigest()
     payment = {"id": "pay_checkout", "order_id": "order_fixture", "amount": 125000, "currency": "INR", "status": "captured"}
     if scenario == "not_captured":
@@ -299,7 +299,7 @@ def test_individually_authorized_lifecycle_events_use_existing_worker(order_case
         fields.update({"fulfillment.status": "cancelled", "timeline": [{"status": "cancelled", "id": "recorded_transition"}]})
     elif event == "refund_completed":
         fields["refunds"] = [{"id": "rfnd_saved", "status": "processed", "source": "razorpay_signed_webhook",
-                             "amountPaise": 10000, "currency": "INR"}]
+                             "amountPaise": 10000, "currency": "INR", "paymentId": c.order["razorpayPaymentId"], "processedAt": now()}]
         c.order["whatsappRefund"] = {"id": "rfnd_saved"}
     c.db.orders.update_one({"_id": c.order["_id"]}, {"$set": fields})
     assert enqueue(c, event)["status"] == "queued"

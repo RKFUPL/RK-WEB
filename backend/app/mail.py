@@ -21,6 +21,16 @@ SENDERS = {
 EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 
+class EmailDeliveryUnknown(RuntimeError):
+    """Submission began, but its outcome cannot be safely retried automatically."""
+
+
+class EmailPartialSubmission(EmailDeliveryUnknown):
+    def __init__(self, submission):
+        super().__init__("SMTP partially submitted; customer recipient refused")
+        self.submission = submission
+
+
 def _security_mode(value: object) -> str:
     normalized = str(value or "starttls").strip().lower()
     if normalized in {"ssl", "smtps", "ssl/tls"}:
@@ -76,6 +86,11 @@ def safe_status(stored: dict | None = None) -> dict:
         "verified_at": _iso(stored.get("verified_at") or stored.get("lastTested")),
         "last_test_at": _iso(stored.get("last_test_at") or stored.get("lastTested")),
         "last_error": stored.get("last_error") or stored.get("lastError"),
+        "transport": "smtp",
+        "verification_scope": "SMTP authentication only; this does not confirm message submission or delivery.",
+        "oauth_used_for_delivery": False,
+        "last_submission": {k: _iso((stored.get("last_submission") or {}).get(k)) for k in ("status", "reason", "timestamp")},
+        "smtp_authentication_next_action": "Check the backend SMTP username and Zoho app password, mailbox access and configured Zoho region. OAuth connection state does not authenticate SMTP.",
     }
 
 
@@ -203,8 +218,10 @@ def send_html_email(
     message = EmailMessage()
     message["From"] = sender
     message["To"] = ", ".join(to)
+    other = []
     if bcc:
-        message["Bcc"] = ", ".join(validate_recipient(value) for value in bcc if str(value or "").strip())
+        other = [validate_recipient(value) for value in bcc if str(value or "").strip()]
+        message["Bcc"] = ", ".join(other)
     if reply_to:
         message["Reply-To"] = ", ".join(validate_recipient(value) for value in reply_to if str(value or "").strip())
     message["Subject"] = subject
@@ -214,26 +231,47 @@ def send_html_email(
         maintype, subtype = content_type.split("/", 1)
         message.add_attachment(content, maintype=maintype, subtype=subtype, filename=filename)
     connection = None
+    submission_started = False
     try:
         connection = _smtp_connection()
-        connection.send_message(message)
+        submission_started = True
+        refusals = connection.send_message(message)
+        refused = {str(value).casefold() for value in refusals} if isinstance(refusals, dict) else set()
+        customers = {value.casefold() for value in to}
+        others = {value.casefold() for value in other} - customers
+        submission = {"customerAccepted": len(customers - refused), "customerRefused": len(customers & refused),
+                      "otherAccepted": len(others - refused), "otherRefused": len(others & refused)}
+        if submission["customerRefused"]:
+            if submission["customerAccepted"] or submission["otherAccepted"]:
+                raise EmailPartialSubmission(submission)
+            raise RuntimeError("SMTP recipient address rejected")
     except smtplib.SMTPSenderRefused as error:
         raise RuntimeError("SMTP sender address rejected") from error
     except smtplib.SMTPRecipientsRefused as error:
         raise RuntimeError("SMTP recipient address rejected") from error
     except smtplib.SMTPAuthenticationError as error:
         raise RuntimeError("Zoho Mail SMTP authentication failed") from error
+    except smtplib.SMTPServerDisconnected as error:
+        if submission_started:
+            raise EmailDeliveryUnknown("SMTP submission outcome requires reconciliation") from error
+        raise RuntimeError("Unable to reach the Zoho Mail SMTP server") from error
+    except smtplib.SMTPDataError as error:
+        raise RuntimeError("SMTP data rejected") from error
     except smtplib.SMTPException as error:
         raise RuntimeError("Zoho Mail message delivery failed") from error
     except OSError as error:
+        if submission_started:
+            raise EmailDeliveryUnknown("SMTP submission outcome requires reconciliation") from error
         raise RuntimeError("Unable to reach the Zoho Mail SMTP server") from error
     finally:
         if connection:
             try:
                 connection.quit()
-            except smtplib.SMTPException:
+            except (smtplib.SMTPException, OSError):
+                # QUIT failure cannot undo a completed DATA acknowledgement.
                 pass
-    return {"provider": "Zoho Mail", "id": message.get("Message-ID", "")}
+    return {"provider": "Zoho Mail", "id": message.get("Message-ID", ""), "submission": submission,
+            "reason": "smtp_other_recipient_refused" if submission["otherRefused"] else None}
 
 
 def send_otp(recipient: str, otp: str, purpose: str = "verification") -> None:

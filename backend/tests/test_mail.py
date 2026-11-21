@@ -1,4 +1,5 @@
 import unittest
+import smtplib
 from unittest.mock import MagicMock, patch
 
 from flask import Flask
@@ -18,6 +19,43 @@ class ZohoMailTests(unittest.TestCase):
             EMAIL_FROM_NAME="Rashi Kapoor",
             EMAIL_FROM="legacy@example.invalid",
         )
+
+    def test_smtp_status_does_not_claim_oauth_or_delivery_verification(self):
+        self.app.config.update(ZOHO_CLIENT_ID="isolated-oauth-client", ZOHO_CLIENT_SECRET="isolated-oauth-secret", ZOHO_REFRESH_TOKEN="isolated-refresh")
+        stored = {"status": "connected", "last_submission": {"status": "failed", "reason": "smtp_authentication_failed", "timestamp": "2026-11-21T12:00:00Z", "private": "not-for-ui"}}
+        with self.app.app_context():
+            state = safe_status(stored)
+        self.assertEqual(state["transport"], "smtp")
+        self.assertFalse(state["oauth_used_for_delivery"])
+        self.assertIn("does not confirm", state["verification_scope"])
+        self.assertEqual(state["last_submission"]["reason"], "smtp_authentication_failed")
+        self.assertNotIn("private", state["last_submission"])
+        self.assertNotIn("isolated-oauth-secret", str(state))
+
+    @patch("app.mail.smtplib.SMTP")
+    def test_oauth_configuration_cannot_override_smtp_authentication_failure(self, smtp):
+        self.app.config.update(ZOHO_CLIENT_ID="isolated-client", ZOHO_CLIENT_SECRET="isolated-secret", ZOHO_REFRESH_TOKEN="isolated-token")
+        smtp.return_value.login.side_effect = smtplib.SMTPAuthenticationError(535, b"private-provider-response")
+        with self.app.app_context(), self.assertRaisesRegex(RuntimeError, "SMTP authentication failed") as raised:
+            check_smtp_connection()
+        self.assertNotIn("private-provider-response", str(raised.exception))
+        smtp.return_value.send_message.assert_not_called()
+
+    def test_disconnect_after_submission_has_an_unknown_outcome(self):
+        from app.mail import send_html_email, EmailDeliveryUnknown
+        connection = MagicMock()
+        connection.send_message.side_effect = smtplib.SMTPServerDisconnected("private SMTP response")
+        with self.app.app_context(), patch("app.mail._smtp_connection", return_value=connection), self.assertRaises(EmailDeliveryUnknown):
+            send_html_email(sender=SENDERS["orders"], recipients=["fixture@example.test"], subject="Isolated", html="<p>Fixture</p>")
+
+    def test_quit_failure_cannot_turn_accepted_submission_into_retryable_failure(self):
+        from app.mail import send_html_email
+        connection = MagicMock()
+        connection.quit.side_effect = OSError("isolated disconnect after DATA acknowledgement")
+        with self.app.app_context(), patch("app.mail._smtp_connection", return_value=connection):
+            result = send_html_email(sender=SENDERS["orders"], recipients=["fixture@example.test"], subject="Isolated", html="<p>Fixture</p>")
+        self.assertEqual(result["provider"], "Zoho Mail")
+        connection.send_message.assert_called_once()
 
     @patch("app.mail._smtp_connection")
     def test_zoho_otp_uses_approved_sender(self, connection_factory):

@@ -313,7 +313,7 @@ def test_unknown_tier_and_restrictions_changed_during_retry_remain_closed(case):
         raw = meta_health(case)
         raw['health_status']['entities'][0]['additional_info'] = ['New unknown restriction']
         save_health(case, raw)
-    with patch('app.whatsapp.time.sleep', side_effect=changed):
+    with patch('app.whatsapp.retry_sleep', side_effect=changed):
         assert submit(case, requestId='limited-retry-change-12345').status_code == 403
     assert case.http.call_count == 1
 
@@ -487,7 +487,7 @@ def test_name_status_change_during_retry_blocks_second_dispatch(case, blocking_s
     def change_name_status(*_):
         save_sender_name_status(case, blocking_status)
 
-    with patch('app.whatsapp.time.sleep', side_effect=change_name_status):
+    with patch('app.whatsapp.retry_sleep', side_effect=change_name_status):
         response = submit(case, requestId='name-status-retry-change-12345')
     assert response.status_code == 403
     assert response.json['reason'] == ('production_test_display_name_evidence_conflict' if blocking_status == 'APPROVED'

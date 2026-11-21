@@ -15,6 +15,10 @@ type Integration = {
   connected_at?: string | null;
   verified_at?: string | null;
   last_error?: string | null;
+  transport?: string;
+  verification_scope?: string;
+  smtp_authentication_next_action?: string;
+  last_submission?: { status?: string; reason?: string; timestamp?: string };
 };
 
 const senderLabels: Record<string, string> = { otp: 'OTP', orders: 'Orders', logistics: 'Logistics' };
@@ -108,6 +112,9 @@ export default function EmailIntegrationPage() {
       </div>
       {integration.verified_at ? <p className="mt-5 text-xs opacity-75">Last verified {new Date(integration.verified_at).toLocaleString()}</p> : null}
       {integration.last_error ? <p className="mt-4 text-sm">{integration.last_error}</p> : null}
+      <p className="mt-3 text-xs leading-5">Order emails use SMTP username/password authentication. This connection check verifies SMTP login only; provider acceptance and delivery are separate outcomes. OAuth credentials do not authenticate this transport.</p>
+      {integration.last_submission?.status ? <p className="mt-3 text-sm">Last application email: {integration.last_submission.status === 'accepted' ? 'Accepted by SMTP provider (delivery not confirmed)' : integration.last_submission.status === 'held' ? 'Held for reconciliation' : 'Failed'}{integration.last_submission.timestamp ? ` · ${new Date(integration.last_submission.timestamp).toLocaleString()}` : ''}</p> : null}
+      {integration.last_submission?.reason === 'smtp_authentication_failed' ? <p role="alert" className="mt-3 text-sm">{integration.smtp_authentication_next_action || 'Check the backend SMTP username, app password and Zoho region.'}</p> : null}
     </div>
 
     <div className="grid gap-6 xl:grid-cols-2">
