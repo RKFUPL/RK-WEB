@@ -97,6 +97,7 @@ export type ConfirmationEmailState = {
 export type PaymentTransaction = { reverses?: string; id: string; amount: number; amountPaise: number; method: string; reference?: string; note?: string; timestamp: string; recordedBy: string; event: string };
 export type PaymentCollection = { total: number; received: number; balanceDue: number; status: PaymentStatus; dueAt?: string; instructions?: string };
 export type Order = {
+  whatsappUpdates?: { number?: string | null; enabled: boolean };
   paymentCollection?: PaymentCollection;
   paymentTransactions?: PaymentTransaction[];
   inventoryReservation?: string;

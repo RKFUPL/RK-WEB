@@ -22,7 +22,7 @@ from ...order_fulfillment import (
 from ...whatsapp import notify
 from ...whatsapp import normalize_phone
 from ...checkout_whatsapp import checkout_recipient
-from ...whatsapp_consent import record_consent
+from ...whatsapp_consent import consent_phone, order_consent_status, record_consent
 from ...whatsapp_marketing_consent import record_marketing_consent
 from ...order_confirmation import send_order_confirmation
 from ...payments import RazorpayAPIError, is_configured, razorpay_api_request, verify_payment_signature, verify_webhook_signature
@@ -421,20 +421,34 @@ def create_razorpay_order():
     user = current_user()
     user_id = authenticated_user_id()
     db = database()
-    online = (db.admin_settings.find_one({"_id": "store"}) or {}).get("razorpayEnabled") is not False
-    _ensure_payment_indexes(db)
-    ensure_catalog_seed(db)
+    store_settings = db.admin_settings.find_one({"_id": "store"}) or {}
+    online = store_settings.get("razorpayEnabled") is not False
+    mandatory_whatsapp = store_settings.get("requireWhatsappConsentForCheckout") is True
+    if mandatory_whatsapp and payload.get("whatsappTransactionalConsent") is not True:
+        return jsonify(error="Explicit transactional WhatsApp consent is required before checkout.", code="whatsapp_consent_required"), 400
     try:
         display_currency = _display_currency(payload.get("displayCurrency", "INR"))
         shipping = _normalise_shipping(db, user_id, payload.get("shipping") if isinstance(payload.get("shipping"), dict) else {})
-        whatsapp = checkout_recipient(db, current_app.config, user, payload, shipping)
+        try:
+            whatsapp = checkout_recipient(db, current_app.config, user, payload, shipping, mandatory=mandatory_whatsapp)
+        except ValueError as error:
+            code = "whatsapp_choice_invalid" if "boolean" in str(error) else "whatsapp_number_invalid"
+            return jsonify(error=str(error), code=code), 400
+        if (mandatory_whatsapp or payload.get("whatsappTransactionalConsent") is True) and not whatsapp["phone"]:
+            return jsonify(error="A valid WhatsApp number with its country code is required before checkout.", code="whatsapp_number_required"), 400
         if payload.get("whatsappMarketingConsent") is True and not whatsapp["phone"]:
             raise ValueError("Select a valid international WhatsApp number for marketing consent.")
+        _ensure_payment_indexes(db)
+        ensure_catalog_seed(db)
         items, subtotal = _checkout_items(db, payload.get("cart"))
     except ValueError as error:
-        return jsonify({"error": str(error)}), 400
+        return jsonify({"error": str(error), "code": "whatsapp_number_invalid" if mandatory_whatsapp and "WhatsApp" in str(error) else "invalid_checkout"}), 400
 
     existing = db.orders.find_one({"customerId": user_id, "checkoutAttemptId": attempt_id})
+    if existing and mandatory_whatsapp and (existing.get("whatsappConsent") or {}).get("source") != "checkout":
+        return jsonify(error="Start a new checkout attempt to provide explicit WhatsApp consent."), 409
+    if existing and mandatory_whatsapp and consent_phone(db, current_app.config, user, existing) is None:
+        return jsonify(error="WhatsApp consent was withdrawn. Start a new checkout attempt to consent again."), 409
     if existing and (existing.get("whatsappRecipient") != whatsapp["phone"] or (
             "whatsappTransactionalConsent" in payload and
             payload["whatsappTransactionalConsent"] != ((existing.get("whatsappConsent") or {}).get("enabled") is True))):
@@ -464,9 +478,15 @@ def create_razorpay_order():
                          paymentTransactions=[], paymentLedgerVersion=0, amountReceived=0, balanceDue=subtotal)
         try:
             order["_id"] = ObjectId()
-            if payload.get("whatsappTransactionalConsent") is True:
+            if payload.get("whatsappTransactionalConsent") is True and whatsapp.get("consent"):
+                # Reuse a backend-verified grant for this exact customer/number.
+                # The order snapshot is new, but this does not invent a fresh consent action.
+                consent = {**whatsapp["consent"], "orderId": str(order["_id"])}
+            elif payload.get("whatsappTransactionalConsent") is True:
                 consent = record_consent(db, current_app.config, user_id, whatsapp["phone"], True, "checkout", order_id=order["_id"], update_user=False)
-            elif online and whatsapp["consent"]:
+            elif payload.get("whatsappTransactionalConsent") is False:
+                consent = {"customerId": str(user_id), "phone": whatsapp["phone"], "category": "transactional", "enabled": False, "status": "declined", "timestamp": now, "source": "checkout", "orderId": str(order["_id"])}
+            elif whatsapp["consent"]:
                 consent = {**whatsapp["consent"], "orderId": str(order["_id"])}
             else:
                 consent = {"customerId": str(user_id), "phone": whatsapp["phone"], "category": "transactional", "enabled": False, "status": "declined", "timestamp": now, "source": "checkout", "orderId": str(order["_id"])}
@@ -477,7 +497,7 @@ def create_razorpay_order():
             if payload.get("saveWhatsappAsPrimary") is True:
                 record_consent(db, current_app.config, user_id, whatsapp["phone"], True, "checkout_save_primary")
                 db.users.update_one({"_id": user_id}, {"$set": {"whatsappCountry": whatsapp["country"]}})
-            if "whatsappMarketingConsent" in payload:
+            if "whatsappMarketingConsent" in payload and (whatsapp["phone"] or payload["whatsappMarketingConsent"] is True):
                 marketing = record_marketing_consent(db, current_app.config, user_id, whatsapp["phone"] or shipping["phone"], payload["whatsappMarketingConsent"], "checkout", update_user=payload["whatsappMarketingConsent"] is True)
                 db.orders.update_one({"_id": order["_id"]}, {"$set": {"whatsappMarketingConsent": marketing}})
         except DuplicateKeyError:
@@ -587,10 +607,13 @@ def update_razorpay_state():
 def get_customer_order(order_id: str):
     if not ObjectId.is_valid(order_id):
         return jsonify({"error": "Order not found."}), 404
-    order = database().orders.find_one({"_id": ObjectId(order_id), "customerId": authenticated_user_id()})
+    db = database()
+    order = db.orders.find_one({"_id": ObjectId(order_id), "customerId": authenticated_user_id()})
     if not order:
         return jsonify({"error": "Order not found."}), 404
-    return jsonify({"order": _order_view(ensure_order_tracking(database(), order))}), 200
+    view = _order_view(ensure_order_tracking(db, order))
+    view["whatsappUpdates"] = order_consent_status(db, current_app.config, current_user(), order)
+    return jsonify({"order": view}), 200
 
 
 @razorpay_webhook_bp.post("/razorpay")

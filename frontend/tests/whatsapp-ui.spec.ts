@@ -1,4 +1,4 @@
-﻿import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 for (const scenario of ['gate-off', 'eligible', 'provider-stale', 'billing-blocked', 'sip-only'] as const) test(`provider diagnostics preserve independent health details: ${scenario}`, async ({ page }) => {
   const calls = await mockApi(page);
@@ -742,7 +742,7 @@ test('signup requests WhatsApp OTP and transactional consent separately and opti
   await page.goto('/account');
   await page.getByRole('button', { name: 'Create an account', exact: true }).click();
   const otpConsent = page.getByLabel('I request this verification code on WhatsApp');
-  const transactionalConsent = page.getByLabel('I agree to receive transactional WhatsApp messages');
+  const transactionalConsent = page.getByLabel('I agree to receive transactional WhatsApp updates, including order confirmations, payment updates, shipping and delivery notifications.');
   await expect(otpConsent).not.toBeChecked();
   await expect(transactionalConsent).not.toBeChecked();
   await page.getByLabel('First name', { exact: true }).fill('Fixture');
@@ -764,7 +764,7 @@ test('signup requests WhatsApp OTP and transactional consent separately and opti
 });
 
 
-test('checkout keeps WhatsApp consent optional and sends the explicit choice', async ({ page }) => {
+test('checkout uses one inline transactional checkbox and keeps marketing preferences separate', async ({ page }) => {
   const requests: Record<string, unknown>[] = [];
   await page.addInitScript(() => {
     localStorage.setItem('rk_access_token', 'fixture-token');
@@ -783,26 +783,24 @@ test('checkout keeps WhatsApp consent optional and sends the explicit choice', a
     return route.continue();
   });
   await page.goto('/checkout');
-  const consent = page.getByLabel('I agree to receive transactional WhatsApp messages');
-  const marketing = page.getByLabel('I agree to receive optional WhatsApp collection launches');
-  await expect(marketing).not.toBeChecked();
+  const consent = page.getByRole('checkbox', { name: /Keep me updated on WhatsApp about this order/ });
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(consent).toBeVisible();
+  await expect(page.getByRole('checkbox')).toHaveCount(1);
   await expect(consent).not.toBeChecked();
   await expect(page.getByRole('textbox', { name: 'Full name' })).toHaveValue('Fixture Customer');
   const pay = page.getByRole('button', { name: /^Pay / });
   await pay.click();
   await expect.poll(() => requests.length).toBe(1);
   expect(requests[0].whatsappTransactionalConsent).toBe(false);
-  expect(requests[0].whatsappMarketingConsent).toBe(false);
+  expect(requests[0].whatsappRecipient).toBe('');
   await consent.check();
   await pay.click();
   await expect.poll(() => requests.length).toBe(2);
   expect(requests[1].whatsappTransactionalConsent).toBe(true);
-  await consent.uncheck();
-  await marketing.check();
-  await pay.click();
-  await expect.poll(() => requests.length).toBe(3);
-  expect(requests[2].whatsappTransactionalConsent).toBe(false);
-  expect(requests[2].whatsappMarketingConsent).toBe(true);
+  expect(requests[1].whatsappRecipient).toBe('+14155552671');
+  expect(requests[1].whatsappMarketingConsent).toBeUndefined();
+  await expect(page.getByText(/Marketing preferences remain separate/)).toHaveCount(0);
 });
 
 async function mockOrderApi(page: Page, options: { shipped?: boolean; consent?: boolean } = {}) {
@@ -1123,7 +1121,7 @@ test('profile can withdraw marketing without withdrawing transactional preferenc
     return route.continue();
   });
   await page.goto('/account/profile');
-  const marketing = page.getByLabel('I agree to receive optional WhatsApp collection launches');
+  const marketing = page.getByLabel(/I would also like to receive occasional collection launches/);
   await expect(marketing).toBeChecked();
   await marketing.uncheck();
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
@@ -1133,50 +1131,34 @@ test('profile can withdraw marketing without withdrawing transactional preferenc
 });
 
 
-for (const save of [false, true]) {
-  test(`checkout alternate WhatsApp snapshot is independent of saved delivery phone; save primary ${save}`, async ({ page }) => {
-    let submitted: Record<string, unknown> | null = null;
-    await page.addInitScript(() => {
-      localStorage.setItem('rk_access_token', 'fixture-token');
-      localStorage.setItem('rk_shopping_bag', JSON.stringify({ currency: 'INR', items: [{ productId: 'fixture-product', variantId: 'fixture-colour', sku: 'RK-1-RED', name: 'Fixture garment', price: 1250, quantity: 1, size: 'M' }] }));
-    });
-    await page.route('**/*', async route => {
-      const url = new URL(route.request().url());
-      if (url.pathname === '/api/auth/me') return route.fulfill({ json: { user: { id: 'fixture', role: 'customer', email: 'fixture@example.test', whatsappPhone: '+14155552671', whatsappConsentValid: true } } });
-      if (url.pathname === '/api/auth/addresses') return route.fulfill({ json: { addresses: [{ id: 'saved-address', fullName: 'Fixture Customer', phone: '9619888755', line1: 'Fixture Street', city: 'Mumbai', state: 'Maharashtra', country: 'India', postalCode: '400001', isDefault: true }] } });
-      if (url.pathname === '/api/payments/razorpay/order') {
-        submitted = route.request().postDataJSON();
-        return route.fulfill({ status: 502, json: { error: 'Mock payment provider unavailable.' } });
-      }
-      if (url.pathname.startsWith('/api/')) return route.fulfill({ json: {} });
-      if (url.origin !== 'http://127.0.0.1:3210') return route.fulfill({ status: 204, body: '' });
-      return route.continue();
-    });
-    await page.goto('/checkout');
-    const consent = page.getByLabel('I agree to receive transactional WhatsApp messages');
-    await expect(page.getByText('Registered WhatsApp number: +14155552671')).toBeVisible();
-    await expect(consent).toHaveCount(0);
-    await page.getByLabel('Use a different WhatsApp number for this order').check();
-    await page.getByLabel('Country and dialling code', { exact: true }).selectOption('GB');
-    await page.getByLabel('Mobile number', { exact: true }).fill('123');
-    await page.getByRole('button', { name: /^Pay / }).click();
-    expect(submitted).toBeNull();
-    await expect(page.getByText('Enter a valid WhatsApp number with its country code. Your delivery details have been kept.')).toBeVisible();
-    await page.getByLabel('Mobile number', { exact: true }).fill('02079460018');
-    await expect(consent).not.toBeChecked();
-    await consent.check();
-    if (save) await page.getByLabel('Save this number as my primary WhatsApp number for future orders.').check();
-    await page.getByRole('button', { name: /^Pay / }).click();
-    await expect.poll(() => submitted).not.toBeNull();
-    expect(submitted!.whatsappRecipient).toBe('+442079460018');
-    expect(submitted!.whatsappCountry).toBe('GB');
-    expect(submitted!.saveWhatsappAsPrimary).toBe(save);
-    expect(submitted!.whatsappTransactionalConsent).toBe(true);
-    expect((submitted!.shipping as { phone: string }).phone).toBe('9619888755');
-    await expect(page.getByRole('textbox', { name: 'Full name' })).toHaveValue('Fixture Customer');
+test('valid WhatsApp consent uses the account number independently of delivery contact', async ({ page }) => {
+  let submitted: Record<string, unknown> | null = null;
+  await page.addInitScript(() => {
+    localStorage.setItem('rk_access_token', 'fixture-token');
+    localStorage.setItem('rk_shopping_bag', JSON.stringify({ currency: 'INR', items: [{ productId: 'fixture-product', variantId: 'fixture-colour', sku: 'RK-1-RED', name: 'Fixture garment', price: 1250, quantity: 1, size: 'M' }] }));
   });
-}
-
+  await page.route('**/*', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/auth/me') return route.fulfill({ json: { user: { id: 'fixture', role: 'customer', email: 'customer@example.test', whatsappPhone: '+14155552671', whatsappConsentValid: true } } });
+    if (url.pathname === '/api/auth/addresses') return route.fulfill({ json: { addresses: [{ id: 'saved-address', fullName: 'Fixture Customer', phone: '+919619888755', line1: 'Fixture Street', city: 'Mumbai', state: 'Maharashtra', country: 'India', postalCode: '400001', isDefault: true }] } });
+    if (url.pathname === '/api/payments/razorpay/order') {
+      submitted = route.request().postDataJSON();
+      return route.fulfill({ status: 502, json: { error: 'Mock payment provider unavailable.' } });
+    }
+    if (url.pathname.startsWith('/api/')) return route.fulfill({ json: {} });
+    if (url.origin !== 'http://127.0.0.1:3210') return route.fulfill({ status: 204, body: '' });
+    return route.continue();
+  });
+  await page.goto('/checkout');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('checkbox')).toHaveCount(0);
+  await page.getByRole('button', { name: /^Pay / }).click();
+  await expect.poll(() => submitted).not.toBeNull();
+  expect(submitted!.whatsappRecipient).toBe('+14155552671');
+  expect(submitted!.whatsappTransactionalConsent).toBeUndefined();
+  expect((submitted!.shipping as { phone: string }).phone).toBe('+919619888755');
+  await expect(page.getByRole('textbox', { name: 'Full name' })).toHaveValue('Fixture Customer');
+});
 
 test('production diagnostics explain restrictions without enabling template sending', async ({ page }) => {
   const calls = await mockApi(page, { active: true, production: true,

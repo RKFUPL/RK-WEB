@@ -1,14 +1,14 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { useId, useState, type RefObject } from 'react';
 import { getCountries, getCountryCallingCode, type CountryCode } from 'libphonenumber-js/max';
 
 const countryNames = new Intl.DisplayNames(['en'], { type: 'region' });
 const countries = getCountries().sort((a, b) => (countryNames.of(a) || a).localeCompare(countryNames.of(b) || b));
 const flag = (code: string) => String.fromCodePoint(...[...code].map(letter => 127397 + letter.charCodeAt(0)));
 
-export function InternationalPhone({ value, country, onChange, label = 'WhatsApp number', disabled = false }: {
-  value: string; country: CountryCode; onChange: (value: string, country: CountryCode) => void; label?: string; disabled?: boolean;
+export function InternationalPhone({ value, country, onChange, label = 'WhatsApp number', disabled = false, inputRef }: {
+  value: string; country: CountryCode; onChange: (value: string, country: CountryCode) => void; label?: string; disabled?: boolean; inputRef?: RefObject<HTMLInputElement | null>;
 }) {
   const [search, setSearch] = useState('');
   const id = useId();
@@ -22,6 +22,6 @@ export function InternationalPhone({ value, country, onChange, label = 'WhatsApp
       {filtered.map(code => <option key={code} value={code}>{flag(code)} {countryNames.of(code)} (+{getCountryCallingCode(code)})</option>)}
     </select>
     <label className="block" htmlFor={`${id}-number`}>Mobile number</label>
-    <input id={`${id}-number`} type="tel" inputMode="tel" autoComplete="tel-national" value={value} onChange={event => onChange(event.target.value, country)} className="w-full border-b border-black/15 bg-transparent py-3 text-sm" />
+    <input ref={inputRef} id={`${id}-number`} type="tel" inputMode="tel" autoComplete="tel-national" value={value} onChange={event => onChange(event.target.value, country)} className="w-full border-b border-black/15 bg-transparent py-3 text-sm" />
   </fieldset>;
 }

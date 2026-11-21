@@ -10,7 +10,7 @@ from flask import Flask
 from flask_jwt_extended import JWTManager, create_access_token
 
 from app.blueprints.payments.routes import payments_bp
-from app.blueprints.orders.routes import staff_orders_bp
+from app.blueprints.orders.routes import customer_orders_bp, staff_orders_bp
 from app.blueprints.admin.routes import admin_bp, storefront_lookbooks_bp, SETTINGS_DEFAULTS
 from app.manual_payments import payment_summary, record_payment
 from app.order_confirmation import email_image_url, render_order_confirmation
@@ -27,6 +27,7 @@ def shop():
     limiter.init_app(app)
     app.register_blueprint(payments_bp, url_prefix="/api/payments")
     app.register_blueprint(staff_orders_bp, url_prefix="/api/staff/orders")
+    app.register_blueprint(customer_orders_bp, url_prefix="/api/orders")
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
     app.register_blueprint(storefront_lookbooks_bp, url_prefix="/api")
     user = {"_id": ObjectId(), "role": "admin", "isActive": True, "email": "customer@example.test", "firstName": "Test", "phone": "+14155552671"}

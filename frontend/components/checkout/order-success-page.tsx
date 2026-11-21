@@ -6,6 +6,7 @@ import { CheckCircle2 } from 'lucide-react';
 import { StickyHeader } from '@/components/home/sticky-header';
 import { apiBaseUrl } from '@/lib/rbac';
 import { inr, type Order } from '@/lib/orders';
+import { OrderWhatsAppConsent } from '@/components/orders/order-whatsapp-consent';
 
 export function OrderSuccessPage({ orderId }: { orderId: string }) {
   const [order, setOrder] = useState<Order | null>(null);
@@ -40,6 +41,7 @@ export function OrderSuccessPage({ orderId }: { orderId: string }) {
           <div className="mt-6 flex justify-between border-t border-black/10 pt-5 text-base dark:border-white/10"><span>Total</span><span>{inr.format(order.total || 0)}</span></div>
           {order.shipping ? <p className="mt-7 border-t border-black/10 pt-5 text-xs leading-6 text-charcoal/60 dark:border-white/10">Deliver to {order.shipping.fullName}, {order.shipping.line1}{order.shipping.line2 ? `, ${order.shipping.line2}` : ''}, {order.shipping.city}, {order.shipping.state} {order.shipping.postalCode}, {order.shipping.country}. Phone: {order.shipping.phone || order.phone || 'not recorded'}.</p> : null}
         </div>
+        <OrderWhatsAppConsent order={order} onUpdated={setOrder} />
         <div className="mt-8 flex flex-wrap justify-center gap-5"><Link href={`/account/orders/${orderId}`} className="border-b border-charcoal/35 pb-2 text-xs uppercase tracking-[0.24em] hover:border-gold hover:text-gold">Track this order</Link><Link href="/account/orders" className="border-b border-charcoal/35 pb-2 text-xs uppercase tracking-[0.24em] hover:border-gold hover:text-gold">My orders</Link><Link href="/collections" className="border-b border-charcoal/35 pb-2 text-xs uppercase tracking-[0.24em] hover:border-gold hover:text-gold">Continue exploring</Link></div>
       </>}
     </div>

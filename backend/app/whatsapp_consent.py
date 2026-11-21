@@ -17,7 +17,7 @@ def record_consent(db, config, customer_id, phone, enabled, source, *, order_id=
     timestamp = timestamp.replace(microsecond=(timestamp.microsecond // 1000) * 1000)
     record = {"customerId": str(customer_id) if customer_id else None, "phone": phone,
               "category": category, "enabled": enabled is True, "status": "granted" if enabled else "withdrawn",
-              "timestamp": timestamp, "updatedAt": timestamp, "source": source, "version": "transactional-v3",
+              "timestamp": timestamp, "updatedAt": timestamp, "source": source, "version": "transactional-v4",
               "orderId": str(order_id) if order_id else None, "recipientHash": fingerprint(phone, config)}
     if category == "transactional":
         from .whatsapp_catalogue import CONSENT_TEXT
@@ -80,3 +80,19 @@ def consent_phone(db, config, user, record):
     if not record.get("whatsappConsent") and phone != normalize_phone(user.get("whatsappPhone", user.get("phone"))):
         return None
     return None if opted_out(db, config, phone) else phone
+
+
+def order_consent_status(db, config, user, order):
+    """Expose only this customer's order recipient and current consent state."""
+    from .whatsapp import normalize_phone
+
+    candidate = order.get("whatsappRecipient") or user.get("whatsappPhone") or user.get("phone")
+    try:
+        number = normalize_phone(candidate)
+    except ValueError:
+        number = None
+    try:
+        active = consent_phone(db, config, user, order)
+    except ValueError:
+        active = None
+    return {"number": number, "enabled": active is not None}

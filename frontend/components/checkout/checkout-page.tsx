@@ -2,11 +2,9 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { InternationalPhone } from '@/components/commerce/international-phone';
+import { useEffect, useRef, useState } from 'react';
 import { canonicalPhone } from '@/lib/phone-number';
 import { type CountryCode } from 'libphonenumber-js/max';
-import { whatsappConsentText, whatsappMarketingConsentText } from '@/lib/whatsapp-consent';
 import { ArrowLeft, Check, LockKeyhole, ShoppingBag } from 'lucide-react';
 import { StickyHeader } from '@/components/home/sticky-header';
 import { ShippingTimeline } from '@/components/commerce/shipping-timeline';
@@ -16,6 +14,7 @@ import { cartChangedEvent, readStoredCart, writeStoredCart } from '@/lib/storefr
 import { useCurrency } from '@/components/commerce/currency-provider';
 import type { Cart } from '@/lib/store-types';
 import { cartItemShippingTimeline } from '@/lib/shipping-timeline';
+import { InternationalPhone } from '@/components/commerce/international-phone';
 
 type Address = {
   id: string;
@@ -122,21 +121,29 @@ export function CheckoutPage() {
   const [message, setMessage] = useState('');
   const [testMode, setTestMode] = useState(false);
   const [razorpayEnabled, setRazorpayEnabled] = useState(true);
+  const [storefrontSettingsReady, setStorefrontSettingsReady] = useState(false);
+  const [requireWhatsappConsentForCheckout, setRequireWhatsappConsentForCheckout] = useState(false);
+  const [profileReady, setProfileReady] = useState(false);
   const [whatsappTransactionalConsent, setWhatsappTransactionalConsent] = useState(false);
-  const [whatsappMarketingConsent, setWhatsappMarketingConsent] = useState(false);
   const [primaryWhatsapp, setPrimaryWhatsapp] = useState('');
   const [primaryConsent, setPrimaryConsent] = useState(false);
-  const [alternateWhatsapp, setAlternateWhatsapp] = useState(false);
+  const [whatsappConsentError, setWhatsappConsentError] = useState('');
+  const [whatsappPhoneError, setWhatsappPhoneError] = useState('');
   const [whatsappNumber, setWhatsappNumber] = useState('');
   const [whatsappCountry, setWhatsappCountry] = useState<CountryCode>('IN');
-  const [saveWhatsappAsPrimary, setSaveWhatsappAsPrimary] = useState(false);
-  const selectedWhatsapp = alternateWhatsapp ? canonicalPhone(whatsappNumber, whatsappCountry) : primaryWhatsapp;
+  const consentCheckboxRef = useRef<HTMLInputElement>(null);
+  const whatsappPhoneInputRef = useRef<HTMLInputElement>(null);
+  const selectedWhatsapp = primaryWhatsapp || canonicalPhone(whatsappNumber, whatsappCountry);
   const savedRecipientConsent = primaryConsent && selectedWhatsapp === primaryWhatsapp;
+  const checkoutConsentAvailable = savedRecipientConsent || (Boolean(selectedWhatsapp) && whatsappTransactionalConsent);
   const [checkoutAttemptId, setCheckoutAttemptId] = useState(attemptId);
-  useEffect(() => { setCheckoutAttemptId(attemptId()); }, [selectedWhatsapp, whatsappTransactionalConsent, whatsappMarketingConsent, saveWhatsappAsPrimary, shipping, cart]);
+  useEffect(() => { setCheckoutAttemptId(attemptId()); }, [selectedWhatsapp, whatsappTransactionalConsent, shipping, cart]);
 
   useEffect(() => {
-    fetch(`${apiBaseUrl}/api/storefront-settings`, { cache: "no-store" }).then(r => r.json()).then(data => setRazorpayEnabled(data.settings?.razorpayEnabled !== false)).catch(() => {});
+    fetch(`${apiBaseUrl}/api/storefront-settings`, { cache: "no-store" }).then(r => {
+      if (!r.ok) throw new Error('Unable to load checkout settings. Refresh and try again.');
+      return r.json();
+    }).then(data => { setRazorpayEnabled(data.settings?.razorpayEnabled !== false); setRequireWhatsappConsentForCheckout(data.settings?.requireWhatsappConsentForCheckout === true); setStorefrontSettingsReady(true); }).catch(() => { setMessage('Unable to load checkout settings. Refresh and try again.'); });
     const currentToken = token();
     if (!currentToken) { setSignedIn(false); return; }
     setSignedIn(true);
@@ -151,10 +158,10 @@ export function CheckoutPage() {
       if (!profileResponse.ok) throw new Error('Please sign in again to continue.');
       const profile = await profileResponse.json();
       setEmail(profile.user?.email || '');
-      const primary = canonicalPhone(profile.user?.whatsappPhone || profile.user?.phone || '');
+      const primary = canonicalPhone(profile.user?.whatsappPhone || '');
       setPrimaryWhatsapp(primary);
-      setPrimaryConsent(profile.user?.whatsappConsentValid === true);
-      if (!primary) setAlternateWhatsapp(true);
+      setWhatsappCountry((profile.user?.whatsappCountry || 'IN') as CountryCode);
+      setPrimaryConsent(profile.user?.whatsappConsentValid === true && Boolean(primary));
       if (addressResponse.ok) {
         const data = await addressResponse.json();
         const saved = (data.addresses || []) as Address[];
@@ -162,6 +169,7 @@ export function CheckoutPage() {
         const defaultAddress = saved.find((address) => address.isDefault) || saved[0];
         if (defaultAddress) { setSelectedAddressId(defaultAddress.id); setShipping({ ...defaultAddress }); }
       }
+      setProfileReady(true);
     }).catch((error: unknown) => { setMessage(error instanceof Error ? error.message : 'Unable to load checkout.'); setSignedIn(false); });
     return () => { window.removeEventListener(cartChangedEvent, sync); window.removeEventListener('storage', sync); };
   }, []);
@@ -170,13 +178,62 @@ export function CheckoutPage() {
   const subtotal = getCartSubtotal(cart);
   const total = subtotal;
 
+  function updateWhatsappNumber(value: string, country: CountryCode) {
+    setWhatsappNumber(value);
+    setWhatsappCountry(country);
+    setWhatsappTransactionalConsent(false);
+    setWhatsappConsentError('');
+    setWhatsappPhoneError('');
+  }
+
   async function pay() {
     if (busy) return;
     setMessage('');
+    if (!storefrontSettingsReady) { setMessage('Unable to load checkout settings. Refresh and try again.'); return; }
     if (!cart.items.length) { setMessage('Your shopping bag is empty.'); return; }
     if (cart.items.some((item) => !item.variantId || !item.sku)) { setMessage('One or more older bag items need a colour selection. Remove them and re-add the exact colour before checkout.'); return; }
     if (!shipping.fullName || !shipping.phone || !shipping.line1 || !shipping.city || !shipping.state || !shipping.postalCode || !shipping.country) { setMessage('Please complete the shipping details before paying.'); return; }
-    if ((alternateWhatsapp && !selectedWhatsapp) || (whatsappMarketingConsent && !selectedWhatsapp)) { setMessage('Enter a valid WhatsApp number with its country code. Your delivery details have been kept.'); return; }
+    if (requireWhatsappConsentForCheckout && !savedRecipientConsent && !whatsappTransactionalConsent) {
+      setWhatsappConsentError('Please agree to receive transactional WhatsApp updates to continue placing your order.');
+      requestAnimationFrame(() => {
+        consentCheckboxRef.current?.focus();
+        consentCheckboxRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+      return;
+    }
+    if (whatsappTransactionalConsent && !selectedWhatsapp) {
+      setWhatsappPhoneError('Enter a valid WhatsApp number for order updates.');
+      requestAnimationFrame(() => {
+        whatsappPhoneInputRef.current?.focus();
+        whatsappPhoneInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+      return;
+    }
+    if (requireWhatsappConsentForCheckout && savedRecipientConsent) {
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${token()}` },
+          cache: 'no-store',
+        });
+        if (!response.ok) throw new Error('Unable to confirm current WhatsApp consent. Refresh and try again.');
+        const profile = await response.json();
+        const currentNumber = canonicalPhone(profile.user?.whatsappPhone || '');
+        if (profile.user?.whatsappConsentValid !== true || currentNumber !== selectedWhatsapp) {
+          setPrimaryWhatsapp(currentNumber);
+          setPrimaryConsent(false);
+          setWhatsappTransactionalConsent(false);
+          setWhatsappConsentError('Please agree to receive transactional WhatsApp updates to continue placing your order.');
+          requestAnimationFrame(() => {
+            consentCheckboxRef.current?.focus();
+            consentCheckboxRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          });
+          return;
+        }
+      } catch (error: unknown) {
+        setMessage(error instanceof Error ? error.message : 'Unable to confirm current WhatsApp consent. Refresh and try again.');
+        return;
+      }
+    }
     setBusy(true);
     try {
       const response = await fetch(`${apiBaseUrl}/api/payments/razorpay/order`, {
@@ -184,9 +241,9 @@ export function CheckoutPage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
         body: JSON.stringify({
           checkoutAttemptId,
-          ...(selectedWhatsapp ? { whatsappRecipient: selectedWhatsapp, ...(alternateWhatsapp ? { whatsappCountry } : {}) } : {}),
-          ...(razorpayEnabled && savedRecipientConsent ? {} : { whatsappTransactionalConsent }),
-          whatsappMarketingConsent, saveWhatsappAsPrimary,
+          whatsappRecipient: checkoutConsentAvailable ? selectedWhatsapp : '',
+          ...(!primaryWhatsapp && selectedWhatsapp && checkoutConsentAvailable ? { whatsappCountry } : {}),
+          ...(requireWhatsappConsentForCheckout || !savedRecipientConsent ? { whatsappTransactionalConsent: checkoutConsentAvailable } : {}),
           cart: cart.items.map((item) => ({
             productId: item.productId,
             variantId: item.variantId,
@@ -247,5 +304,95 @@ export function CheckoutPage() {
   if (signedIn === null) return null;
   if (!signedIn) return <main className="min-h-screen bg-ivory px-6 pb-24 pt-32 text-charcoal"><StickyHeader /><div className="mx-auto max-w-xl py-20 text-center"><h1 className="font-display text-5xl">Sign in to check out.</h1><p className="mt-5 text-sm text-charcoal/60">Your shipping details and payment are connected to your RK account.</p><Link href="/account" className="mt-9 inline-flex bg-ink px-8 py-4 text-xs uppercase tracking-[0.25em] text-ivory">Sign in</Link></div></main>;
 
-  return <main className="min-h-screen bg-ivory px-4 pb-24 pt-32 text-charcoal sm:px-8 lg:px-12"><StickyHeader /><div className="mx-auto max-w-6xl"><Link href="/bag" className="inline-flex items-center gap-2 text-[0.6rem] uppercase tracking-[0.24em] text-charcoal/55 transition hover:text-gold"><ArrowLeft size={13} /> Back to bag</Link><div className="mt-8 border-b border-black/12 pb-8 dark:border-white/15"><div className="flex items-center justify-between gap-5"><div><p className="text-[0.58rem] uppercase tracking-[0.35em] text-gold">Checkout</p><h1 className="mt-3 font-display text-5xl sm:text-6xl">Make it yours.</h1></div><LockKeyhole className="text-gold" size={24} strokeWidth={1.2} /></div>{testMode && razorpayEnabled ? <span className="mt-5 inline-flex rounded-full border border-gold/50 px-3 py-1 text-[0.55rem] uppercase tracking-[0.2em] text-gold">Test mode</span> : null}</div>{message ? <p className="mt-6 border border-gold/35 bg-gold/5 px-4 py-3 text-sm text-charcoal/75">{message}</p> : null}<div className="mt-10 grid gap-10 lg:grid-cols-[1fr_22rem]"><section className="space-y-8"><div className="border border-black/10 p-6 dark:border-white/15 sm:p-8"><div className="flex items-center gap-3"><ShoppingBag size={18} className="text-gold" strokeWidth={1.25} /><h2 className="font-display text-3xl">Contact and delivery</h2></div><p className="mt-2 text-sm text-charcoal/55">{email}</p>{addresses.length ? <label className="mt-7 block"><span className="text-[0.58rem] uppercase tracking-[0.24em] text-charcoal/50">Use a saved address</span><select value={selectedAddressId} onChange={(event) => { const address = addresses.find((entry) => entry.id === event.target.value); setSelectedAddressId(event.target.value); if (address) setShipping({ ...address }); }} className="mt-3 w-full border-b border-black/15 bg-transparent py-3 text-sm outline-none dark:border-white/15"><option value="">Enter a new address</option>{addresses.map((address) => <option key={address.id} value={address.id}>{address.label || address.fullName} · {address.city}</option>)}</select></label> : null}<div className="mt-6 space-y-4 text-sm"><p>Registered WhatsApp number: {primaryWhatsapp || 'Please confirm your number and country below.'}</p><label className="flex items-start gap-3"><input type="checkbox" checked={alternateWhatsapp} onChange={event => { setAlternateWhatsapp(event.target.checked); setWhatsappTransactionalConsent(false); setWhatsappMarketingConsent(false); setSaveWhatsappAsPrimary(false); }} />Use a different WhatsApp number for this order</label>{alternateWhatsapp && <><InternationalPhone value={whatsappNumber} country={whatsappCountry} onChange={(value, country) => { setWhatsappNumber(value); setWhatsappCountry(country); setWhatsappTransactionalConsent(false); setWhatsappMarketingConsent(false); setSaveWhatsappAsPrimary(false); }} /><p className="text-xs text-charcoal/60">{selectedWhatsapp || 'Select the country and enter a valid mobile number.'}</p><label className="flex items-start gap-3 text-xs"><input type="checkbox" checked={saveWhatsappAsPrimary} onChange={event => setSaveWhatsappAsPrimary(event.target.checked)} />Save this number as my primary WhatsApp number for future orders.</label></>}{(!savedRecipientConsent || !razorpayEnabled) && <label className="flex items-start gap-3 text-xs leading-6 text-charcoal/70"><input type="checkbox" checked={whatsappTransactionalConsent} onChange={event => setWhatsappTransactionalConsent(event.target.checked)} />{whatsappConsentText}</label>}<p className="text-xs text-charcoal/60">WhatsApp notifications are optional. Your delivery contact number is separate.</p></div><label className="mt-4 flex items-start gap-3 text-xs leading-6 text-charcoal/70"><input type="checkbox" checked={whatsappMarketingConsent} onChange={event => setWhatsappMarketingConsent(event.target.checked)} />{whatsappMarketingConsentText}</label><div className="mt-8 grid gap-7 sm:grid-cols-2"><Field label="Full name" value={shipping.fullName} onChange={(value) => updateShipping('fullName', value)} /><Field label="Phone" value={shipping.phone} onChange={(value) => updateShipping('phone', value)} placeholder="+91 00000 00000" /><Field label="Address line 1" value={shipping.line1} onChange={(value) => updateShipping('line1', value)} /><Field label="Address line 2" value={shipping.line2 || ''} onChange={(value) => updateShipping('line2', value)} required={false} /><Field label="City" value={shipping.city} onChange={(value) => updateShipping('city', value)} /><Field label="State" value={shipping.state} onChange={(value) => updateShipping('state', value)} /><Field label="Postal code" value={shipping.postalCode} onChange={(value) => updateShipping('postalCode', value)} /><Field label="Country" value={shipping.country} onChange={(value) => updateShipping('country', value)} /></div></div></section><aside className="h-fit border border-black/10 p-6 dark:border-white/15 sm:p-8"><p className="text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/50">Order summary</p><div className="mt-6 space-y-5">{cart.items.map((item) => <CheckoutItemSummary key={`${item.productId}:${item.variantId}:${item.size || ''}`} item={item} />)}</div><div className="mt-6 flex justify-between border-b border-black/10 pb-5 text-sm dark:border-white/10"><span>Subtotal</span><span>{inr.format(subtotal)}</span></div><div className="mt-4 flex justify-between text-base"><span>Total</span><span>{inr.format(total)}</span></div><p className="mt-5 text-xs leading-6 text-charcoal/55">{razorpayEnabled ? "Shipping and final order details are confirmed by the RK team. Razorpay will open securely for payment." : "Your order will be reviewed by our team. We will contact you about availability and payment. Please wait for payment instructions."}</p><button type="button" disabled={busy || !cart.items.length} onClick={pay} className="mt-7 flex w-full items-center justify-center gap-3 bg-ink px-5 py-4 text-[0.6rem] uppercase tracking-[0.25em] text-ivory transition hover:bg-gold hover:text-ink disabled:cursor-not-allowed disabled:opacity-45">{busy ? (razorpayEnabled ? 'Opening secure payment\u2026' : 'Placing order\u2026') : razorpayEnabled ? <>Pay {inr.format(total)} <Check size={14} /></> : <>Place order <Check size={14} /></>}</button></aside></div></div></main>;
+  return <>
+    <main className="min-h-screen bg-ivory px-4 pb-24 pt-32 text-charcoal sm:px-8 lg:px-12">
+      <StickyHeader />
+      <div className="mx-auto max-w-6xl">
+        <Link href="/bag" className="inline-flex items-center gap-2 text-[0.6rem] uppercase tracking-[0.24em] text-charcoal/55 transition hover:text-gold">
+          <ArrowLeft size={13} /> Back to bag
+        </Link>
+        <div className="mt-8 border-b border-black/12 pb-8 dark:border-white/15">
+          <div className="flex items-center justify-between gap-5">
+            <div>
+              <p className="text-[0.58rem] uppercase tracking-[0.35em] text-gold">Checkout</p>
+              <h1 className="mt-3 font-display text-5xl sm:text-6xl">Make it yours.</h1>
+            </div>
+            <LockKeyhole className="text-gold" size={24} strokeWidth={1.2} />
+          </div>
+          {testMode && razorpayEnabled ? <span className="mt-5 inline-flex rounded-full border border-gold/50 px-3 py-1 text-[0.55rem] uppercase tracking-[0.2em] text-gold">Test mode</span> : null}
+        </div>
+        {message ? <p role="alert" className="mt-6 border border-gold/35 bg-gold/5 px-4 py-3 text-sm text-charcoal/75">{message}</p> : null}
+
+        <div className="mt-10 grid gap-10 lg:grid-cols-[1fr_22rem]">
+          <section className="space-y-8">
+            <div className="border border-black/10 p-6 dark:border-white/15 sm:p-8">
+              <div className="flex items-center gap-3">
+                <ShoppingBag size={18} className="text-gold" strokeWidth={1.25} />
+                <h2 className="font-display text-3xl">Contact and delivery</h2>
+              </div>
+              <p className="mt-2 text-sm text-charcoal/55">{email}</p>
+              {addresses.length ? <label className="mt-7 block">
+                <span className="text-[0.58rem] uppercase tracking-[0.24em] text-charcoal/50">Use a saved address</span>
+                <select value={selectedAddressId} onChange={event => { const address = addresses.find(entry => entry.id === event.target.value); setSelectedAddressId(event.target.value); if (address) setShipping({ ...address }); }} className="mt-3 w-full border-b border-black/15 bg-transparent py-3 text-sm outline-none dark:border-white/15">
+                  <option value="">Enter a new address</option>
+                  {addresses.map(address => <option key={address.id} value={address.id}>{address.label || address.fullName} · {address.city}</option>)}
+                </select>
+              </label> : null}
+
+              <div className="mt-8 grid gap-7 sm:grid-cols-2">
+                <Field label="Full name" value={shipping.fullName} onChange={value => updateShipping('fullName', value)} />
+                <Field label="Phone" value={shipping.phone} onChange={value => updateShipping('phone', value)} placeholder="+91 00000 00000" />
+                <Field label="Address line 1" value={shipping.line1} onChange={value => updateShipping('line1', value)} />
+                <Field label="Address line 2" value={shipping.line2 || ''} onChange={value => updateShipping('line2', value)} required={false} />
+                <Field label="City" value={shipping.city} onChange={value => updateShipping('city', value)} />
+                <Field label="State" value={shipping.state} onChange={value => updateShipping('state', value)} />
+                <Field label="Postal code" value={shipping.postalCode} onChange={value => updateShipping('postalCode', value)} />
+                <Field label="Country" value={shipping.country} onChange={value => updateShipping('country', value)} />
+              </div>
+
+              {!savedRecipientConsent ? <div className="mt-7 border-t border-black/10 pt-5 dark:border-white/10">
+                <label className="flex items-start gap-3 text-xs leading-5 text-charcoal/70 dark:text-ivory/75">
+                  <input
+                    ref={consentCheckboxRef}
+                    type="checkbox"
+                    checked={whatsappTransactionalConsent}
+                    required={requireWhatsappConsentForCheckout}
+                    disabled={!profileReady || !storefrontSettingsReady}
+                    aria-invalid={Boolean(whatsappConsentError)}
+                    aria-describedby={whatsappConsentError ? 'whatsapp-consent-error' : undefined}
+                    onChange={event => { setWhatsappTransactionalConsent(event.target.checked); setWhatsappConsentError(''); if (!event.target.checked) setWhatsappPhoneError(''); }}
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-[#b58a4c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold disabled:opacity-50"
+                  />
+                  <span>Keep me updated on WhatsApp about this order, including order confirmation, payment, shipping and delivery updates.</span>
+                </label>
+                {whatsappConsentError ? <p id="whatsapp-consent-error" role="alert" className="mt-2 pl-7 text-xs leading-5 text-red-800 dark:text-red-200">{whatsappConsentError}</p> : null}
+                {!primaryWhatsapp ? <div className="mt-4 max-w-lg">
+                  <InternationalPhone
+                    value={whatsappNumber}
+                    country={whatsappCountry}
+                    label="WhatsApp number for this order"
+                    inputRef={whatsappPhoneInputRef}
+                    disabled={!profileReady || !storefrontSettingsReady}
+                    onChange={updateWhatsappNumber}
+                  />
+                  {whatsappPhoneError ? <p role="alert" className="mt-2 text-xs leading-5 text-red-800 dark:text-red-200">{whatsappPhoneError}</p> : null}
+                </div> : null}
+              </div> : null}
+            </div>
+          </section>
+
+          <aside className="h-fit border border-black/10 p-6 dark:border-white/15 sm:p-8">
+            <p className="text-[0.58rem] uppercase tracking-[0.28em] text-charcoal/50">Order summary</p>
+            <div className="mt-6 space-y-5">{cart.items.map(item => <CheckoutItemSummary key={`${item.productId}:${item.variantId}:${item.size || ''}`} item={item} />)}</div>
+            <div className="mt-6 flex justify-between border-b border-black/10 pb-5 text-sm dark:border-white/10"><span>Subtotal</span><span>{inr.format(subtotal)}</span></div>
+            <div className="mt-4 flex justify-between text-base"><span>Total</span><span>{inr.format(total)}</span></div>
+            <p className="mt-5 text-xs leading-6 text-charcoal/55">{razorpayEnabled ? 'Shipping and final order details are confirmed by the RK team. Razorpay will open securely for payment.' : 'Your order will be reviewed by our team. We will contact you about availability and payment. Please wait for payment instructions.'}</p>
+            <button type="button" disabled={busy || !cart.items.length || !storefrontSettingsReady || !profileReady} onClick={pay} className="mt-7 flex w-full items-center justify-center gap-3 bg-ink px-5 py-4 text-[0.6rem] uppercase tracking-[0.25em] text-ivory transition hover:bg-gold hover:text-ink disabled:cursor-not-allowed disabled:opacity-45">
+              {busy ? (razorpayEnabled ? 'Opening secure payment…' : 'Placing order…') : razorpayEnabled ? <>Pay {inr.format(total)} <Check size={14} /></> : <>Place order <Check size={14} /></>}
+            </button>
+          </aside>
+        </div>
+      </div>
+    </main>
+  </>;
 }

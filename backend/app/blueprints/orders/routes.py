@@ -24,6 +24,8 @@ from ...order_confirmation import send_order_confirmation
 from ...returns import create_return_request, return_url, send_return_accepted
 from ...rbac import authenticated_user_id, current_user, database, requireCustomer, requirePermission
 from ...whatsapp_orders import order_whatsapp_activity
+from ...whatsapp_consent import order_consent_status, record_consent
+from ...phone_numbers import customer_phone
 from ...time_utils import json_value
 from ...extensions import limiter
 
@@ -181,7 +183,42 @@ def get_customer_order(order_id: str):
     order = db.orders.find_one({"_id": object_id, "customerId": authenticated_user_id()})
     if not order:
         return jsonify({"error": "Order not found."}), 404
-    return jsonify({"order": order_view(ensure_order_tracking(db, order))}), 200
+    view = order_view(ensure_order_tracking(db, order))
+    view["whatsappUpdates"] = order_consent_status(db, current_app.config, current_user(), order)
+    return jsonify({"order": view}), 200
+
+
+@customer_orders_bp.post("/<order_id>/whatsapp-consent")
+@requireCustomer
+@limiter.limit("5 per minute")
+def grant_order_whatsapp_consent(order_id: str):
+    object_id = _object_id(order_id)
+    if not object_id:
+        return jsonify(error="Order not found."), 404
+    payload = request.get_json(silent=True) or {}
+    if payload.get("whatsappTransactionalConsent") is not True:
+        return jsonify(error="Explicit transactional WhatsApp consent is required.", code="whatsapp_consent_required"), 400
+    db = database()
+    user = current_user()
+    order = db.orders.find_one({"_id": object_id, "customerId": user["_id"]})
+    if not order:
+        return jsonify(error="Order not found."), 404
+    candidate = payload.get("whatsappRecipient", order.get("whatsappRecipient") or user.get("whatsappPhone") or user.get("phone"))
+    try:
+        phone, country = customer_phone(candidate, payload.get("whatsappCountry"))
+    except ValueError:
+        return jsonify(error="Enter a valid WhatsApp number with its country code.", code="whatsapp_number_invalid"), 400
+    previous = order.get("whatsappConsent")
+    consent = record_consent(db, current_app.config, user["_id"], phone, True, "order_reconsent", order_id=object_id, update_user=False)
+    update = {"$set": {"whatsappRecipient": phone, "whatsappCountry": country,
+                       "whatsappRecipientSource": "post_order", "whatsappConsent": consent}}
+    if isinstance(previous, dict) and previous.get("enabled") is False:
+        update["$push"] = {"whatsappConsentHistory": previous}
+    db.orders.update_one({"_id": object_id, "customerId": user["_id"]}, update)
+    updated = db.orders.find_one({"_id": object_id, "customerId": user["_id"]})
+    view = order_view(updated)
+    view["whatsappUpdates"] = order_consent_status(db, current_app.config, user, updated)
+    return jsonify(order=view), 200
 
 
 @customer_orders_bp.post("/<order_id>/return-request")

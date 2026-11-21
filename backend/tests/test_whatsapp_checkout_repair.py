@@ -140,7 +140,7 @@ def test_signup_stores_country_and_consent_for_exact_phone(case, phone, country,
     assert saved['whatsappCountry'] == country
     assert saved['whatsappConsent']['phone'] == expected
     assert saved['whatsappConsent']['source'] == 'signup'
-    assert saved['whatsappConsent']['version'] == 'transactional-v3'
+    assert saved['whatsappConsent']['version'] == 'transactional-v4'
     assert saved['whatsappConsent']['text'].startswith('I agree to receive transactional')
     assert 'whatsappMarketingConsent' not in saved
     assert c.db.whatsapp_outbox.count_documents({}) == 0

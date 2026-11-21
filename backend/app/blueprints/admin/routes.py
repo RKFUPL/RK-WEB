@@ -142,6 +142,7 @@ _dashboard_indexes_ready = False
 
 SETTINGS_DEFAULTS = {
     "razorpayEnabled": True,
+    "requireWhatsappConsentForCheckout": False,
     "storeName": "Rashi Kapoor",
     "supportEmail": "",
     "currency": "INR",
@@ -755,7 +756,7 @@ def refresh_forex():
 @storefront_lookbooks_bp.get("/storefront-settings")
 def get_public_storefront_settings():
     settings = _settings(database())
-    return jsonify({"settings": {"colourSwatches": _colour_swatches(settings.get("colourSwatches")), "whatsappNumber": settings.get("whatsappNumber", SETTINGS_DEFAULTS["whatsappNumber"]), "razorpayEnabled": settings.get("razorpayEnabled") is not False}}), 200
+    return jsonify({"settings": {"colourSwatches": _colour_swatches(settings.get("colourSwatches")), "whatsappNumber": settings.get("whatsappNumber", SETTINGS_DEFAULTS["whatsappNumber"]), "razorpayEnabled": settings.get("razorpayEnabled") is not False, "requireWhatsappConsentForCheckout": settings.get("requireWhatsappConsentForCheckout") is True}}), 200
 
 
 @storefront_lookbooks_bp.get("/lookbooks")
@@ -923,6 +924,12 @@ def update_settings():
     payload = request.get_json(silent=True) or {}
     if "razorpayEnabled" in payload and not isinstance(payload["razorpayEnabled"], bool):
         return jsonify(error="Razorpay Online Payments must be boolean."), 400
+    if "requireWhatsappConsentForCheckout" in payload and not isinstance(payload["requireWhatsappConsentForCheckout"], bool):
+        return jsonify(error="Require WhatsApp Consent Before Placing an Order must be boolean."), 400
+    current_settings = _settings(database())
+    require_whatsapp = payload.get("requireWhatsappConsentForCheckout", current_settings["requireWhatsappConsentForCheckout"])
+    if require_whatsapp and not current_settings["requireWhatsappConsentForCheckout"] and payload.get("requireWhatsappConsentAcknowledged") is not True:
+        return jsonify(error="Acknowledge the legal and compliance warning before requiring WhatsApp consent."), 400
     store_name = str(payload.get("storeName") or "").strip()
     support_email = str(payload.get("supportEmail") or "").strip().lower()
     currency = str(payload.get("currency") or "INR").upper()
@@ -948,6 +955,7 @@ def update_settings():
             couriers.append(courier)
     settings = {
         "razorpayEnabled": payload.get("razorpayEnabled", _settings(database()).get("razorpayEnabled", True)),
+        "requireWhatsappConsentForCheckout": require_whatsapp,
         "storeName": store_name,
         "supportEmail": support_email,
         "currency": currency,

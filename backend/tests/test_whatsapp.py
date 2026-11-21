@@ -813,7 +813,7 @@ class WhatsAppTests(unittest.TestCase):
         self.assertEqual(config["BaseConfig"].WHATSAPP_DEVELOPMENT_CALLBACK_URL, "")
 
 
-    def test_checkout_api_persists_explicit_order_consent_without_queueing_unconfirmed_orders(self):
+    def test_checkout_api_reuses_active_profile_consent_without_creating_a_new_grant_or_queueing(self):
         from app.blueprints.payments.routes import payments_bp
         self.app.register_blueprint(payments_bp, url_prefix="/api/payments")
         with patch("app.blueprints.payments.routes.database", return_value=self.db), patch("app.blueprints.payments.routes.current_user", return_value=self.user), patch("app.blueprints.payments.routes.authenticated_user_id", return_value=self.user["_id"]), patch("app.blueprints.payments.routes.is_configured", return_value=True), patch("app.blueprints.payments.routes.ensure_catalog_seed"), patch("app.blueprints.payments.routes._checkout_items", return_value=([], 1250)), patch("app.blueprints.payments.routes._normalise_shipping", return_value={"phone": self.user["phone"]}), patch("app.blueprints.payments.routes.razorpay_api_request", return_value={"id": "order_fixture"}):
@@ -821,8 +821,9 @@ class WhatsAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         order = self.db.orders.find_one({"checkoutAttemptId": "consent-checkout-fixture"})
         self.assertEqual(order["whatsappConsent"]["orderId"], str(order["_id"]))
-        self.assertEqual(order["whatsappConsent"]["source"], "checkout")
+        self.assertEqual(order["whatsappConsent"]["source"], "fixture_explicit_consent")
         self.assertEqual(order["paymentStatus"], "order_created")
+        self.assertEqual(self.db.whatsapp_consents.count_documents({}), 0)
         self.assertEqual(self.db.whatsapp_outbox.count_documents({}), 0)
         self.http.assert_not_called()
 

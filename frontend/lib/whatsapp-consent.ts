@@ -1,2 +1,2 @@
-export const whatsappConsentText = "I agree to receive transactional WhatsApp messages from Rashi Kapoor, including order confirmations, payment updates, shipping, delivery and refund notifications, at the WhatsApp number provided. I can opt out at any time.";
-export const whatsappMarketingConsentText = "I agree to receive optional WhatsApp collection launches and promotional offers from Rashi Kapoor at the number provided. I can unsubscribe from marketing at any time.";
+export const whatsappConsentText = "I agree to receive transactional WhatsApp updates, including order confirmations, payment updates, shipping and delivery notifications.";
+export const whatsappMarketingConsentText = "I would also like to receive occasional collection launches and promotional offers from Rashi Kapoor. This is optional and can be withdrawn separately.";

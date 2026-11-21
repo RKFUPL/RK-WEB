@@ -155,10 +155,21 @@ def _profile_whatsapp_consent_valid(user):
         return False
 
 
+def _profile_whatsapp_marketing_consent_valid(user):
+    from ...whatsapp_marketing_consent import marketing_phone
+    try:
+        return bool(marketing_phone(_database(), current_app.config, user))
+    except ValueError:
+        return False
+
+
 def _public_user(user: dict) -> dict:
     first_name = user.get("firstName") or str(user.get("displayName") or "").split(" ")[0]
     last_name = user.get("lastName") or " ".join(str(user.get("displayName") or "").split(" ")[1:])
     canonical_name = " ".join(filter(None, (first_name, last_name))) or user.get("displayName")
+    transactional_consent_valid = _profile_whatsapp_consent_valid(user)
+    marketing_consent_valid = _profile_whatsapp_marketing_consent_valid(user)
+    saved_consent_phone = (user.get("whatsappConsent") or {}).get("phone") if transactional_consent_valid else None
     return {
         "id": str(user["_id"]),
         "email": user["email"],
@@ -166,7 +177,7 @@ def _public_user(user: dict) -> dict:
         "displayName": canonical_name,
         "phone": user.get("phone"),
         "phoneCountry": user.get("phoneCountry"),
-        "whatsappPhone": user.get("whatsappPhone", user.get("phone")),
+        "whatsappPhone": user.get("whatsappPhone") or saved_consent_phone,
         "whatsappCountry": user.get("whatsappCountry", user.get("phoneCountry")),
         "gender": user.get("gender"),
         "role": user.get("role", "customer"),
@@ -183,8 +194,9 @@ def _public_user(user: dict) -> dict:
         "newsletter": user.get("newsletter", False),
         "marketingEmails": user.get("marketingEmails", False),
         "whatsappNotifications": user.get("whatsappNotifications", False),
-        "whatsappConsentValid": _profile_whatsapp_consent_valid(user),
+        "whatsappConsentValid": transactional_consent_valid,
         "whatsappMarketingNotifications": user.get("whatsappMarketingNotifications", False),
+        "whatsappMarketingConsentValid": marketing_consent_valid,
         "whatsappMarketingPhone": (user.get("whatsappMarketingConsent") or {}).get("phone"),
         "must_change_password": bool(user.get("mustChangePassword", False)),
     }
