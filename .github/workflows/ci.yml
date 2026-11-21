@@ -139,6 +139,7 @@ jobs:
           PY
           docker run --rm \
             --mount "type=bind,src=$RUNNER_TEMP/whatsapp-cli-smoke.py,dst=/tmp/whatsapp-cli-smoke.py,readonly" \
+            --env PYTHONPATH=/app \
             --env FLASK_ENV=development \
             --env SECRET_KEY=ci-only-secret-key-long-enough-for-validation \
             --env JWT_SECRET_KEY=ci-only-jwt-key-long-enough-for-validation \
