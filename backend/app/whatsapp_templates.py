@@ -44,7 +44,7 @@ EVENTS = {
     "new_collection_drop": ("MARKETING", ("first_name", "collection_name")),
     "exclusive_offer": ("MARKETING", ("first_name", "offer_description", "coupon_code", "expiry_date")),
 }
-EVENTS["order_placed"] = ("UTILITY", tuple(CATALOGUE["rk_order_placed"]["parameters"]))
+EVENTS["order_placed"] = ("UTILITY", tuple(CATALOGUE["order_received"]["parameters"]))
 for event in ["order_accepted", "order_rejected", "advance_payment_received", "part_payment_received", "payment_received"]:
     EVENTS[event] = ("UTILITY", tuple(CATALOGUE["rk_order_status_update"]["parameters"]))
 EVENTS["shipped"] = ("UTILITY", ("reference", "status", "tracking"))
@@ -203,12 +203,16 @@ def registry(config):
         # mappings opt in explicitly; empty config shows the submission plan.
         default = {"new_collection_drop": "rk_new_collection_drop", "exclusive_offer": "rk_exclusive_offer"}.get(event, EVENT_CATALOGUE.get(event))
         catalogue_name = entry.get("catalogue") or (default if not entry else None)
+        if event == "order_placed" and entry.get("name") == "order_received" and not catalogue_name:
+            catalogue_name = "order_received"
         spec = catalogue.get(catalogue_name) if isinstance(catalogue_name, str) else None
         if spec:
             category, parameters = spec["category"], tuple(spec["parameters"])
         default_name = LOCAL_TEST_TEMPLATE["name"] if event == "test" and config.get("WHATSAPP_ENVIRONMENT") == "development" else (spec["name"] if spec else "rk_" + event)
         name = entry.get("name", default_name)
         activation_block = (catalogue.get(name) or {}).get("activationBlock") if isinstance(name, str) else None
+        if event == "order_placed" and (name == "rk_order_placed" or catalogue_name == "rk_order_placed"):
+            activation_block = "legacy_template_mapping_requires_migration"
         language = entry.get("language", "en_US")
         local_test = name == LOCAL_TEST_TEMPLATE["name"]
         # Every mapping needs provider evidence; legacy operator flags never
@@ -257,8 +261,13 @@ def template_registry(db, config):
     """Observed revocations override a configured approval, never auto-enable."""
     result = registry(config)
     sync = (db.integrations.find_one({"_id": "whatsapp"}) or {}).get("templateStatusSync") or {}
-    for template in result.values():
+    for event, template in result.items():
         observed = db.whatsapp_template_status.find_one({"_id": template["name"] + ":" + template["language"]})
+        if event == "order_placed" and template["name"] == "order_received" and observed:
+            if any(c.get("type") == "BODY" and str(c.get("text", "")).endswith("progresses.Hello")
+                   for c in (observed.get("metaComponents") or []) if isinstance(c, dict)):
+                template["activationBlock"] = "meta_body_correction_required"
+                template["enabled"] = False
         same_account = bool(observed and observed.get("businessAccountId") == str(config.get("WHATSAPP_BUSINESS_ACCOUNT_ID") or ""))
         stale = observation_is_stale(observed, sync, config.get("WHATSAPP_BUSINESS_ACCOUNT_ID"))
         if observed:
@@ -301,3 +310,20 @@ def template_registry(db, config):
         if template.get("activationBlock"):
             template["disabledReasons"].append(template["activationBlock"])
     return result
+
+
+def order_template_block_reason(event, template):
+    """Explain order-placed routing failures without granting sending authority."""
+    if event == "order_placed":
+        if template.get("activationBlock"):
+            return template["activationBlock"]
+        if template.get("statusStale"):
+            return "template_evidence_stale"
+        if template.get("observedStatus") != "APPROVED":
+            return "template_approval_unverified"
+        if not template.get("componentsVerified"):
+            return "template_components_unverified"
+    return ("template_mapping_disabled" if not template.get("enabled") else
+            "template_evidence_stale" if template.get("statusStale") else
+            "template_components_unverified" if not template.get("componentsVerified") else
+            "template_approval_unverified" if not template.get("approved") else None)

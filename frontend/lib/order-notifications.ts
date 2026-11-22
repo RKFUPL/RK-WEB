@@ -4,6 +4,8 @@ const statuses: Record<string, string> = {
   failed: 'Failed', held: 'Held for reconciliation', unknown: 'Delivery outcome unknown',
 };
 const reasons: Record<string, string> = {
+  legacy_template_mapping_requires_migration: 'The superseded order-placed mapping requires an operator-reviewed migration to order_received.',
+  meta_body_correction_required: 'The observed Meta BODY requires correction and fresh approval.',
   template_mapping_disabled: 'Template mapping is disabled in this environment.',
   template_approval_unverified: 'Current Meta approval is not verified in this environment.',
   template_components_unverified: 'Exact template components have not been verified.',

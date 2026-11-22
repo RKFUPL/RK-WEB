@@ -9,6 +9,14 @@ test('notification labels distinguish queueing, acceptance and delivery', () => 
   assert.equal(notificationStatusLabel('held'), 'Held for reconciliation');
 });
 
+test('order-placed routing reasons identify migration and exact Meta evidence blockers', () => {
+  assert.match(notificationReasonLabel('legacy_template_mapping_requires_migration'), /migration to order_received/);
+  assert.match(notificationReasonLabel('meta_body_correction_required'), /BODY requires correction/);
+  assert.match(notificationReasonLabel('template_approval_unverified'), /approval is not verified/);
+  assert.match(notificationReasonLabel('template_components_unverified'), /components have not been verified/);
+  assert.match(notificationReasonLabel('template_evidence_stale'), /fresh verification/);
+});
+
 test('notification reasons explain local eligibility and SMTP authentication without echoing raw errors', () => {
   assert.match(notificationReasonLabel('template_mapping_disabled'), /this environment/);
   assert.match(notificationReasonLabel('smtp_authentication_failed'), /app password/);

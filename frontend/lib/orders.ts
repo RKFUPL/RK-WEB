@@ -129,7 +129,7 @@ export type Order = {
     number?: string | null; contactSource?: string; consent: string; eligibilityReason?: string;
     automationEnabled: boolean;
     templates: { event: string; name: string; approved: boolean; enabled: boolean; status: string }[];
-    activity: { event: string; status: string; reason?: string; createdAt?: string; updatedAt?: string;
+    activity: { event: string; template?: string; status: string; reason?: string; createdAt?: string; updatedAt?: string;
       acceptedAt?: string; sentAt?: string; deliveredAt?: string; readAt?: string; failedAt?: string;
       nextAttemptAt?: string; providerId?: string; error?: { kind?: string; code?: number; subcode?: number } }[];
   };

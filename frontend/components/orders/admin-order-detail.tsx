@@ -34,6 +34,9 @@ const actionLabels: Record<string, string> = {
   return_accept: "Accept Return",
 };
 const whatsappReasons: Record<string, string> = {
+  ...Object.fromEntries(['legacy_template_mapping_requires_migration', 'meta_body_correction_required',
+    'template_approval_unverified', 'template_components_unverified', 'template_mapping_disabled', 'template_evidence_stale']
+    .map(reason => [reason, notificationReasonLabel(reason)])),
   missing_phone: 'No order contact number is available.', invalid_recipient: 'The order contact needs a valid international country code.',
   missing_or_withdrawn_consent: 'Transactional WhatsApp consent is missing, withdrawn, or does not cover this number.',
   template_not_approved_or_enabled: 'Waiting for an enabled Utility template with confirmed Meta approval.',
@@ -554,6 +557,7 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
         <ul className="mt-4 space-y-1 text-xs">{order.whatsapp?.templates.filter(template => !template.approved || !template.enabled).map(template => <li key={template.event}>Waiting for approved template: {template.name || titleCase(template.event)} · {template.status}</li>)}</ul>
         {order.whatsapp?.activity.length ? <ol className="mt-5 divide-y divide-black/10">{order.whatsapp.activity.map((entry, index) => <li key={`${entry.event}-${index}`} className="space-y-1 py-3 text-xs">
           <p><strong>{index === 0 ? 'Last WhatsApp notification: ' : ''}{titleCase(entry.event)}</strong> · {titleCase(entry.status)}</p>
+          {entry.template && <p>Template: {entry.template}</p>}
           <p>{orderDateTime(entry.updatedAt || entry.createdAt)}</p>
           {entry.reason && <p>{whatsappReasons[entry.reason] || titleCase(entry.reason)}</p>}
           {entry.acceptedAt && <p>Meta accepted: {orderDateTime(entry.acceptedAt)}</p>}

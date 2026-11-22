@@ -36,7 +36,7 @@ test('summary counts agree with visible drafts and pending replacement without d
   const drafts = ['rk_authentication_otp', 'rk_order_placed', 'rk_order_status_update', 'rk_exclusive_offer', 'rk_admin_notification']
     .map(name => entry(name, { localDraft: true }));
   const approved = entry('rk_order_confirmation', { observedStatus: 'APPROVED' });
-  const pending = entry('order_received', { observedStatus: 'APPROVED' });
+  const pending = entry('order_received', { observedStatus: 'PENDING' });
   const marketing = marketingInventoryRow({ name: 'rk_test', category: 'MARKETING', language: 'en', status: 'APPROVED' });
   const rows = [approved, { ...approved }, pending, marketing, entry('rk_test', { localDraft: true, presentInMeta: false }),
     ...drafts, entry('unknown_template'), entry('rk_order_confirmation_v2', { versionOf: 'rk_order_confirmation', observedStatus: 'APPROVED' })];
@@ -51,10 +51,14 @@ test('known blocked draft reasons stay accurate while unrelated backend reasons 
   assert.equal(templateLibraryDraftExplanation(entry('other', { draftExplanation: 'Specific backend reason.' }), false), 'Specific backend reason.');
 });
 
-test('order_received stays pending and unavailable until corrected Meta approval and component verification', () => {
-  const approvedButBlocked = entry('order_received', { observedStatus: 'APPROVED', approved: true, componentsVerified: true });
-  assert.equal(templateLibraryStatus(approvedButBlocked), 'Pending Meta Review');
-  assert.match(templateLibraryAvailability(approvedButBlocked, false), /unavailable for sending until Meta approves the corrected template and its components are freshly verified/i);
+test('order_received reflects backend evidence without granting activation from approval alone', () => {
+  const approved = entry('order_received', { observedStatus: 'APPROVED', approved: true, componentsVerified: true, locallyMapped: true, mappingEnabled: false });
+  assert.equal(templateLibraryStatus(approved), 'APPROVED');
+  assert.equal(templateLibraryAvailability(approved, false), 'Mapped but disabled');
+  assert.equal(templateLibraryStatus({ ...approved, observedStatus: 'PENDING', approved: false }), 'PENDING / IN_REVIEW');
+  assert.match(templateLibraryAvailability({ ...approved, componentsVerified: false }, false), /fresh Meta approval and exact component verification/);
+  assert.equal(templateLibraryStatus({ ...approved, activationBlock: 'meta_body_correction_required' }), 'Blocked');
+  assert.match(templateLibraryAvailability({ ...approved, activationBlock: 'meta_body_correction_required' }, false), /BODY requires correction/);
 });
 
 test('authentication, promotion and internal templates retain their explicit restrictions', () => {

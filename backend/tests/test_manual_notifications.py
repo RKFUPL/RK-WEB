@@ -30,7 +30,7 @@ def test_initial_manual_email_and_approved_whatsapp_are_idempotent(order_case):
     assert "received" in mail.call_args.kwargs["subject"]
     assert c.db.whatsapp_outbox.count_documents({}) == 1
     assert process_outbox(c.db, c.app.config) == 1
-    assert c.http.call_args.kwargs["json"]["template"]["name"] == "rk_order_placed"
+    assert c.http.call_args.kwargs["json"]["template"]["name"] == "order_received"
 
 
 @pytest.mark.parametrize("problem", ["consent", "template", "smtp"])

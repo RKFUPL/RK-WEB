@@ -1027,7 +1027,7 @@ test('checkout uses one inline transactional checkbox and keeps marketing prefer
   await expect(page.getByText(/Marketing preferences remain separate/)).toHaveCount(0);
 });
 
-async function mockOrderApi(page: Page, options: { shipped?: boolean; consent?: boolean } = {}) {
+async function mockOrderApi(page: Page, options: { shipped?: boolean; consent?: boolean; placedBlock?: boolean } = {}) {
   const updates: { path: string; body: Record<string, unknown> }[] = [];
   const orderId = '507f1f77bcf86cd799439011';
   let read = false;
@@ -1041,7 +1041,7 @@ async function mockOrderApi(page: Page, options: { shipped?: boolean; consent?: 
       number: '+442079460018', consent: options.consent === false ? 'missing_or_withdrawn' : 'granted',
       eligibilityReason: options.consent === false ? 'missing_or_withdrawn_consent' : undefined, automationEnabled: false,
       templates: [{ event: 'shipped', name: 'rk_order_shipped', approved: false, enabled: false, status: 'NOT_SUBMITTED' }],
-      activity: [] as Record<string, unknown>[],
+      activity: (options.placedBlock ? [{ event: 'order_placed', template: 'rk_order_placed', status: 'waiting_for_approved_template', reason: 'legacy_template_mapping_requires_migration' }] : []) as Record<string, unknown>[],
     },
   };
   await page.route('**/*', async route => {
@@ -1064,6 +1064,13 @@ async function mockOrderApi(page: Page, options: { shipped?: boolean; consent?: 
   });
   return { updates, orderId, receiveRead: () => { read = true; } };
 }
+
+test('order activity identifies the actual legacy order-placed template and migration blocker', async ({ page }) => {
+  await mockOrderApi(page, { placedBlock: true });
+  await page.goto('/admin/orders/507f1f77bcf86cd799439011');
+  await expect(page.getByText('Template: rk_order_placed', { exact: true })).toBeVisible();
+  await expect(page.getByText('The superseded order-placed mapping requires an operator-reviewed migration to order_received.', { exact: true })).toBeVisible();
+});
 
 test('admin shipment saves courier AWB URL and dispatch date through the existing order endpoint', async ({ page }) => {
   const fixture = await mockOrderApi(page);
@@ -1235,7 +1242,7 @@ for (const width of [1440, 390]) test(`local draft dispositions and inventory co
       offer: draft('rk_exclusive_offer', 'MARKETING'), admin: draft('rk_admin_notification'),
       obsoleteTest: draft('rk_test'),
       replacement: { ...draft('order_received'), localDraft: false, presentInMeta: true,
-        observedStatus: 'APPROVED', templateGroup: 'Optional lifecycle drafts' },
+        observedStatus: 'PENDING', templateGroup: 'Optional lifecycle drafts' },
     },
     unmappedTemplates: [{ name: 'rk_test', category: 'MARKETING', language: 'en', status: 'APPROVED',
       qualityRating: 'UNKNOWN', evidenceState: 'found_not_locally_mapped' }],
@@ -1268,8 +1275,8 @@ for (const width of [1440, 390]) test(`local draft dispositions and inventory co
   await library.getByLabel('Template status filter').selectOption('In Review');
   await library.getByRole('button', { name: /Show optional templates/ }).click();
   const pending = library.getByRole('row').filter({ hasText: 'order_received' });
-  await expect(pending).toContainText('Pending Meta Review');
-  await expect(pending).toContainText('Unavailable for sending');
+  await expect(pending).toContainText('PENDING / IN_REVIEW');
+  await expect(pending).toContainText('Unavailable: fresh Meta approval and exact component verification are required.');
   await library.getByLabel('Template status filter').selectOption('APPROVED');
   await expect(library.getByRole('row').filter({ hasText: 'order_received' })).toHaveCount(0);
   await expect(library.getByRole('row').filter({ hasText: 'rk_order_confirmation' })).toContainText('Mapped · enabled');

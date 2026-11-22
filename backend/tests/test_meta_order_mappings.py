@@ -17,11 +17,11 @@ from app.whatsapp_mapping_plan import CANDIDATE_ORDER_MAPPINGS, plan_order_templ
 from app.whatsapp_routes import refresh_template_observations
 from app.whatsapp_templates import component_signature, registry, template_registry
 
-# Independent fixtures copied from the scoped 2026-11-20 Meta observations.
+# Independent fixtures from scoped Meta reads; order_received corrected 2026-11-22.
 META_BODIES = {
     "rk_processing": "Dear {{1}},\n\nYour Rashi Kapoor order {{2}} is now being prepared.\n\nOur team is carefully processing your order, and we will notify you once it progresses to the next stage.\n\nThank you for shopping with Rashi Kapoor.",
     "rk_packed": "Dear {{1}},\n\nYour Rashi Kapoor order {{2}} has been packed and is ready for dispatch.\n\nWe will share the courier and tracking information once your parcel has been handed over to the delivery partner.\n\nThank you for choosing Rashi Kapoor.",
-    "order_received": "Dear {{1}},\n\nThank you for placing your order with Rashi Kapoor.\n\nWe have received your order {{2}} for {{3}}.\n\nOrder total: \u20b9{{4}}\n\nYour order is now awaiting review by our team. Payment has not yet been collected. Our team will contact you to confirm availability and arrange payment.\n\nWe will keep you updated here as your order progresses.Hello",
+    "order_received": "Dear {{1}},\n\nThank you for placing your order with Rashi Kapoor.\n\nWe have received your order {{2}} for {{3}}.\n\nOrder total: \u20b9{{4}}\n\nYour order is now awaiting review by our team. Payment has not yet been collected. Our team will contact you to confirm availability and arrange payment.\n\nWe will keep you updated here as your order progresses.",
     "order_and_payment_update": "Dear {{1}},\n\nThere is an update on your Rashi Kapoor order {{2}}.\n{{3}}.\n\nPayment status: {{4}}\n\nOrder total: \u20b9{{5}}\n\nAmount received: \u20b9{{6}}\n\nBalance due: \u20b9{{7}}\n\nThank you for choosing Rashi Kapoor. We will keep you informed as your order progresses.",
 }
 HEADERS = {"rk_processing": "Order Being Prepared", "rk_packed": "Your Order Has Been Packed", "order_received": "Order Received", "order_and_payment_update": "Order Update"}
@@ -88,15 +88,9 @@ def test_each_lifecycle_mapping_dispatches_saved_order_values_once(order_case, e
     if name == "order_received":
         template = template_registry(c.db, c.app.config)[event]
         assert template["observedStatus"] == "APPROVED" and template["componentsVerified"]
-        assert template["activationBlock"] == "meta_body_correction_required"
-        assert not template["enabled"] and not template["approved"]
+        assert not template["activationBlock"] and template["enabled"] and template["approved"]
         values = template_event_values(event, order, template)
         assert [values[key] for key in PARAMETERS[name]][2:] == ["Fixture couture x 2", "1,250.00"]
-        with c.app.app_context():
-            assert notify(c.db, event, order)["reason"] == "template_not_approved_or_enabled"
-        assert c.db.whatsapp_outbox.count_documents({}) == 0
-        c.http.assert_not_called()
-        return
     with c.app.app_context():
         assert notify(c.db, event, {**order, "customerName": "UNTRUSTED", "total": 1})["status"] == "queued"
         assert notify(c.db, event, order)["status"] == "duplicate"
@@ -202,11 +196,6 @@ def test_advance_partial_and_final_receipts_keep_separate_notification_identitie
 @pytest.mark.parametrize("problem", ["stale", "disabled", "components"])
 def test_worker_rechecks_each_new_contract_before_dispatch(order_case, event, name, problem):
     c = order_case; approve(c, event, name); order = saved_order(c, event)
-    if name == "order_received":
-        with c.app.app_context(): assert notify(c.db, event, order)["reason"] == "template_not_approved_or_enabled"
-        assert c.db.whatsapp_outbox.count_documents({}) == 0
-        c.http.assert_not_called()
-        return
     with c.app.app_context(): assert notify(c.db, event, order)["status"] == "queued"
     if problem == "disabled": c.app.config["WHATSAPP_TEMPLATES"][event]["enabled"] = False
     else:
@@ -230,14 +219,11 @@ def test_additive_plan_preserves_existing_entries_and_never_grants_cached_approv
     config = {**c.app.config, "WHATSAPP_TEMPLATES": json.dumps({"order_confirmation": {"catalogue": "rk_order_confirmation", "category": "UTILITY", "enabled": True}, "exclusive_offer": {"enabled": False}})}
     original = deepcopy(config); plan = plan_order_template_mappings(c.db, config)
     assert config == original and not plan["configurationWritten"]
-    assert all(check["compatible"] for check in plan["checks"] if check["event"] != "order_placed")
-    blocked = next(check for check in plan["checks"] if check["event"] == "order_placed")
-    assert not blocked["compatible"] and blocked["activationStatus"] == "BLOCKED"
-    assert "order_placed" not in plan["proposedMappings"]
-    assert all(not plan["proposedMappings"][event]["enabled"] for event in CANDIDATE_ORDER_MAPPINGS if event != "order_placed")
+    assert all(check["compatible"] for check in plan["checks"])
+    assert all(not plan["proposedMappings"][event]["enabled"] for event in CANDIDATE_ORDER_MAPPINGS)
     assert plan["proposedMappings"]["order_confirmation"] == json.loads(config["WHATSAPP_TEMPLATES"])["order_confirmation"]
     assert plan["proposedMappings"]["exclusive_offer"] == {"enabled": False}
-    assert next(check for check in plan["checks"] if check["event"] == "order_placed")["contentWarning"]
+    assert not next(check for check in plan["checks"] if check["event"] == "order_placed")["contentWarning"]
     proposed = {**config, "WHATSAPP_TEMPLATES": plan["proposedMappings"]}
     assert not template_registry(c.db, proposed)["processing"]["approved"]
     assert c.db.whatsapp_template_status.find_one({"_id": "rk_processing:en_US"})["componentsVerified"] is False
@@ -277,30 +263,33 @@ def test_new_contracts_do_not_replace_legacy_event_defaults_or_enable_unmapped_t
     assert all(not mapping["enabled"] and not mapping["approved"] for mapping in registry({}).values())
 
 
-def test_bad_body_stays_byte_exact_and_cannot_be_enabled_by_operator_opt_in(order_case):
+def test_old_bad_meta_body_cannot_be_enabled_by_operator_opt_in(order_case):
     c = order_case; seed_unmapped_observations(c)
+    bad = meta_components("order_received")
+    bad[1]["text"] += "Hello"
+    c.db.whatsapp_template_status.update_one({"_id": "order_received:en_US"}, {"$set": {"metaComponents": bad}})
     config = {**c.app.config, "WHATSAPP_TEMPLATES": {}}
     plan = plan_order_template_mappings(c.db, config, enable_events=set(CANDIDATE_ORDER_MAPPINGS))
     assert "order_placed" not in plan["proposedMappings"]
     assert all(mapping["enabled"] for mapping in plan["proposedMappings"].values())
     check = next(row for row in plan["checks"] if row["event"] == "order_placed")
     assert check["activationStatus"] == "BLOCKED" and check["reason"] == "meta_body_correction_required"
-    assert check["componentSignature"] == "01fad496a131a8752da5e6c9cfe68de15de15e767dc969e957d5192e97ffc1c6"
     components = definition_components(CATALOGUE["order_received"])
     assert components[1] == {"type": "BODY", "text": META_BODIES["order_received"]}
-    assert components[1]["text"].endswith("progresses.Hello")
+    assert components[1]["text"].endswith("progresses.")
+    assert bad[1]["text"].endswith("progresses.Hello")
     assert components[2] == {"type": "FOOTER", "text": "Rashi Kapoor Official"}
     assert not any(component["type"] == "BUTTONS" for component in components)
 
 
-def test_corrected_meta_copy_requires_separate_reviewed_contract_update(order_case):
+def test_corrected_meta_copy_requires_verified_scoped_components_and_explicit_enablement(order_case):
     c = order_case; corrected = meta_components("order_received")
-    corrected[1]["text"] = corrected[1]["text"].removesuffix("Hello")
     approve(c, "order_placed", "order_received", corrected)
     template = template_registry(c.db, c.app.config)["order_placed"]
-    assert template["activationBlock"] == "meta_body_correction_required"
-    assert not template["componentsVerified"] and not template["approved"] and not template["enabled"]
-    assert component_signature(definition_components(CATALOGUE["order_received"])) == "01fad496a131a8752da5e6c9cfe68de15de15e767dc969e957d5192e97ffc1c6"
+    assert not template["activationBlock"]
+    assert template["componentsVerified"] and template["approved"] and template["enabled"]
+    c.app.config["WHATSAPP_TEMPLATES"]["order_placed"]["enabled"] = False
+    assert not template_registry(c.db, c.app.config)["order_placed"]["enabled"]
 
 
 def test_operator_opt_in_does_not_accept_marketing_or_unknown_events(order_case):
@@ -309,7 +298,9 @@ def test_operator_opt_in_does_not_accept_marketing_or_unknown_events(order_case)
 
 
 def test_legacy_mapping_cannot_bypass_block_by_omitting_catalogue(order_case):
-    c = order_case; approve(c, "order_placed", "order_received")
+    c = order_case
+    bad = meta_components("order_received"); bad[1]["text"] += "Hello"
+    approve(c, "order_placed", "order_received", bad)
     mapping = c.app.config["WHATSAPP_TEMPLATES"]["order_placed"]
     mapping.pop("catalogue")
     mapping["components"] = meta_components("order_received")
@@ -325,13 +316,17 @@ def test_block_stops_previously_queued_order_received_jobs(order_case, monkeypat
         approve(c, "order_placed", "order_received")
         order = saved_order(c, "order_placed")
         with c.app.app_context(): assert notify(c.db, "order_placed", order)["status"] == "queued"
+    bad = meta_components("order_received"); bad[1]["text"] += "Hello"
+    c.db.whatsapp_template_status.update_one({"_id": "order_received:en_US"}, {"$set": {"metaComponents": bad, "componentsVerified": False}})
     assert process_outbox(c.db, c.app.config) == 1
     c.http.assert_not_called()
 
 
 def test_manual_utility_test_cannot_bypass_bad_body_block(order_case):
     from app.whatsapp import send
-    c = order_case; approve(c, "order_placed", "order_received")
+    c = order_case
+    bad = meta_components("order_received"); bad[1]["text"] += "Hello"
+    approve(c, "order_placed", "order_received", bad)
     c.app.config.update(WHATSAPP_PRODUCTION_TEST_SEND_ENABLED=True,
                         WHATSAPP_PRODUCTION_TEST_SEND_EXPIRES_AT=(now() + timedelta(hours=2)).isoformat())
     result = send(c.db, c.app.config, c.user["phone"], "order_placed", {}, "blocked-template-test",

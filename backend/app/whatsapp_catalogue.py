@@ -215,8 +215,8 @@ for name, template in CATALOGUE.items():
         EVENT_CATALOGUE.setdefault(event, name)
 
 # Exact contracts read from current-account Meta observations on 2026-11-20.
-# These names are explicit opt-ins; adding them never changes event defaults,
-# enables a mapping, or supplies approval evidence.
+# These names require explicit activation. Only the documented order_placed
+# canonical override below changes a default; none supplies approval evidence.
 CATALOGUE["rk_processing"] = utility("rk_processing", ["processing"],
     ["customer_name", "order_number"],
     "Dear {{1}},\n\nYour Rashi Kapoor order {{2}} is now being prepared.\n\nOur team is carefully processing your order, and we will notify you once it progresses to the next stage.\n\nThank you for shopping with Rashi Kapoor.",
@@ -230,10 +230,12 @@ CATALOGUE["rk_packed"] = utility("rk_packed", ["packed"],
 CATALOGUE["rk_packed"].update(header="Your Order Has Been Packed", footer="Rashi Kapoor Official")
 CATALOGUE["order_received"] = utility("order_received", ["order_placed"],
     ["customer_name", "order_number", "items_summary", "order_total"],
-    CATALOGUE["rk_order_placed"]["body"] + "Hello", "persisted unpaid manual checkout")
-CATALOGUE["order_received"].update(header="Order Received", footer="Rashi Kapoor Official",
-    contentWarning="The exact approved Meta BODY ends with 'progresses.Hello'. Correct the Meta template and obtain fresh approval before activation.",
-    activationBlock="meta_body_correction_required")
+    CATALOGUE["rk_order_placed"]["body"], "persisted unpaid manual checkout")
+CATALOGUE["order_received"].update(header="Order Received", footer="Rashi Kapoor Official")
+# Corrected contract read directly from the current WABA on 2026-11-22.
+# This changes definition resolution only; activation still requires explicit
+# configuration and fresh, scoped Meta component verification at dispatch.
+EVENT_CATALOGUE["order_placed"] = "order_received"
 CATALOGUE["order_and_payment_update"] = utility("order_and_payment_update",
     ["order_accepted", "order_rejected", "advance_payment_received", "part_payment_received", "payment_received"],
     ["customer_name", "order_number", "update_message", "payment_status", "order_total", "amount_received", "balance_due"],

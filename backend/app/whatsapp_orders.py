@@ -8,7 +8,7 @@ from flask import current_app, has_app_context
 from .whatsapp_catalogue import EVENT_CATALOGUE
 from .whatsapp_consent import consent_phone
 from .whatsapp_events import event_values
-from .whatsapp_templates import template_registry
+from .whatsapp_templates import template_registry, order_template_block_reason
 
 ORDER_NOTIFICATIONS = {"order_placed", "order_accepted", "order_rejected", "processing", "packed", "advance_payment_received", "part_payment_received", "payment_received", "order_confirmation", "payment_confirmation", "shipped", "out_for_delivery", "delivered", "cancelled", "refund_completed"}
 # Restricted order-only mode deliberately sends a single initial confirmation;
@@ -126,13 +126,10 @@ def notify_order_whatsapp(db, order_id, event, event_data=None):
             except (ValueError, KeyError):
                 result = {"status": "skipped", "reason": "shipment_not_recorded" if event == "shipped" else "business_event_not_confirmed"}
         template = template_registry(db, config).get(event, {})
-        template_reason = ("template_mapping_disabled" if not template.get("enabled") else
-                           "template_evidence_stale" if template.get("statusStale") else
-                           "template_components_unverified" if not template.get("componentsVerified") else
-                           "template_approval_unverified" if not template.get("approved") else None)
+        template_reason = order_template_block_reason(event, template)
         if not result and (event not in template.get("definitionEvents", []) or template.get("category") != "UTILITY" or not template.get("requiresMetaApproval")
                            or not template.get("enabled") or not template.get("approved")):
-            result = {"status": "skipped", "reason": "template_not_approved_or_enabled"}
+            result = {"status": "skipped", "reason": template_reason if event == "order_placed" else "template_not_approved_or_enabled"}
         if not result:
             if automation_enabled(db, config, event):
                 recipient_hash = fingerprint(recipient["phone"], config)
@@ -146,8 +143,8 @@ def notify_order_whatsapp(db, order_id, event, event_data=None):
             if result.get("reason") == "disabled":
                 result["reason"] = "automation_disabled"
         reason = result.get("reason")
-        state = "waiting_for_approved_template" if reason == "template_not_approved_or_enabled" else "not_eligible" if reason in {"missing_phone", "invalid_recipient", "missing_or_withdrawn_consent"} else result["status"]
-        values = {"orderId": str(order["_id"]), "event": event, "status": state, "reason": reason,
+        state = "waiting_for_approved_template" if reason == "template_not_approved_or_enabled" or (template_reason and reason == template_reason) else "not_eligible" if reason in {"missing_phone", "invalid_recipient", "missing_or_withdrawn_consent"} else result["status"]
+        values = {"orderId": str(order["_id"]), "event": event, "template": template.get("name"), "status": state, "reason": reason,
                   "reference": (event_data or {}).get("refundId") or (event_data or {}).get("transactionId"),
                   "reasonDetail": template_reason if reason == "template_not_approved_or_enabled" else reason,
                   "contactSource": recipient["source"], "updatedAt": now()}
@@ -186,11 +183,14 @@ def order_whatsapp_activity(db, config, order):
         templates = template_registry(db, config)
         activity = []
         for audit in db.whatsapp_order_events.find({"orderId": str(order["_id"])}).sort("updatedAt", -1).limit(50):
-            row = {key: audit.get(key) for key in ("event", "status", "reason", "reasonDetail", "createdAt", "updatedAt", "history", "reference")}
+            row = {key: audit.get(key) for key in ("event", "template", "status", "reason", "reasonDetail", "createdAt", "updatedAt", "history", "reference")}
+            attempted = db.whatsapp_messages.find_one({"_id": "order-attempt:" + str(audit["_id"])}, {"template": 1}) or {}
+            row["template"] = attempted.get("template") or row.get("template")
             queue_id = audit.get("queueId")
             if queue_id:
                 queue = db.whatsapp_outbox.find_one({"_id": queue_id}) or {}
                 message = db.whatsapp_messages.find_one({"_id": queue_id}) or {}
+                row["template"] = message.get("template") or row.get("template")
                 row["status"] = message.get("status") or {"pending": "queued", "processing": "sending", "invalid_payload": "skipped", "held": "unknown"}.get(queue.get("status"), queue.get("status", row["status"]))
                 if queue.get("status") == "pending":
                     row["status"] = "queued"

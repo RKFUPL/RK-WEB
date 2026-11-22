@@ -17,6 +17,7 @@ export type TemplateLibraryEntry = {
   presentInMeta?: boolean;
   componentsVerified?: boolean;
   statusStale?: boolean;
+  activationBlock?: string | null;
   draftExplanation?: string;
   versionOf?: string;
 };
@@ -45,7 +46,7 @@ const DRAFT_DISPOSITIONS: Record<string, { status: string; availability: string 
 };
 
 export function templateLibraryStatus(template: TemplateLibraryEntry): string {
-  if (template.name === 'order_received') return 'Pending Meta Review';
+  if (template.name === 'order_received' && template.activationBlock) return 'Blocked';
   const status = DRAFT_DISPOSITIONS[template.name]?.status
     ?? template.observedStatus
     ?? template.approvalStatus
@@ -58,7 +59,8 @@ export function templateLibraryStatus(template: TemplateLibraryEntry): string {
 
 export function templateLibraryAvailability(template: TemplateLibraryEntry, marketingEnabled: boolean): string {
   if (template.name === 'order_received') {
-    return 'Unavailable for sending until Meta approves the corrected template and its components are freshly verified.';
+    if (template.activationBlock === 'meta_body_correction_required') return 'Unavailable: the observed Meta BODY requires correction and fresh approval.';
+    if (!template.approved || !template.componentsVerified || template.statusStale) return 'Unavailable: fresh Meta approval and exact component verification are required.';
   }
   if (template.name === 'rk_test') {
     return marketingEnabled

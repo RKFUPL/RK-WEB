@@ -1,5 +1,9 @@
 # Meta order mapping review — 20 November 2026
 
+> Historical review. The 22 November corrected order-received contract and
+> activation prerequisites are recorded in [the routing correction](order-placed-whatsapp-routing.md).
+> The BODY block described below reflects the older observation, not current approval.
+
 Local implementation and proposal only. No production configuration was changed,
 no messages were sent, and no customer, order or payment records were created or
 modified. The production checkout remains `fcebdbc56bfefa0fc3d1da64cdd7335a5ecb7087`.
