@@ -19,8 +19,10 @@ def notification_key(event, key=None):
 def email_aliases(event, key):
     if event == "order_accepted":
         return [key, "fulfillment:confirmed"]
-    if event == "order_rejected":
-        return [key, "fulfillment:cancelled"]
+    if event in {"order_rejected", "cancelled"}:
+        # These can describe the same terminal transition. Share email fences
+        # in both directions, including accepted, held and in-flight claims.
+        return list(dict.fromkeys([key, "fulfillment:order_rejected", "fulfillment:cancelled"]))
     return [key]
 
 

@@ -652,12 +652,29 @@ def retry_order_notification(order_id):
     event, transaction = payload.get("event"), payload.get("transactionId")
     if not isinstance(event, str) or event not in ORDER_NOTIFICATIONS:
         return jsonify(error="Choose a valid order notification event."), 400
+    channel = payload.get("channel", "all")
+    if not isinstance(channel, str) or channel not in {"all", "whatsapp"}:
+        return jsonify(error="Choose a valid notification channel."), 400
     if transaction:
         order["whatsappPayment"] = next((t for t in order.get("paymentTransactions", []) if t.get("id") == transaction), {})
     try:
         event_values(event, order)
-    except (ValueError, KeyError):
-        return jsonify(error="The persisted event is no longer eligible for notification."), 409
+    except (ValueError, KeyError) as exc:
+        # Only fixed internal codes may leave this staff-only endpoint. Never
+        # expose arbitrary exception text, saved values or recipient details.
+        reasons = {
+            "cancellation_state_not_recorded": "The current order is not cancelled.",
+            "cancellation_reference_missing": "A persisted cancellation timeline ID is required.",
+            "rejection_not_recorded": "The persisted rejection decision is missing.",
+            "rejection_reason_not_recorded": "The persisted rejection reason is missing or invalid.",
+            "invalid_rejection_explanation": "The persisted rejection explanation is invalid.",
+            "rejection_explanation_not_recorded": "The persisted rejection explanation is required.",
+        }
+        reason = str(exc) if isinstance(exc, ValueError) and str(exc) in reasons else "business_event_not_confirmed"
+        return jsonify(error=reasons.get(reason, "The persisted event is no longer eligible for notification."), reason=reason), 409
+    if channel == "whatsapp":
+        notify_order_whatsapp(db, object_id, event, {"transactionId": transaction})
+        return jsonify(order=_staff_view(db, db.orders.find_one({"_id": object_id}))), 200
     if event in {"order_placed", "order_confirmation"}:
         send_order_confirmation(db, order, current_app.config, current_app.logger)
     else:

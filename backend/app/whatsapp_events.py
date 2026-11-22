@@ -115,16 +115,28 @@ def event_values(event, record):
         if event == "out_for_delivery" and status != "out_for_delivery":
             raise ValueError("delivery_state_not_recorded")
         values.update(courier_name=fulfillment["courier"], tracking_id=fulfillment["trackingNumber"])
-    elif event in {"delivered", "cancelled"}:
-        if status != event or (event == "delivered" and not fulfillment.get("deliveredAt")):
+    elif event == "cancelled":
+        from .order_fulfillment import canonical_fulfillment_status
+        if canonical_fulfillment_status(record) != "cancelled":
+            raise ValueError("cancellation_state_not_recorded")
+        # Rejection of an unconfirmed order persists cancelled fulfilment with
+        # an order_rejected timeline event. Read that real transition, never a
+        # normalized/synthesized timeline or a caller-supplied reference.
+        timeline = record.get("timeline")
+        if not isinstance(timeline, list):
+            raise ValueError("cancellation_reference_missing")
+        transition = next((item for item in reversed(timeline) if isinstance(item, dict)
+                           and item.get("status") in {"cancelled", "order_rejected"}), {})
+        reference = transition.get("id")
+        if not isinstance(reference, str) or not reference.strip():
+            raise ValueError("cancellation_reference_missing")
+        if transition.get("status") == "order_rejected":
+            _rejection_message(record)  # Require the matching persisted decision.
+        values["cancellation_reference"] = reference
+    elif event == "delivered":
+        if status != event or not fulfillment.get("deliveredAt"):
             raise ValueError("delivery_state_not_recorded")
-        if event == "delivered":
-            values["delivered_on"] = business_date(fulfillment["deliveredAt"])
-        else:
-            reference = next((item.get("id") for item in reversed(record.get("timeline", [])) if item.get("status") == "cancelled" and item.get("id")), None)
-            if not reference:
-                raise ValueError("cancellation_reference_missing")
-            values["cancellation_reference"] = str(reference)
+        values["delivered_on"] = business_date(fulfillment["deliveredAt"])
     elif event == "refund_completed":
         refund = record.get("whatsappRefund") or {}
         from .refund_evidence import verified_refunds
