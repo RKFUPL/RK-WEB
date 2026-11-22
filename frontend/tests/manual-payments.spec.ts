@@ -425,3 +425,45 @@ for (const width of [1440, 768, 390]) test(`staff records investigation without 
   await expect(page.getByText(/This order remains blocked and requires manual inventory investigation/)).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
 });
+
+
+for (const scenario of ['accepted-cancelled', 'rejected', 'active', 'missing-reference'] as const) {
+  test(`saved WhatsApp retry classifies ${scenario} from persisted evidence`, async ({ page }) => {
+    const rejected = scenario === 'rejected';
+    const status = scenario === 'active' ? 'confirmed' : 'cancelled';
+    const order = { ...fixtureOrder(), fulfillment: { status }, fulfillmentStatus: status, availableActions: [],
+      availabilityDecision: { status: rejected ? 'rejected' : 'accepted', reason: rejected ? 'requested_size_unavailable' : null },
+      timeline: [{ status: 'order_placed', id: 'placed-fixture' },
+        { status: rejected ? 'order_rejected' : 'order_accepted', id: 'decision-fixture' },
+        ...(!rejected && scenario !== 'active' ? [{ status: 'cancelled', id: scenario === 'missing-reference' ? '' : 'cancelled-fixture' }] : [])]
+        .map(entry => ({ ...entry, label: entry.status, timestamp: '2026-11-19T07:00:00Z', actor: { type: 'staff' } })) };
+    const requests: Record<string, unknown>[] = [];
+    await page.addInitScript(() => localStorage.setItem('rk_access_token', 'fixture-token'));
+    await page.route('**/*', route => {
+      const url = new URL(route.request().url());
+      if (url.pathname === '/api/auth/me') return route.fulfill({ json: { user: { id: 'fixture-admin', role: 'admin', isActive: true, must_change_password: false } } });
+      if (url.pathname === '/api/staff/orders/manual-order/notifications/retry') {
+        requests.push(route.request().postDataJSON());
+        return route.fulfill({ json: { order } });
+      }
+      if (url.pathname === '/api/staff/orders/manual-order') return route.fulfill({ json: { order } });
+      if (url.pathname.startsWith('/api/')) return route.fulfill({ json: {} });
+      if (url.origin !== 'http://127.0.0.1:3210') return route.fulfill({ status: 204, body: '' });
+      return route.continue();
+    });
+    await page.goto('/admin/orders/manual-order');
+    const select = page.getByLabel('Retry saved notification');
+    await expect(select).toBeVisible();
+    const expected = scenario === 'accepted-cancelled' ? 'cancelled' : rejected ? 'order_rejected' : null;
+    await expect(select.locator('option[value="cancelled"]')).toHaveCount(expected === 'cancelled' ? 1 : 0);
+    await expect(select.locator('option[value="order_rejected"]')).toHaveCount(expected === 'order_rejected' ? 1 : 0);
+    expect(requests).toEqual([]);
+    if (expected) {
+      await select.selectOption(expected);
+      expect(requests).toEqual([]); // Selection alone never triggers a retry.
+      await page.getByRole('button', { name: 'Retry eligible notification', exact: true }).click();
+      await expect.poll(() => requests.length).toBe(1);
+      expect(requests[0]).toEqual({ event: expected, channel: 'whatsapp' });
+    }
+  });
+}

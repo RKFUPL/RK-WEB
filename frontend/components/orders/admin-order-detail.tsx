@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, ExternalLink, PackageCheck, X } from "lucide-react";
 import { PaymentCollectionPanel } from "@/components/orders/payment-collection";
 import { apiBaseUrl } from "@/lib/rbac";
-import { notificationStatusLabel, notificationReasonLabel } from "@/lib/order-notifications";
+import { notificationStatusLabel, notificationReasonLabel, savedWhatsAppRetryEvents } from "@/lib/order-notifications";
 import {
   fulfillmentLabels,
   orderStatusLabel,
@@ -107,12 +107,17 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
     void load();
   }, [load]);
 
+  const retryEvents = order ? savedWhatsAppRetryEvents(order) : [];
+  const retryOptions = [...retryEvents, ...(order?.paymentTransactions || [])
+    .filter(t => ["advance_payment_received", "part_payment_received", "payment_received"].includes(t.event))
+    .map(t => `${t.event}|${t.id}`)];
+  const retrySelectionValid = retryOptions.includes(retryEvent);
   const retryNotification = async () => {
-    if (!order || !retryEvent || busy) return;
+    if (!order || !retrySelectionValid || busy) return;
     setBusy(true); setError("");
     try {
       const [event, transactionId] = retryEvent.split("|");
-      const response = await fetch(`${apiBaseUrl}/api/staff/orders/${order.id}/notifications/retry`, { method: "POST", headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" }, body: JSON.stringify({ event, transactionId }) });
+      const response = await fetch(`${apiBaseUrl}/api/staff/orders/${order.id}/notifications/retry`, { method: "POST", headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" }, body: JSON.stringify({ event, transactionId, channel: "whatsapp" }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Unable to retry notification.");
       setOrder(data.order); setMessage("Notification eligibility rechecked. Review delivery activity.");
@@ -364,7 +369,7 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
         </fieldset>
         {order.inventoryReconciliation.investigations?.map(row => <article key={row.id} className="mt-3 border-t border-amber-800/20 pt-3 text-xs"><p>{orderDateTime(row.recordedAt)} · {row.outcome} · {row.followUpStatus} · Unresolved</p><p>{row.findings}</p><p>Warehouse count: {row.externalStockCount}. Evidence: {row.evidenceReference}. Recorded by staff {row.actorId}.</p>{row.supersedesId && <p>Corrects entry {row.supersedesId}; the original record is retained.</p>}</article>)}
       </section>}
-      <div className="mt-5 flex flex-wrap items-end gap-3 text-sm"><label>Retry saved notification<select value={retryEvent} onChange={e => setRetryEvent(e.target.value)} className={fieldClass}><option value="">Choose event</option>{["order_placed", "order_confirmation", "order_accepted", "order_rejected", "processing", "packed", "shipped", "out_for_delivery", "delivered", "cancelled"].map(event => <option key={event} value={event}>{titleCase(event)}</option>)}{order.paymentTransactions?.filter(t => ["advance_payment_received", "part_payment_received", "payment_received"].includes(t.event)).map(t => <option key={t.id} value={`${t.event}|${t.id}`}>{titleCase(t.event)} - {inr.format(t.amount)} - {t.id}</option>)}</select></label><button type="button" disabled={busy || !retryEvent} onClick={() => void retryNotification()} className="rounded border border-black/20 px-4 py-2 text-xs disabled:opacity-40">Retry eligible notification</button><p className="text-xs text-[#858b94]">Saved state, consent and template approval are checked again. Successful events remain deduplicated.</p></div>
+      <div className="mt-5 flex flex-wrap items-end gap-3 text-sm"><label>Retry saved notification<select value={retrySelectionValid ? retryEvent : ""} onChange={e => setRetryEvent(e.target.value)} className={fieldClass}><option value="">Choose event</option>{retryEvents.map(event => <option key={event} value={event}>{titleCase(event)}</option>)}{order.paymentTransactions?.filter(t => ["advance_payment_received", "part_payment_received", "payment_received"].includes(t.event)).map(t => <option key={t.id} value={`${t.event}|${t.id}`}>{titleCase(t.event)} - {inr.format(t.amount)} - {t.id}</option>)}</select></label><button type="button" disabled={busy || !retrySelectionValid} onClick={() => void retryNotification()} className="rounded border border-black/20 px-4 py-2 text-xs disabled:opacity-40">Retry eligible notification</button><p className="text-xs text-[#858b94]">Saved state, consent and template approval are checked again. Successful events remain deduplicated.</p></div>
       <section aria-label="Email activity" className="mt-5 text-xs"><h2 className="font-semibold">Email activity</h2>{order.notificationLog?.map((event, index) => <p key={`${event.key}-${index}`} className="mt-2">{titleCase(event.key)} / {titleCase(event.status)} / {orderDateTime(event.timestamp)}</p>)}</section>
       <div className="mt-7 grid gap-4 md:grid-cols-2">
         <section className={panelClass}>

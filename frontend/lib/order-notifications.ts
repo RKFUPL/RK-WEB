@@ -1,3 +1,5 @@
+import type { Order } from "./orders";
+
 const statuses: Record<string, string> = {
   requested: 'Requested', skipped: 'Skipped', queued: 'Queued', sending: 'Sending',
   accepted: 'Accepted by provider', sent: 'Sent', delivered: 'Delivered', read: 'Read',
@@ -34,3 +36,26 @@ const reasons: Record<string, string> = {
 };
 export const notificationStatusLabel = (status: string) => statuses[status] ?? 'Outcome unavailable';
 export const notificationReasonLabel = (reason?: string) => reason ? reasons[reason] ?? 'Notification unavailable; inspect the channel diagnostics.' : '';
+
+
+/** UI eligibility only: the backend must recheck saved evidence before queueing. */
+export function savedWhatsAppRetryEvents(order: Pick<Order, "fulfillment" | "fulfillmentStatus" | "availabilityDecision" | "timeline">): string[] {
+  const events = ["order_placed", "order_confirmation", "order_accepted", "processing", "packed", "shipped", "out_for_delivery", "delivered"];
+  const status = order.fulfillment?.status || order.fulfillmentStatus;
+  if (status !== "cancelled") return events;
+  const timeline = Array.isArray(order.timeline) ? order.timeline : [];
+  const hasId = (entry: (typeof timeline)[number]) => typeof entry?.id === "string" && Boolean(entry.id.trim());
+  const terminalIndex = timeline.reduce((last, entry, index) => ["cancelled", "order_rejected"].includes(entry?.status) ? index : last, -1);
+  const terminal = timeline[terminalIndex];
+  if (!terminal || !hasId(terminal)) return events;
+  const acceptanceIndex = timeline.findIndex(entry => ["order_accepted", "confirmed"].includes(entry?.status) && hasId(entry));
+  const decision = order.availabilityDecision;
+  if (terminal.status === "cancelled" && decision?.status === "accepted" && acceptanceIndex >= 0 && acceptanceIndex < terminalIndex) {
+    events.push("cancelled");
+  } else if (terminal.status === "order_rejected" && decision?.status === "rejected" && acceptanceIndex < 0
+    && ["requested_size_unavailable", "fabric_or_material_unavailable", "production_or_fulfilment_limitation", "other"].includes(decision.reason || "")
+    && (decision.reason !== "other" || Boolean(decision.explanation?.trim()))) {
+    events.push("order_rejected");
+  }
+  return events;
+}
