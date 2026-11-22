@@ -11,7 +11,7 @@ async function mockLinkedCheckout(page: Page, options: { savedConsent?: boolean;
     if (url.pathname === '/api/auth/me') return route.fulfill({ json: { user: { id: 'fixture', email: 'customer@example.test', whatsappPhone: options.profilePhone ?? '+14155552671', whatsappConsentValid: options.savedConsent === true } } });
     if (url.pathname === '/api/storefront-settings') return route.fulfill({ json: { settings: { razorpayEnabled: false, requireWhatsappConsentForCheckout: options.mandatory === true } } });
     if (url.pathname === '/api/auth/addresses') return route.fulfill({ json: { addresses: [
-      { id: 'us', label: 'US fixture', fullName: 'Fixture Customer', phone: '+14155552671', line1: 'Fixture Street', city: 'Fixture', state: 'Fixture', country: 'United States', postalCode: '94105', isDefault: true },
+      { id: 'us', label: 'US fixture', fullName: 'Fixture Customer', phone: '+14155552671', line1: 'Fixture Street', line2: 'Fixture Suite', city: 'Fixture', state: 'Fixture', country: 'United States', postalCode: '94105', isDefault: true },
       { id: 'gb', label: 'UK fixture', fullName: 'Fixture Customer', phone: '+442079460018', line1: 'Fixture Street', city: 'Fixture', state: 'Fixture', country: 'United Kingdom', postalCode: 'SW1A 1AA' },
     ] } });
     if (url.pathname === '/api/payments/razorpay/order') {
@@ -29,6 +29,80 @@ async function mockLinkedCheckout(page: Page, options: { savedConsent?: boolean;
   await expect(page.getByRole('textbox', { name: /^Phone/ })).toHaveValue('+14155552671');
   return requests;
 }
+
+const shippingLabels = ['Full name', 'Phone', 'Address line 1', 'Address line 2', 'City', 'State', 'Postal code', 'Country'];
+
+for (const width of [1440, 390]) for (const linked of [false, true]) test(`checkout new address clears all fields and recipient (${width}px, ${linked ? 'linked' : 'independent'})`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1000 });
+  const requests = await mockLinkedCheckout(page, { savedConsent: true, mandatory: true });
+  const field = (label: string) => page.getByRole('textbox', { name: new RegExp(`^${label}`) });
+  const picker = page.getByLabel('Use a saved address');
+  const same = page.getByRole('checkbox', { name: 'Same as contact phone', exact: true });
+  const consent = page.getByRole('checkbox', { name: /Keep me updated on WhatsApp/ });
+  const expectedSaved = ['Fixture Customer', '+14155552671', 'Fixture Street', 'Fixture Suite', 'Fixture', 'Fixture', '94105', 'United States'];
+  await expect(picker).toHaveValue('us');
+  for (let i = 0; i < shippingLabels.length; i++) await expect(field(shippingLabels[i])).toHaveValue(expectedSaved[i]);
+  if (linked) await same.check();
+  else {
+    await page.getByLabel('Country and dialling code').selectOption('GB');
+    await page.getByLabel('Mobile number', { exact: true }).fill('2079460018');
+    await consent.check();
+  }
+  await picker.selectOption('');
+  await expect(picker).toHaveValue('');
+  for (const label of shippingLabels) await expect(field(label)).toHaveValue('');
+  await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('');
+  await expect(consent).not.toBeChecked();
+  await expect(same).toBeChecked({ checked: linked });
+  await page.getByRole('button', { name: 'Place order', exact: true }).click();
+  expect(requests).toHaveLength(0);
+  const fresh = ['New Fixture Customer', '+442079460018', 'New Fixture Street', 'New Fixture Suite', 'London', 'London', 'SW1A 1AA', 'United Kingdom'];
+  for (let i = 0; i < shippingLabels.length - 1; i++) await field(shippingLabels[i]).fill(fresh[i]);
+  // Country is still mandatory; selecting a new address must not restore India.
+  await page.getByRole('button', { name: 'Place order', exact: true }).click();
+  expect(requests).toHaveLength(0);
+  await field('Country').fill(fresh[7]);
+  if (linked) {
+    await expect(page.getByLabel('Country and dialling code')).toHaveValue('GB');
+    await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('2079460018');
+  } else {
+    await page.getByLabel('Country and dialling code').selectOption('GB');
+    await page.getByLabel('Mobile number', { exact: true }).fill('2079460018');
+  }
+  await expect(consent).not.toBeChecked();
+  await consent.check();
+  await page.getByRole('button', { name: 'Place order', exact: true }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].shipping).toEqual({ fullName: fresh[0], phone: fresh[1], line1: fresh[2], line2: fresh[3], city: fresh[4], state: fresh[5], postalCode: fresh[6], country: fresh[7] });
+  expect(requests[0].shipping).not.toHaveProperty('addressId');
+  expect(requests[0].whatsappRecipient).toBe('+442079460018');
+  expect(requests[0].whatsappTransactionalConsent).toBe(true);
+  await picker.selectOption('us');
+  for (let i = 0; i < shippingLabels.length; i++) await expect(field(shippingLabels[i])).toHaveValue(expectedSaved[i]);
+  await field('Full name').fill('Edited saved address');
+  await field('Address line 2').fill('Edited suite');
+  await picker.selectOption('');
+  for (const label of shippingLabels) await expect(field(label)).toHaveValue('');
+  await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('');
+  await expect(consent).not.toBeChecked();
+});
+
+test('checkout new address clears recipient validation and consent errors', async ({ page }) => {
+  await mockLinkedCheckout(page, { mandatory: true });
+  await page.getByLabel('Mobile number', { exact: true }).fill('123');
+  const consent = page.getByRole('checkbox', { name: /Keep me updated on WhatsApp/ });
+  await consent.check();
+  await page.getByRole('button', { name: 'Place order', exact: true }).click();
+  await expect(page.getByText('Enter a valid WhatsApp number for order updates.', { exact: true })).toBeVisible();
+  await page.getByLabel('Use a saved address').selectOption('');
+  await expect(page.getByText('Enter a valid WhatsApp number for order updates.', { exact: true })).toHaveCount(0);
+  await expect(consent).not.toBeChecked();
+  await page.getByLabel('Use a saved address').selectOption('us');
+  await page.getByRole('button', { name: 'Place order', exact: true }).click();
+  await expect(page.locator('#whatsapp-consent-error')).toBeVisible();
+  await page.getByLabel('Use a saved address').selectOption('');
+  await expect(page.locator('#whatsapp-consent-error')).toHaveCount(0);
+});
 
 for (const mobile of [false, true]) test(`checkout linked recipient copies and synchronizes contact and saved addresses (${mobile ? 'mobile' : 'desktop'})`, async ({ page }) => {
   if (mobile) await page.setViewportSize({ width: 390, height: 844 });

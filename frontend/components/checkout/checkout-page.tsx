@@ -61,6 +61,7 @@ declare global {
 }
 
 const emptyShipping: ShippingForm = { fullName: '', phone: '', line1: '', line2: '', city: '', state: '', postalCode: '', country: 'India' };
+const blankShipping: ShippingForm = { ...emptyShipping, country: '' };
 
 function token() {
   return typeof window === 'undefined' ? '' : window.localStorage.getItem('rk_access_token') || '';
@@ -184,6 +185,19 @@ export function CheckoutPage() {
   }, []);
 
   const updateShipping = (key: keyof ShippingForm, value: string) => setShipping((current) => ({ ...current, [key]: value }));
+  function selectShippingAddress(id: string) {
+    setSelectedAddressId(id);
+    if (id) {
+      const address = addresses.find(entry => entry.id === id);
+      if (address) setShipping({ ...address });
+      return;
+    }
+    setShipping({ ...blankShipping });
+    setWhatsappNumber('');
+    setConsentRecipient(null);
+    setWhatsappConsentError('');
+    setWhatsappPhoneError('');
+  }
   const subtotal = getCartSubtotal(cart);
   const total = subtotal;
 
@@ -354,7 +368,7 @@ export function CheckoutPage() {
               <p className="mt-2 text-sm text-charcoal/55">{email}</p>
               {addresses.length ? <label className="mt-7 block">
                 <span className="text-[0.58rem] uppercase tracking-[0.24em] text-charcoal/50">Use a saved address</span>
-                <select value={selectedAddressId} onChange={event => { const address = addresses.find(entry => entry.id === event.target.value); setSelectedAddressId(event.target.value); if (address) setShipping({ ...address }); }} className="mt-3 w-full border-b border-black/15 bg-transparent py-3 text-sm outline-none dark:border-white/15">
+                <select value={selectedAddressId} onChange={event => selectShippingAddress(event.target.value)} className="mt-3 w-full border-b border-black/15 bg-transparent py-3 text-sm outline-none dark:border-white/15">
                   <option value="">Enter a new address</option>
                   {addresses.map(address => <option key={address.id} value={address.id}>{address.label || address.fullName} · {address.city}</option>)}
                 </select>
