@@ -230,9 +230,11 @@ CATALOGUE["rk_packed"] = utility("rk_packed", ["packed"],
 CATALOGUE["rk_packed"].update(header="Your Order Has Been Packed", footer="Rashi Kapoor Official")
 CATALOGUE["order_received"] = utility("order_received", ["order_placed"],
     ["customer_name", "order_number", "items_summary", "order_total"],
-    CATALOGUE["rk_order_placed"]["body"], "persisted unpaid manual checkout")
+    "Dear {{1}},\n\nThank you for placing your order with Rashi Kapoor.\n\nWe have received your order {{2}} for {{3}}.\n\nOrder total: {{4}}\n\nYour order is now awaiting review by our team. Payment has not yet been collected. Our team will contact you to confirm availability and arrange payment.\n\nWe will keep you updated here as your order progresses.",
+    "persisted unpaid manual checkout")
 CATALOGUE["order_received"].update(header="Order Received", footer="Rashi Kapoor Official")
-# Corrected contract read directly from the current WABA on 2026-11-22.
+# Independent contract matching the operator-reported approved components.
+# Production verification must be refreshed after deployment.
 # This changes definition resolution only; activation still requires explicit
 # configuration and fresh, scoped Meta component verification at dispatch.
 EVENT_CATALOGUE["order_placed"] = "order_received"

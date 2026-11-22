@@ -9,23 +9,31 @@ parameters `customer_name`, `order_number`, `items_summary`, `order_total`.
 This explains the supplied zero-attempt skipped notification; no customer order
 or message records were modified or replayed during this investigation.
 
-A direct, read-only Meta inventory GET against the configured WABA at
-2026-11-22T11:34:06.770641Z returned APPROVED `order_received` / UTILITY / en_US.
-Its exact components were a TEXT header `Order Received`, the four-variable
-BODY already defined by the local placed-order draft **without** the erroneous
-trailing `Hello`, and TEXT footer `Rashi Kapoor Official`. No buttons. Meta's
-submission examples are not component definitions. The local expected contract
-and independent test fixture now match that corrected contract. The old
-`progresses.Hello` contract remains a negative regression scenario.
+The operator's production inventory refresh reported at **2026-11-22 17:37:03
+IST** identifies APPROVED `order_received` / UTILITY / en_US with a TEXT header
+`Order Received`, four-variable BODY containing exactly `Order total: {{4}}`,
+and TEXT footer `Rashi Kapoor Official`. There are no buttons. Submission examples
+are not component definitions. The BODY does not end in the old `progresses.Hello`.
 
-A second direct GET at 2026-11-22T11:42:18.787976Z compared the complete local
-components programmatically against the current WABA response: exact match,
-APPROVED/UTILITY/en_US. Local component signature:
-`2c2831ced9b169877826e63559c210c335767468336113b586e09d0e7ef295a8`.
+The previous local definition inherited the legacy draft's static rupee prefix,
+`Order total: ₹{{4}}`. That differs from the reported approved contract.
+The earlier exact-match claim and recorded signature are withdrawn as proof of
+the current contract; retaining them would misrepresent production verification.
+`order_received` now has an independent, explicit BODY with `Order total: {{4}}`.
+The legacy `rk_order_placed` draft remains unchanged.
 
-This observation is historical evidence, never runtime approval or permission
-to send. Runtime approval still requires fresh, current-WABA observations and
-exact component verification. No approvals were imported into local storage.
+For this contract only, the fourth dynamic parameter uses the existing `money()`
+formatter with a rupee currency prefix (for example, `₹ 1,250.00`). The
+rendered amount therefore has exactly one currency symbol. Numeric calculations,
+stored amounts, rounding, legacy parameters and the seven-variable update
+contract are unchanged.
+
+These corrections were checked locally with synthetic storage and mocked Meta
+responses. No production/Meta access or refresh was performed for this correction.
+**Production component verification has not been confirmed.** After deployment,
+an authorized fresh current-WABA inventory refresh must verify the complete
+corrected HEADER/BODY/FOOTER before any separately approved activation. Runtime
+approval still requires fresh, scoped evidence; no approvals are imported locally.
 
 ## Resolution and safeguards
 
