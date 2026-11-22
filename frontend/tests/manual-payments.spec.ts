@@ -57,7 +57,8 @@ for (const width of [1440, 768, 390]) {
     await expect(page.getByRole('button', { name: 'Place order', exact: true })).toBeVisible();
     await expect(page.getByText(/We will contact you about availability and payment/)).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
-    await expect(page.getByRole('checkbox')).toHaveCount(0);
+    await expect(page.getByRole('checkbox', { name: /Keep me updated on WhatsApp/ })).toHaveCount(0);
+    await expect(page.getByRole('checkbox', { name: 'Same as contact phone', exact: true })).not.toBeChecked();
     await page.screenshot({ path: info.outputPath(`manual-checkout-${width}.png`), fullPage: true });
     await page.getByRole('button', { name: 'Place order', exact: true }).click();
     await expect(page).toHaveURL(/order-success\/manual-order/);
@@ -139,7 +140,7 @@ test('mandatory checkout has no popup and validates missing consent inline befor
   await expect(consent).toBeVisible();
   await expect(consent).not.toBeChecked();
   await expect(consent).toHaveAttribute('required', '');
-  await expect(page.getByRole('checkbox')).toHaveCount(1);
+  await expect(page.getByRole('checkbox')).toHaveCount(2);
   await expect(page.getByText('Keep me updated on WhatsApp about this order, including order confirmation, payment, shipping and delivery updates.')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Place order/ })).toBeEnabled();
   await page.getByRole('button', { name: /^Place order/ }).click();
@@ -183,7 +184,7 @@ test('a valid signup or account grant suppresses the checkout checkbox in mandat
   } } }));
   await page.goto('/checkout');
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.getByRole('checkbox')).toHaveCount(0);
+  await expect(page.getByRole('checkbox', { name: /Keep me updated on WhatsApp/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /^Place order/ })).toBeEnabled();
   await page.getByRole('button', { name: /^Place order/ }).click();
   await expect.poll(() => calls.length).toBe(1);
@@ -202,7 +203,7 @@ test('mandatory checkout rechecks a saved grant and asks again if it was withdra
     } } });
   });
   await page.goto('/checkout');
-  await expect(page.getByRole('checkbox')).toHaveCount(0);
+  await expect(page.getByRole('checkbox', { name: /Keep me updated on WhatsApp/ })).toHaveCount(0);
   await page.getByRole('button', { name: /^Place order/ }).click();
   const consent = page.getByRole('checkbox', { name: /Keep me updated on WhatsApp about this order/ });
   await expect(consent).toBeVisible();
@@ -287,7 +288,7 @@ for (const width of [1440, 768, 390]) {
     } } }));
     await page.goto('/checkout');
     await expect(page.getByRole('dialog')).toHaveCount(0);
-    await expect(page.getByRole('checkbox')).toHaveCount(1);
+    await expect(page.getByRole('checkbox')).toHaveCount(2);
     await expect(page.getByRole('checkbox', { name: /Keep me updated on WhatsApp about this order/ })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     await page.screenshot({ path: info.outputPath(`inline-whatsapp-consent-${width}.png`), fullPage: true });

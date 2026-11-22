@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { canonicalPhone } from '@/lib/phone-number';
+import { canonicalPhone, internationalPhoneParts } from '@/lib/phone-number';
 import { type CountryCode } from 'libphonenumber-js/max';
 import { ArrowLeft, Check, LockKeyhole, ShoppingBag } from 'lucide-react';
 import { StickyHeader } from '@/components/home/sticky-header';
@@ -124,7 +124,8 @@ export function CheckoutPage() {
   const [storefrontSettingsReady, setStorefrontSettingsReady] = useState(false);
   const [requireWhatsappConsentForCheckout, setRequireWhatsappConsentForCheckout] = useState(false);
   const [profileReady, setProfileReady] = useState(false);
-  const [whatsappTransactionalConsent, setWhatsappTransactionalConsent] = useState(false);
+  const [consentRecipient, setConsentRecipient] = useState<string | null>(null);
+  const [sameAsContactPhone, setSameAsContactPhone] = useState(false);
   const [primaryWhatsapp, setPrimaryWhatsapp] = useState('');
   const [primaryConsent, setPrimaryConsent] = useState(false);
   const [whatsappConsentError, setWhatsappConsentError] = useState('');
@@ -133,10 +134,16 @@ export function CheckoutPage() {
   const [whatsappCountry, setWhatsappCountry] = useState<CountryCode>('IN');
   const consentCheckboxRef = useRef<HTMLInputElement>(null);
   const whatsappPhoneInputRef = useRef<HTMLInputElement>(null);
-  const selectedWhatsapp = primaryWhatsapp || canonicalPhone(whatsappNumber, whatsappCountry);
+  const contactWhatsapp = internationalPhoneParts(shipping.phone);
+  const displayedWhatsappNumber = sameAsContactPhone ? contactWhatsapp?.nationalNumber || '' : whatsappNumber;
+  const displayedWhatsappCountry = sameAsContactPhone ? contactWhatsapp?.country || whatsappCountry : whatsappCountry;
+  // Derive linked values synchronously, so a render can never submit a stale copy.
+  const selectedWhatsapp = sameAsContactPhone ? contactWhatsapp?.recipient || '' : canonicalPhone(whatsappNumber, whatsappCountry);
+  const whatsappTransactionalConsent = consentRecipient !== null && consentRecipient === selectedWhatsapp;
   const savedRecipientConsent = primaryConsent && selectedWhatsapp === primaryWhatsapp;
   const checkoutConsentAvailable = savedRecipientConsent || (Boolean(selectedWhatsapp) && whatsappTransactionalConsent);
   const [checkoutAttemptId, setCheckoutAttemptId] = useState(attemptId);
+  useEffect(() => { setConsentRecipient(null); setWhatsappPhoneError(''); }, [selectedWhatsapp]);
   useEffect(() => { setCheckoutAttemptId(attemptId()); }, [selectedWhatsapp, whatsappTransactionalConsent, shipping, cart]);
 
   useEffect(() => {
@@ -160,7 +167,9 @@ export function CheckoutPage() {
       setEmail(profile.user?.email || '');
       const primary = canonicalPhone(profile.user?.whatsappPhone || '');
       setPrimaryWhatsapp(primary);
-      setWhatsappCountry((profile.user?.whatsappCountry || 'IN') as CountryCode);
+      const primaryParts = internationalPhoneParts(primary);
+      setWhatsappNumber(primaryParts?.nationalNumber || '');
+      setWhatsappCountry(primaryParts?.country || 'IN');
       setPrimaryConsent(profile.user?.whatsappConsentValid === true && Boolean(primary));
       if (addressResponse.ok) {
         const data = await addressResponse.json();
@@ -179,9 +188,21 @@ export function CheckoutPage() {
   const total = subtotal;
 
   function updateWhatsappNumber(value: string, country: CountryCode) {
+    setSameAsContactPhone(false);
     setWhatsappNumber(value);
     setWhatsappCountry(country);
-    setWhatsappTransactionalConsent(false);
+    setConsentRecipient(null);
+    setWhatsappConsentError('');
+    setWhatsappPhoneError('');
+  }
+
+  function toggleContactPhone(checked: boolean) {
+    // Preserve an independently entered number when temporarily linking delivery.
+    if (!checked && !whatsappNumber && contactWhatsapp) {
+      setWhatsappNumber(contactWhatsapp.nationalNumber);
+      setWhatsappCountry(contactWhatsapp.country);
+    }
+    setSameAsContactPhone(checked);
     setWhatsappConsentError('');
     setWhatsappPhoneError('');
   }
@@ -221,7 +242,7 @@ export function CheckoutPage() {
         if (profile.user?.whatsappConsentValid !== true || currentNumber !== selectedWhatsapp) {
           setPrimaryWhatsapp(currentNumber);
           setPrimaryConsent(false);
-          setWhatsappTransactionalConsent(false);
+          setConsentRecipient(null);
           setWhatsappConsentError('Please agree to receive transactional WhatsApp updates to continue placing your order.');
           requestAnimationFrame(() => {
             consentCheckboxRef.current?.focus();
@@ -242,7 +263,7 @@ export function CheckoutPage() {
         body: JSON.stringify({
           checkoutAttemptId,
           whatsappRecipient: checkoutConsentAvailable ? selectedWhatsapp : '',
-          ...(!primaryWhatsapp && selectedWhatsapp && checkoutConsentAvailable ? { whatsappCountry } : {}),
+          ...(selectedWhatsapp && checkoutConsentAvailable ? { whatsappCountry: displayedWhatsappCountry } : {}),
           ...(requireWhatsappConsentForCheckout || !savedRecipientConsent ? { whatsappTransactionalConsent: checkoutConsentAvailable } : {}),
           cart: cart.items.map((item) => ({
             productId: item.productId,
@@ -350,8 +371,8 @@ export function CheckoutPage() {
                 <Field label="Country" value={shipping.country} onChange={value => updateShipping('country', value)} />
               </div>
 
-              {!savedRecipientConsent ? <div className="mt-7 border-t border-black/10 pt-5 dark:border-white/10">
-                <label className="flex items-start gap-3 text-xs leading-5 text-charcoal/70 dark:text-ivory/75">
+              <div className="mt-7 border-t border-black/10 pt-5 dark:border-white/10">
+                {!savedRecipientConsent ? <label className="flex items-start gap-3 text-xs leading-5 text-charcoal/70 dark:text-ivory/75">
                   <input
                     ref={consentCheckboxRef}
                     type="checkbox"
@@ -360,24 +381,32 @@ export function CheckoutPage() {
                     disabled={!profileReady || !storefrontSettingsReady}
                     aria-invalid={Boolean(whatsappConsentError)}
                     aria-describedby={whatsappConsentError ? 'whatsapp-consent-error' : undefined}
-                    onChange={event => { setWhatsappTransactionalConsent(event.target.checked); setWhatsappConsentError(''); if (!event.target.checked) setWhatsappPhoneError(''); }}
+                    onChange={event => { setConsentRecipient(event.target.checked ? selectedWhatsapp : null); setWhatsappConsentError(''); if (!event.target.checked) setWhatsappPhoneError(''); }}
                     className="mt-0.5 h-4 w-4 shrink-0 accent-[#b58a4c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold disabled:opacity-50"
                   />
                   <span>Keep me updated on WhatsApp about this order, including order confirmation, payment, shipping and delivery updates.</span>
-                </label>
+                </label> : <p className="text-xs leading-5 text-charcoal/70">WhatsApp updates are enabled for your saved number.</p>}
                 {whatsappConsentError ? <p id="whatsapp-consent-error" role="alert" className="mt-2 pl-7 text-xs leading-5 text-red-800 dark:text-red-200">{whatsappConsentError}</p> : null}
-                {!primaryWhatsapp ? <div className="mt-4 max-w-lg">
+                <div className="mt-4 max-w-lg">
+                  <label className="flex items-start gap-3 text-xs leading-5 text-charcoal/70 dark:text-ivory/75">
+                    <input type="checkbox" checked={sameAsContactPhone} onChange={event => toggleContactPhone(event.target.checked)}
+                      disabled={!profileReady || !storefrontSettingsReady} aria-describedby="same-contact-phone-help"
+                      className="mt-0.5 h-4 w-4 shrink-0 accent-[#b58a4c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold disabled:opacity-50" />
+                    <span>Same as contact phone</span>
+                  </label>
+                  <p id="same-contact-phone-help" className="mb-4 mt-1 pl-7 text-xs leading-5 text-charcoal/55">Use the phone number entered in your delivery details for WhatsApp updates.</p>
                   <InternationalPhone
-                    value={whatsappNumber}
-                    country={whatsappCountry}
+                    value={displayedWhatsappNumber}
+                    country={displayedWhatsappCountry}
                     label="WhatsApp number for this order"
                     inputRef={whatsappPhoneInputRef}
                     disabled={!profileReady || !storefrontSettingsReady}
                     onChange={updateWhatsappNumber}
                   />
-                  {whatsappPhoneError ? <p role="alert" className="mt-2 text-xs leading-5 text-red-800 dark:text-red-200">{whatsappPhoneError}</p> : null}
-                </div> : null}
-              </div> : null}
+                  {sameAsContactPhone && contactWhatsapp ? <p className="mt-2 text-xs leading-5 text-charcoal/60">Using delivery contact number: {contactWhatsapp.recipient}. Editing the WhatsApp number unlinks it.</p> : null}
+                  {whatsappPhoneError || (sameAsContactPhone && !contactWhatsapp && whatsappTransactionalConsent) ? <p role="alert" className="mt-2 text-xs leading-5 text-red-800 dark:text-red-200">{sameAsContactPhone && !contactWhatsapp ? 'Enter a valid delivery contact phone number including its international country code, or enter a separate WhatsApp number.' : whatsappPhoneError}</p> : null}
+                </div>
+              </div>
             </div>
           </section>
 

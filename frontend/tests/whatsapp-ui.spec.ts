@@ -1,5 +1,155 @@
 import { expect, test, type Page } from '@playwright/test';
 
+async function mockLinkedCheckout(page: Page, options: { savedConsent?: boolean; mandatory?: boolean; profilePhone?: string } = {}) {
+  const requests: Record<string, unknown>[] = [];
+  await page.addInitScript(() => {
+    localStorage.setItem('rk_access_token', 'fixture-token');
+    localStorage.setItem('rk_shopping_bag', JSON.stringify({ currency: 'INR', items: [{ productId: 'fixture-product', variantId: 'fixture-colour', sku: 'FIXTURE-RED', name: 'Fixture garment', price: 1250, quantity: 1, size: 'M' }] }));
+  });
+  await page.route('**/*', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/auth/me') return route.fulfill({ json: { user: { id: 'fixture', email: 'customer@example.test', whatsappPhone: options.profilePhone ?? '+14155552671', whatsappConsentValid: options.savedConsent === true } } });
+    if (url.pathname === '/api/storefront-settings') return route.fulfill({ json: { settings: { razorpayEnabled: false, requireWhatsappConsentForCheckout: options.mandatory === true } } });
+    if (url.pathname === '/api/auth/addresses') return route.fulfill({ json: { addresses: [
+      { id: 'us', label: 'US fixture', fullName: 'Fixture Customer', phone: '+14155552671', line1: 'Fixture Street', city: 'Fixture', state: 'Fixture', country: 'United States', postalCode: '94105', isDefault: true },
+      { id: 'gb', label: 'UK fixture', fullName: 'Fixture Customer', phone: '+442079460018', line1: 'Fixture Street', city: 'Fixture', state: 'Fixture', country: 'United Kingdom', postalCode: 'SW1A 1AA' },
+    ] } });
+    if (url.pathname === '/api/payments/razorpay/order') {
+      requests.push(route.request().postDataJSON());
+      return route.fulfill({ status: 502, json: { error: 'Isolated checkout boundary; no order created.' } });
+    }
+    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, body: '' });
+    if (url.pathname === '/api/storefront/activity') return route.fulfill({ status: 204, body: '' });
+    if (route.request().method() !== 'GET') throw new Error(`Unexpected isolated request: ${route.request().method()} ${url.pathname}`);
+    if (url.pathname.startsWith('/api/')) return route.fulfill({ json: {} });
+    if (url.origin !== 'http://127.0.0.1:3210') return route.fulfill({ status: 204, body: '' });
+    return route.continue();
+  });
+  await page.goto('/checkout');
+  await expect(page.getByRole('textbox', { name: /^Phone/ })).toHaveValue('+14155552671');
+  return requests;
+}
+
+for (const mobile of [false, true]) test(`checkout linked recipient copies and synchronizes contact and saved addresses (${mobile ? 'mobile' : 'desktop'})`, async ({ page }) => {
+  if (mobile) await page.setViewportSize({ width: 390, height: 844 });
+  const requests = await mockLinkedCheckout(page, { mandatory: true });
+  const same = page.getByRole('checkbox', { name: 'Same as contact phone', exact: true });
+  const consent = page.getByRole('checkbox', { name: /Keep me updated on WhatsApp/ });
+  await expect(same).not.toBeChecked();
+  await same.check();
+  await expect(consent).not.toBeChecked();
+  await expect(page.getByLabel('Country and dialling code')).toHaveValue('US');
+  await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('4155552671');
+  await expect(page.getByLabel('Country and dialling code').locator('option:checked')).toContainText('(+1)');
+  await consent.check();
+  await page.getByRole('textbox', { name: /^Phone/ }).fill('+91 96198 88755');
+  await expect(page.getByLabel('Country and dialling code')).toHaveValue('IN');
+  await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('9619888755');
+  await expect(consent).not.toBeChecked();
+  await consent.check();
+  await page.getByLabel('Use a saved address').selectOption('gb');
+  await expect(page.getByLabel('Country and dialling code')).toHaveValue('GB');
+  await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('2079460018');
+  await expect(page.getByText('Using delivery contact number:', { exact: false })).toContainText('+442079460018');
+  await same.locator('..').locator('..').screenshot({ path: test.info().outputPath('linked-whatsapp.png') });
+  await expect(consent).not.toBeChecked();
+  await page.getByRole('button', { name: 'Place order', exact: true }).click();
+  expect(requests).toHaveLength(0);
+  await consent.check();
+  await page.getByRole('button', { name: 'Place order', exact: true }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].whatsappRecipient).toBe('+442079460018');
+  expect(requests[0].whatsappCountry).toBe('GB');
+  expect(requests[0].whatsappTransactionalConsent).toBe(true);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('checkout unlinking preserves a separate number and manual edits unlink country and number', async ({ page }) => {
+  await mockLinkedCheckout(page);
+  const same = page.getByRole('checkbox', { name: 'Same as contact phone', exact: true });
+  const number = page.getByLabel('Mobile number', { exact: true });
+  await page.getByLabel('Country and dialling code').selectOption('GB');
+  await number.fill('2079460018');
+  await same.check();
+  await expect(number).toHaveValue('4155552671');
+  await same.uncheck();
+  await expect(number).toHaveValue('2079460018');
+  await page.getByRole('textbox', { name: /^Phone/ }).fill('+919619888755');
+  await expect(number).toHaveValue('2079460018');
+  await same.check();
+  await number.fill('9619888756');
+  await expect(same).not.toBeChecked();
+  await same.check();
+  await page.getByLabel('Country and dialling code').selectOption('GB');
+  await expect(same).not.toBeChecked();
+  await expect(number).toHaveValue('');
+});
+
+test('checkout invalid linked contacts cannot retain stale recipients and optional consent never blocks', async ({ page }) => {
+  const requests = await mockLinkedCheckout(page);
+  await page.getByRole('checkbox', { name: 'Same as contact phone', exact: true }).check();
+  const consent = page.getByRole('checkbox', { name: /Keep me updated on WhatsApp/ });
+  await consent.check();
+  await page.getByRole('textbox', { name: /^Phone/ }).fill('123');
+  await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('');
+  await expect(consent).not.toBeChecked();
+  await consent.check();
+  await expect(page.getByRole('alert').filter({ hasText: 'international country code' })).toBeVisible();
+  await page.getByRole('button', { name: 'Place order', exact: true }).click();
+  expect(requests).toHaveLength(0);
+  await consent.uncheck();
+  await page.getByRole('button', { name: 'Place order', exact: true }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].whatsappRecipient).toBe('');
+  expect(requests[0].whatsappTransactionalConsent).toBe(false);
+});
+
+for (const linked of [false, true]) test(`checkout saved consent applies only to the exact selected recipient (${linked ? 'linked' : 'independent'})`, async ({ page }) => {
+  const requests = await mockLinkedCheckout(page, { savedConsent: true, mandatory: true });
+  await expect(page.getByRole('checkbox', { name: /Keep me updated on WhatsApp/ })).toHaveCount(0);
+  if (linked) {
+    await page.getByRole('checkbox', { name: 'Same as contact phone', exact: true }).check();
+    await page.getByLabel('Use a saved address').selectOption('gb');
+  } else {
+    await page.getByLabel('Country and dialling code').selectOption('GB');
+    await page.getByLabel('Mobile number', { exact: true }).fill('2079460018');
+  }
+  const consent = page.getByRole('checkbox', { name: /Keep me updated on WhatsApp/ });
+  await expect(consent).not.toBeChecked();
+  await page.getByRole('button', { name: 'Place order', exact: true }).click();
+  expect(requests).toHaveLength(0);
+  await consent.check();
+  await page.getByRole('button', { name: 'Place order', exact: true }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].whatsappRecipient).toBe('+442079460018');
+  expect(requests[0].whatsappTransactionalConsent).toBe(true);
+});
+
+test('checkout retains the copied number after unlinking when there was no independent number', async ({ page }) => {
+  await mockLinkedCheckout(page, { profilePhone: '' });
+  const same = page.getByRole('checkbox', { name: 'Same as contact phone', exact: true });
+  await same.check();
+  await same.uncheck();
+  await page.getByRole('textbox', { name: /^Phone/ }).fill('+442079460018');
+  await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('4155552671');
+  await expect(page.getByLabel('Country and dialling code')).toHaveValue('US');
+});
+
+test('checkout phone controls have refined keyboard focus and reduced motion styling', async ({ page }) => {
+  await mockLinkedCheckout(page, { profilePhone: '' });
+  for (const control of [page.getByLabel('Search telephone countries'), page.getByLabel('Country and dialling code'), page.getByLabel('Mobile number', { exact: true })]) {
+    await control.focus();
+    // Tailwind's outline-none retains a transparent forced-colors fallback.
+    await expect(control).toHaveCSS('outline-color', 'rgba(0, 0, 0, 0)');
+    await expect(control).toHaveCSS('box-shadow', /181, 138, 76/);
+    await expect(control).toHaveCSS('transition-duration', '0.2s');
+    await expect(control).toHaveCSS('border-bottom-color', 'rgb(181, 138, 76)');
+  }
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(page.getByLabel('Mobile number', { exact: true })).toHaveCSS('transition-property', 'none');
+});
+
 for (const scenario of ['gate-off', 'eligible', 'provider-stale', 'billing-blocked', 'sip-only'] as const) test(`provider diagnostics preserve independent health details: ${scenario}`, async ({ page }) => {
   const calls = await mockApi(page);
   const gate = scenario !== 'gate-off';
@@ -786,7 +936,7 @@ test('checkout uses one inline transactional checkbox and keeps marketing prefer
   const consent = page.getByRole('checkbox', { name: /Keep me updated on WhatsApp about this order/ });
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(consent).toBeVisible();
-  await expect(page.getByRole('checkbox')).toHaveCount(1);
+  await expect(page.getByRole('checkbox')).toHaveCount(2);
   await expect(consent).not.toBeChecked();
   await expect(page.getByRole('textbox', { name: 'Full name' })).toHaveValue('Fixture Customer');
   const pay = page.getByRole('button', { name: /^Pay / });
@@ -1151,7 +1301,8 @@ test('valid WhatsApp consent uses the account number independently of delivery c
   });
   await page.goto('/checkout');
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.getByRole('checkbox')).toHaveCount(0);
+  await expect(page.getByRole('checkbox', { name: /Keep me updated on WhatsApp/ })).toHaveCount(0);
+  await expect(page.getByRole('checkbox', { name: 'Same as contact phone', exact: true })).not.toBeChecked();
   await page.getByRole('button', { name: /^Pay / }).click();
   await expect.poll(() => submitted).not.toBeNull();
   expect(submitted!.whatsappRecipient).toBe('+14155552671');
