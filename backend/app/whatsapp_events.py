@@ -165,10 +165,6 @@ def template_event_values(event, record, template):
     values = event_values(event, record)
     if template.get("catalogue") in {"order_received", "order_and_payment_update"} and record.get("currency", "INR") != "INR":
         raise ValueError("template_requires_inr_order")
-    if template.get("catalogue") == "order_received":
-        # This BODY has no static currency prefix. Only this contract owns a
-        # symbol-bearing total; other templates retain their existing values.
-        values["order_total"] = money(record.get("total"), "\u20b9")
     if template.get("catalogue") == "order_and_payment_update":
         # Meta's approved body owns the period immediately after {{3}}.
         values["update_message"] = values["update_message"].removesuffix(".")

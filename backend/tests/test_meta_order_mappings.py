@@ -21,7 +21,7 @@ from app.whatsapp_templates import component_signature, registry, template_regis
 META_BODIES = {
     "rk_processing": "Dear {{1}},\n\nYour Rashi Kapoor order {{2}} is now being prepared.\n\nOur team is carefully processing your order, and we will notify you once it progresses to the next stage.\n\nThank you for shopping with Rashi Kapoor.",
     "rk_packed": "Dear {{1}},\n\nYour Rashi Kapoor order {{2}} has been packed and is ready for dispatch.\n\nWe will share the courier and tracking information once your parcel has been handed over to the delivery partner.\n\nThank you for choosing Rashi Kapoor.",
-    "order_received": "Dear {{1}},\n\nThank you for placing your order with Rashi Kapoor.\n\nWe have received your order {{2}} for {{3}}.\n\nOrder total: {{4}}\n\nYour order is now awaiting review by our team. Payment has not yet been collected. Our team will contact you to confirm availability and arrange payment.\n\nWe will keep you updated here as your order progresses.",
+    "order_received": "Dear {{1}},\n\nThank you for placing your order with Rashi Kapoor.\n\nWe have received your order {{2}} for {{3}}.\n\nOrder total: \u20b9{{4}}\n\nYour order is now awaiting review by our team. Payment has not yet been collected. Our team will contact you to confirm availability and arrange payment.\n\nWe will keep you updated here as your order progresses.",
     "order_and_payment_update": "Dear {{1}},\n\nThere is an update on your Rashi Kapoor order {{2}}.\n{{3}}.\n\nPayment status: {{4}}\n\nOrder total: \u20b9{{5}}\n\nAmount received: \u20b9{{6}}\n\nBalance due: \u20b9{{7}}\n\nThank you for choosing Rashi Kapoor. We will keep you informed as your order progresses.",
 }
 HEADERS = {"rk_processing": "Order Being Prepared", "rk_packed": "Your Order Has Been Packed", "order_received": "Order Received", "order_and_payment_update": "Order Update"}
@@ -90,7 +90,7 @@ def test_each_lifecycle_mapping_dispatches_saved_order_values_once(order_case, e
         assert template["observedStatus"] == "APPROVED" and template["componentsVerified"]
         assert not template["activationBlock"] and template["enabled"] and template["approved"]
         values = template_event_values(event, order, template)
-        assert [values[key] for key in PARAMETERS[name]][2:] == ["Fixture couture x 2", "\u20b9 1,250.00"]
+        assert [values[key] for key in PARAMETERS[name]][2:] == ["Fixture couture x 2", "1,250.00"]
     with c.app.app_context():
         assert notify(c.db, event, {**order, "customerName": "UNTRUSTED", "total": 1})["status"] == "queued"
         assert notify(c.db, event, order)["status"] == "duplicate"
@@ -103,7 +103,7 @@ def test_each_lifecycle_mapping_dispatches_saved_order_values_once(order_case, e
     assert values[:2] == [order["customerName"], order["orderNumber"]]
     assert len(values) == len(PARAMETERS[name]) and "UNTRUSTED" not in str(values)
     if name == "order_received":
-        assert values[2:] == ["Fixture couture x 2", "\u20b9 1,250.00"]
+        assert values[2:] == ["Fixture couture x 2", "1,250.00"]
     if name == "order_and_payment_update":
         assert not values[2].endswith(".")
         assert values[4] == "1,250.00"

@@ -9,24 +9,26 @@ parameters `customer_name`, `order_number`, `items_summary`, `order_total`.
 This explains the supplied zero-attempt skipped notification; no customer order
 or message records were modified or replayed during this investigation.
 
-The operator's production inventory refresh reported at **2026-11-22 17:37:03
-IST** identifies APPROVED `order_received` / UTILITY / en_US with a TEXT header
-`Order Received`, four-variable BODY containing exactly `Order total: {{4}}`,
-and TEXT footer `Rashi Kapoor Official`. There are no buttons. Submission examples
-are not component definitions. The BODY does not end in the old `progresses.Hello`.
+The latest operator-supplied read-only production comparison on **2026-11-22**
+identifies APPROVED `order_received` / UTILITY / en_US for the correct WABA and
+local account, with fresh evidence. Its TEXT header is `Order Received`, its
+four-variable BODY contains exactly `Order total: ₹{{4}}`, and its TEXT footer
+is `Rashi Kapoor Official`. There are no buttons. Submission examples are not
+component definitions. The BODY does not end in the old `progresses.Hello`.
 
-The previous local definition inherited the legacy draft's static rupee prefix,
-`Order total: ₹{{4}}`. That differs from the reported approved contract.
-The earlier exact-match claim and recorded signature are withdrawn as proof of
-the current contract; retaining them would misrepresent production verification.
-`order_received` now has an independent, explicit BODY with `Order total: {{4}}`.
-The legacy `rk_order_placed` draft remains unchanged.
+The previous claim that the approved BODY has no static rupee symbol is withdrawn.
+Commit `ad3284b` incorrectly removed that symbol locally and added it to the
+dynamic parameter; the latest production comparison found a component mismatch.
+Meta's components are authoritative. `order_received` retains an independent,
+explicit BODY, now corrected to `Order total: ₹{{4}}`. The legacy
+`rk_order_placed` draft remains unchanged.
 
-For this contract only, the fourth dynamic parameter uses the existing `money()`
-formatter with a rupee currency prefix (for example, `₹ 1,250.00`). The
-rendered amount therefore has exactly one currency symbol. Numeric calculations,
-stored amounts, rounding, legacy parameters and the seven-variable update
-contract are unchanged.
+The fourth dynamic parameter retains the existing plain numeric INR formatting
+from `event_values()`, for example `128,004.00`, without a currency symbol.
+Rendering the BODY produces `Order total: ₹128,004.00`, with exactly one rupee
+symbol. The existing formatter uses three-digit comma grouping; this correction
+does not change that formatting. Numeric calculations, stored amounts, rounding, currency validation,
+legacy parameters and the seven-variable update contract are unchanged.
 
 These corrections were checked locally with synthetic storage and mocked Meta
 responses. No production/Meta access or refresh was performed for this correction.
