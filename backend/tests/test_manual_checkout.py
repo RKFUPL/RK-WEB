@@ -313,10 +313,11 @@ def test_collection_endpoint_authority_and_terms(shop):
 
 
 def test_email_image_resolver_and_shared_rendering(shop):
-    path = "/api/catalog/products/product123/media/media456?v=7"
+    path = "/api/catalog/products/product123/media/media456?v=0123456789abcdef"
     assert email_image_url(path) == "https://rashikapoor.co.in" + path
+    assert email_image_url("https://rashikapoor.co.in" + path) == "https://rashikapoor.co.in" + path
     assert email_image_url("https://res.cloudinary.com/public/image/upload/item.jpg")
-    for unsafe in ["data:image/png;base64,AA", "javascript:alert(1)", "//evil.test/image", "/private/image", "https://user:pass@res.cloudinary.com/a", "https://evil.test/a", "/api/catalog/products/../media/a"]:
+    for unsafe in ["data:image/png;base64,AA", "javascript:alert(1)", "//evil.test/image", "/private/image", "https://user:pass@res.cloudinary.com/a", "https://evil.test/a", "https://evil.test" + path, "/api/catalog/products/product123/media/media456?token=private", "/api/catalog/products/../media/a"]:
         assert email_image_url(unsafe) == ""
     order = checkout(shop); order["items"][0]["image"] = path
     assert "https://rashikapoor.co.in" + path in render_order_confirmation(order)

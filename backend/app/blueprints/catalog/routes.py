@@ -94,6 +94,12 @@ def _shop_product_record(product, memberships):
     for key in ("fabric", "material", "occasion"):
         if attributes.get(key):
             record["attributes"][key] = attributes[key]
+    visible_ids = {item["id"] for item in record.get("variants") or []}
+    record["_search_variant_names"] = [
+        str(item.get("name") or "") for item in product.get("variants") or []
+        if isinstance(item, dict) and str(item.get("id") or "") in visible_ids
+    ]
+    record["_search_metadata"] = [str(product.get(key) or "") for key in ("skuPrefix", "style", "shortDescription")]
     record["fulfilmentMode"] = "ready_to_ship" if record.get("availability") == "in_stock" and int(record.get("stock") or 0) > 0 else "made_to_order"
     return record
 
@@ -104,13 +110,17 @@ def _shop_matches(record, *, query="", category="", colour="", size="", collecti
     colours = _normalised_values(attributes.get("colors") or attributes.get("color")) + [str(item.get("colour") or "") for item in variants]
     sizes = _normalised_values(attributes.get("sizes")) + [str(size) for item in variants for size in (item.get("sizes") or [])]
     collections = record.get("collections") if isinstance(record.get("collections"), list) else []
-    searchable = " ".join([
-        str(record.get("name") or ""), str(record.get("sku") or ""), str(record.get("styleCode") or ""),
-        str(record.get("productCode") or ""), str(record.get("category") or ""), str(attributes.get("fabric") or ""),
-        *colours, *(str(item.get("sku") or "") for item in variants), *(str(item.get("name") or "") for item in collections),
-    ]).casefold()
+    searchable = " ".join(re.sub(r"[\W_]+", " ", str(value).casefold()).strip() for value in [
+        record.get("name"), record.get("sku"), record.get("parentSku"), record.get("skuPrefix"),
+        record.get("styleCode"), record.get("style"), record.get("productCode"), record.get("category"),
+        record.get("shortDescription"), attributes.get("fabric"), attributes.get("material"), attributes.get("occasion"),
+        *record.get("_search_metadata", []), *record.get("_search_variant_names", []), *colours,
+        *(value for item in variants for value in (item.get("sku"), item.get("name"), item.get("colourSlug"), item.get("colour"))),
+        *(value for item in collections for value in (item.get("name"), item.get("slug"))),
+    ] if value)
+    query_terms = re.sub(r"[\W_]+", " ", query.casefold()).split()
     price = record.get("price")
-    if query and query.casefold() not in searchable:
+    if query and (not query_terms or not all(term in searchable for term in query_terms)):
         return False
     if category and str(record.get("category") or "").casefold() != category.casefold():
         return False
@@ -181,7 +191,8 @@ def storefront_products():
         page, page_size = 1, 24
     total = len(records)
     start = (page - 1) * page_size
-    response = jsonify({"products": records[start:start + page_size], "count": total, "page": page, "pageSize": page_size, "facets": facets})
+    products = [{key: value for key, value in record.items() if not key.startswith("_search_")} for record in records[start:start + page_size]]
+    response = jsonify({"products": products, "count": total, "page": page, "pageSize": page_size, "facets": facets})
     response.headers["Cache-Control"] = "public, max-age=0, s-maxage=30, stale-while-revalidate=120"
     return response, 200
 

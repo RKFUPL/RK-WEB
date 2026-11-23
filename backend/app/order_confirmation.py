@@ -6,8 +6,11 @@ from datetime import datetime, timezone
 import html
 import re
 from urllib.parse import urlsplit
+from bson import ObjectId
 from flask import current_app, has_app_context
 
+from .catalog import public_variant_primary_image
+from .product_variants import product_has_visible_variants, product_with_computed_variants
 from .whatsapp import notify, notify_admins
 from .mail import SENDERS, send_html_email
 from .rbac import effective_permissions
@@ -87,12 +90,15 @@ def email_image_url(value, config=None):
         if parsed.username or parsed.password or parsed.fragment:
             return ""
         proxy = bool(re.fullmatch(r"/api/catalog/products/[A-Za-z0-9_-]+/media/[A-Za-z0-9_-]+", parsed.path))
-        if raw.startswith("/") and not raw.startswith("//") and not parsed.netloc and proxy:
+        if proxy and (not parsed.query or re.fullmatch(r"v=[0-9a-f]{16}", parsed.query)):
             origin = str(config.get("WHATSAPP_CANONICAL_URL") or config.get("FRONTEND_URL") or "https://rashikapoor.co.in").rstrip("/")
             canonical = urlsplit(origin)
             if canonical.scheme != "https" or not canonical.hostname or canonical.username or canonical.password or canonical.path or canonical.query or canonical.fragment:
                 return ""
-            return origin + raw
+            if raw.startswith("/") and not raw.startswith("//") and not parsed.netloc:
+                return origin + raw
+            if parsed.scheme == "https" and parsed.netloc == canonical.netloc:
+                return raw
         if parsed.scheme == "https" and parsed.hostname == "res.cloudinary.com" and parsed.port in {None, 443} and parsed.path.startswith("/"):
             return raw
     except ValueError:
@@ -100,8 +106,26 @@ def email_image_url(value, config=None):
     return ""
 
 
-def _item_html(item: dict) -> str:
+def _current_public_item_image(database, item: dict) -> str:
+    product_id = str(item.get("productId") or "")
+    variant_id = str(item.get("variantId") or "")
+    if not ObjectId.is_valid(product_id) or not variant_id:
+        return ""
+    product = database.products.find_one({
+        "_id": ObjectId(product_id), "status": {"$ne": "archived"}, "isActive": {"$ne": False},
+    })
+    if not product:
+        return ""
+    product = product_with_computed_variants(database, product) or product
+    if not product_has_visible_variants(product):
+        return ""
+    return email_image_url(public_variant_primary_image(product, variant_id))
+
+
+def _item_html(item: dict, database=None) -> str:
     image_url = email_image_url(item.get("image"))
+    if not image_url and database is not None:
+        image_url = _current_public_item_image(database, item)
     image = "<div style='width:116px;height:150px;background:#eee6da;border-radius:10px' aria-label='Product image unavailable'></div>"
     if image_url:
         image = f"<img src='{html.escape(image_url, quote=True)}' alt='{html.escape(_text(item.get('name'), 180), quote=True)}' width='116' height='150' class='rk-item-image' style='display:block;width:116px;height:150px;object-fit:cover;border-radius:10px;background:#eee6da'>"
@@ -143,7 +167,7 @@ def _item_html(item: dict) -> str:
     )
 
 
-def render_order_confirmation(order: dict, *, title=None, message=None, details_html="") -> str:
+def render_order_confirmation(order: dict, *, title=None, message=None, details_html="", database=None) -> str:
     manual = order.get("paymentGateway") == "manual"
     title = html.escape(title or ("Your order has been received." if manual else "Your order is confirmed."))
     message = html.escape(message or ("Your order is pending team review. Payment is pending. Our team will contact you with the next steps and payment instructions." if manual else "Payment has been securely verified and your order is now with the house."))
@@ -152,7 +176,7 @@ def render_order_confirmation(order: dict, *, title=None, message=None, details_
     payment = order.get("payment") if isinstance(order.get("payment"), dict) else {}
     payment_status = html.escape(_text(payment.get("status") or order.get("paymentStatus"), 40).upper() or "PAID")
     items = order.get("items") if isinstance(order.get("items"), list) else []
-    item_rows = "".join(_item_html(item) for item in items if isinstance(item, dict))
+    item_rows = "".join(_item_html(item, database) for item in items if isinstance(item, dict))
     shipping = order.get("shipping") if isinstance(order.get("shipping"), dict) else {}
     address_lines = [
         _text(shipping.get("fullName"), 160),
@@ -236,7 +260,7 @@ def send_order_confirmation(database, order: dict, config, logger, *, force: boo
                 sender=SENDERS["orders"], recipients=[recipient],
                 bcc=confirmation_bcc_recipients(database, config.get("ORDER_CONFIRMATION_BCC", "")),
                 subject=f"Rashi Kapoor order {'received' if manual else 'confirmed'} — {_text(order.get('orderNumber'), 100)}",
-                html=render_order_confirmation(order),
+                html=render_order_confirmation(order, database=database),
             )
     except Exception as error:
         reason = email_failure_reason(error)

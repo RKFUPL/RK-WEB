@@ -600,7 +600,7 @@ def send_status_notification(database, order: dict, status: str, customer_note: 
         with email_heartbeat(database, order["_id"], event, key, claim):
             response = send_html_email(
                 sender=SENDERS["orders"], recipients=[email], subject=f"{subject} — {number}",
-                html=render_order_confirmation(order, title=subject, message=message, details_html=note_html + tracking + payment_html),
+                html=render_order_confirmation(order, title=subject, message=message, details_html=note_html + tracking + payment_html, database=database),
             )
     except Exception as error:
         reason = email_failure_reason(error)

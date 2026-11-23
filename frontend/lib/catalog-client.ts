@@ -2,6 +2,7 @@ import type { CatalogProduct, ManagedCollection } from '@/lib/catalog';
 import { apiBaseUrl } from '@/lib/rbac';
 
 type CollectionIndexResponse = { collections: ManagedCollection[] };
+export type CatalogSearchProduct = CatalogProduct & { collections?: Array<{ id: string; name: string; slug: string }> };
 
 let collectionsRequest: Promise<ManagedCollection[]> | null = null;
 const collectionDetailRequests = new Map<string, { expiresAt: number; request: Promise<ManagedCollection & { products: CatalogProduct[] }> }>();
@@ -41,4 +42,13 @@ export function fetchCatalogCollection(slug: string): Promise<ManagedCollection 
     });
   collectionDetailRequests.set(key, { expiresAt: now + COLLECTION_DETAIL_TTL_MS, request });
   return request;
+}
+
+export async function searchCatalogProducts(query: string, signal: AbortSignal): Promise<CatalogSearchProduct[]> {
+  const params = new URLSearchParams({ q: query, pageSize: '10' });
+  const response = await fetch(`${apiBaseUrl}/api/catalog/products?${params}`, { cache: 'no-store', signal });
+  if (!response.ok) throw new Error('Product search could not be loaded. Please try again.');
+  const payload = await response.json() as { products?: CatalogSearchProduct[] };
+  if (!Array.isArray(payload.products)) throw new Error('Product search could not be loaded. Please try again.');
+  return payload.products;
 }

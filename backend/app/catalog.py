@@ -1503,6 +1503,33 @@ def product_card_view(product: dict, *, display_order: int | None = None, media_
     return result
 
 
+def public_variant_primary_image(product: dict, variant_id: str) -> str:
+    """Use the public catalogue serializer for one exact, active colour gallery."""
+    card = product_card_view(product, media_limit=None)
+    variant = next(
+        (item for item in card["variants"] if item["id"] == variant_id and item["status"] == "active"),
+        None,
+    )
+    if not variant:
+        return ""
+    images = variant.get("images") or []
+    primary = next(
+        (item.get("renderUrl") for item in variant.get("imageMeta") or []
+         if item.get("is_primary") and item.get("renderUrl") in images),
+        None,
+    )
+    if primary or images:
+        return primary or images[0]
+    selected = next((item for item in visible_variants(product) if str(item.get("id") or "") == variant_id), None)
+    fallback = public_product_media(product, selected_variant=selected) if selected else []
+    parent_primary = next(
+        (item.get("renderUrl") for item in public_catalog_media(product)
+         if not item.get("variant_id") and item.get("is_primary") and item.get("renderUrl") in fallback),
+        None,
+    )
+    return parent_primary or (fallback[0] if fallback else "")
+
+
 def collection_view(
     db,
     collection: dict,

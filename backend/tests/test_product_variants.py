@@ -27,7 +27,7 @@ def product_with_variants(*, statuses=("active", "active"), stocks=(0, 0)):
         "status": "active",
         "isActive": True,
         "availability": "in_stock",
-        "media": ["https://example.com/black-1.jpg", "https://example.com/black-2.jpg"],
+        "media": ["https://res.cloudinary.com/example/image/upload/black-1.jpg", "https://res.cloudinary.com/example/image/upload/black-2.jpg"],
         "attributes": {"colors": ["BLACK", "IVORY"], "sizes": list(STANDARD_SIZES)},
         "sizeInventoryConfigured": True,
         "sizeInventory": [{"size": size, "stock": 0, "enabled": True} for size in STANDARD_SIZES],
@@ -155,7 +155,7 @@ class ProductVariantTests(unittest.TestCase):
         self.assertEqual(subtotal, 170000)
         self.assertEqual(items[0]["sku"], "AK-CK45-BLACK")
         self.assertEqual(items[0]["colour"], "BLACK")
-        self.assertEqual(items[0]["image"], "https://example.com/black-1.jpg")
+        self.assertEqual(items[0]["image"], "https://res.cloudinary.com/example/image/upload/black-1.jpg")
         self.assertEqual(items[0]["unitPrice"], 85000)
         self.assertTrue(items[0]["requiresAvailabilityConfirmation"])
         self.assertEqual(items[0]["availability"], "confirmation_required")

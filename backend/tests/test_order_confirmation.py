@@ -7,6 +7,8 @@ import smtplib
 
 from bson import ObjectId
 
+from app.blueprints.payments.routes import _checkout_items
+from app.catalog import public_variant_primary_image
 from app.order_confirmation import confirmation_bcc_recipients, render_order_confirmation, send_order_confirmation
 
 
@@ -48,6 +50,22 @@ def sample_order():
     }
 
 
+def media_product():
+    return {
+        "_id": ObjectId(), "name": "Two-colour piece", "status": "active", "isActive": True,
+        "price": 1200, "sku": "HK-CK184", "productCode": "CK184", "attributes": {"colors": ["RED", "BLUE"]},
+        "variants": [
+            {"id": "colour:red", "colour": "RED", "sku": "HK-CK184-RED", "status": "active", "images": [], "sizeInventory": []},
+            {"id": "colour:blue", "colour": "BLUE", "sku": "HK-CK184-BLUE", "status": "active", "images": [], "sizeInventory": []},
+        ],
+        "catalogMedia": [
+            {"media_id": "red-secondary", "provider": "zoho_workdrive", "variant_id": "colour:red", "permalink": "https://workdrive.zoho.in/file/red-secondary", "position": 0},
+            {"media_id": "red-primary", "provider": "zoho_workdrive", "variant_id": "colour:red", "permalink": "https://workdrive.zoho.in/file/red-primary", "position": 1, "is_primary": True},
+            {"media_id": "blue-primary", "provider": "cloudinary", "variant_id": "colour:blue", "secure_url": "https://res.cloudinary.com/example/image/upload/blue.jpg", "position": 0, "is_primary": True},
+        ],
+    }
+
+
 def seed_completed_capture(database, order):
     """Give paid-order notification tests authoritative inventory evidence."""
     from app.inventory_operations import capture_operation_id
@@ -79,6 +97,55 @@ def seed_completed_capture(database, order):
 
 
 class OrderConfirmationTests(unittest.TestCase):
+    def test_checkout_snapshots_only_the_selected_public_primary_image(self):
+        product = media_product()
+        database = mongomock.MongoClient().email_media_tests
+        database.products.insert_one(product)
+        with patch("app.blueprints.payments.routes.sync_product_variants", return_value=product):
+            red, _ = _checkout_items(database, [{"productId": str(product["_id"]), "variantId": "colour:red", "sku": "HK-CK184-RED", "size": "M", "quantity": 1, "image": "https://attacker.example/private.jpg"}])
+            blue, _ = _checkout_items(database, [{"productId": str(product["_id"]), "variantId": "colour:blue", "sku": "HK-CK184-BLUE", "size": "M", "quantity": 1}])
+        self.assertIn(f"/api/catalog/products/{product['_id']}/media/red-primary?v=", red[0]["image"])
+        self.assertTrue(red[0]["image"].startswith("https://rashikapoor.co.in/"))
+        self.assertNotIn("red-secondary", red[0]["image"])
+        self.assertNotIn("workdrive.zoho.in", red[0]["image"])
+        self.assertNotIn("attacker.example", red[0]["image"])
+        self.assertEqual(blue[0]["image"], "https://res.cloudinary.com/example/image/upload/blue.jpg")
+        self.assertNotIn("blue", red[0]["image"])
+        self.assertIn("red-primary", render_order_confirmation({**sample_order(), "items": red}))
+
+    def test_historical_missing_image_uses_only_current_public_matching_variant(self):
+        product = media_product()
+        database = mongomock.MongoClient().email_media_tests
+        database.products.insert_one(product)
+        item = {**sample_order()["items"][0], "productId": str(product["_id"]), "variantId": "colour:red", "image": "https://workdrive.zoho.in/file/private"}
+        order = {**sample_order(), "items": [item]}
+        with patch("app.workdrive.download_file") as download:
+            markup = render_order_confirmation(order, database=database)
+            download.assert_not_called()
+        self.assertIn(f"https://rashikapoor.co.in/api/catalog/products/{product['_id']}/media/red-primary?v=", markup)
+        self.assertNotIn("workdrive.zoho.in", markup)
+        self.assertNotIn("blue.jpg", markup)
+        self.assertIn("width='116' height='150'", markup)
+        self.assertIn("rk-item-image", markup)
+
+        for changes in ({"status": "archived"}, {"isActive": False}, {"variants.0.status": "inactive"}):
+            database.products.update_one({"_id": product["_id"]}, {"$set": changes})
+            hidden = render_order_confirmation(order, database=database)
+            self.assertIn("Product image unavailable", hidden)
+            self.assertNotIn("red-primary", hidden)
+            database.products.replace_one({"_id": product["_id"]}, product)
+
+        item["variantId"] = "colour:missing"
+        self.assertIn("Product image unavailable", render_order_confirmation(order, database=database))
+
+    def test_public_image_falls_back_to_shared_parent_only_without_colour_galleries(self):
+        product = media_product()
+        product["catalogMedia"] = [entry for entry in product["catalogMedia"] if entry["variant_id"] == "colour:red"]
+        self.assertEqual(public_variant_primary_image(product, "colour:blue"), "")
+        product["catalogMedia"] = []
+        product["media"] = ["https://res.cloudinary.com/example/image/upload/shared.jpg"]
+        self.assertEqual(public_variant_primary_image(product, "colour:blue"), product["media"][0])
+
     def test_email_contains_every_variant_measurement_address_and_total(self):
         markup = render_order_confirmation(sample_order())
         for expected in (

@@ -1,4 +1,5 @@
 import unittest
+import mongomock
 from datetime import datetime, timezone
 from unittest.mock import ANY, MagicMock, patch
 
@@ -121,6 +122,40 @@ class CatalogTests(unittest.TestCase):
         self.assertTrue(_shop_matches(record, query="sandook", colour="red", size="xl", collection="collections-of-sandook", fabric="silk", category="couture", fulfilment="made_to_order", minimum=1000, maximum=1100))
         self.assertFalse(_shop_matches(record, colour="green"))
         self.assertFalse(_shop_matches(record, minimum=1002))
+
+    def test_shop_search_matches_codes_variants_collections_and_recorded_metadata(self):
+        record = {
+            "name": "RUHANI", "productCode": "CK184", "parentSku": "HK-CK184", "skuPrefix": "HK",
+            "styleCode": "STYLE 184", "category": "Couture", "price": 1200,
+            "attributes": {"fabric": "Silk", "material": "Net", "occasion": "Wedding", "colors": ["RED"]},
+            "variants": [{"sku": "HK-CK184-RED", "name": "Ruby edit", "colour": "RED", "colourSlug": "ruby-red"}],
+            "collections": [{"name": "Hastakala", "slug": "collections-of-hastakala"}],
+        }
+        for query in ("ruhani", "RUHANI", "CK184", "HK-CK184-RED", "hk ck184 red", "hk", "style 184",
+                      "Ruby edit", "ruby-red", "Couture", "hastakala", "collections-of-hastakala", "silk", "net", "wedding"):
+            with self.subTest(query=query):
+                self.assertTrue(_shop_matches(record, query=query))
+        self.assertFalse(_shop_matches(record, query="unknown-piece"))
+
+    def test_shop_search_endpoint_keeps_public_visibility_and_collection_membership(self):
+        db = mongomock.MongoClient().catalog_search_test
+        product_id = ObjectId()
+        db.products.insert_many([
+            {"_id": product_id, "name": "RUHANI", "productCode": "CK184", "sku": "HK-CK184", "skuPrefix": "HK", "status": "active", "isActive": True,
+             "price": 1200, "attributes": {"fabric": "Silk"}, "variants": [{"id": "colour:red", "sku": "HK-CK184-RED", "colour": "RED", "status": "active", "images": []}]},
+            {"name": "RUHANI archived", "status": "archived", "isActive": True, "variants": []},
+            {"name": "RUHANI inactive", "status": "active", "isActive": False, "variants": []},
+        ])
+        db.collections.insert_one({"name": "Hastakala", "slug": "collections-of-hastakala", "status": "active", "isActive": True,
+                                   "productRefs": [{"productId": product_id, "displayOrder": 1}]})
+        app = Flask(__name__)
+        app.register_blueprint(catalog_bp, url_prefix="/api/catalog")
+        with patch("app.blueprints.catalog.routes.database", return_value=db):
+            for query in ("RUHANI", "ck184", "HK-CK184-RED", "hastakala", "collections-of-hastakala"):
+                with self.subTest(query=query):
+                    response = app.test_client().get("/api/catalog/products", query_string={"q": query})
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual([item["id"] for item in response.json["products"]], [str(product_id)])
 
     def test_shop_endpoint_returns_only_visible_products_and_matching_count(self):
         visible_id, hidden_id = ObjectId(), ObjectId()

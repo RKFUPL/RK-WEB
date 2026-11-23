@@ -17,7 +17,7 @@ async function readApiResponse(response: Response, endpoint: string): Promise<Re
   return payload;
 }
 
-export function VariantMediaEditor({ productId, variants, token, onSaved, initialVariantId }: { productId: string; variants: CatalogProductVariant[]; token: () => string; onSaved?: () => void; initialVariantId?: string }) {
+export function VariantMediaEditor({ productId, variants, token, onSaved, initialVariantId }: { productId: string; variants: CatalogProductVariant[]; token: () => string; onSaved?: () => Promise<{ collection: { products: Array<{ id: string; variants?: Array<{ id: string }> }> } } | undefined>; initialVariantId?: string }) {
   const visibleVariants = useMemo(() => variants.filter((item) => String(item.status || "").toLowerCase() !== "remove"), [variants]);
   const [variantId, setVariantId] = useState(initialVariantId && visibleVariants.some((item) => item.id === initialVariantId) ? initialVariantId : (visibleVariants[0]?.id || ""));
   const selected = visibleVariants.find((item) => item.id === variantId) || visibleVariants[0];
@@ -141,6 +141,7 @@ export function VariantMediaEditor({ productId, variants, token, onSaved, initia
     const colour = newColour.trim().replace(/\s+/g, " ").toUpperCase();
     if (!colour) { setError("Enter a colour name."); return; }
     if (newColourHex.trim() && !isHexColour(newColourHex)) { setError("Hex code must use the format #RRGGBB."); return; }
+    if (hasUnsavedGalleryChanges(baseline, drafts, batch)) { setError(`Save or discard the unsaved ${selected.colour || "current"} gallery changes before adding a colour.`); return; }
     setAddingColour(true); setError("");
     const endpoint = "/api/staff/products/" + encodeURIComponent(productId) + "/variants";
     try {
@@ -150,11 +151,11 @@ export function VariantMediaEditor({ productId, variants, token, onSaved, initia
       const created = payload.variant as { id?: string } | undefined;
       setNewColour(""); setNewColourHex("");
       if (created?.id) {
+        const refreshed = await onSaved?.();
+        if (!refreshed?.collection.products.find((product) => product.id === productId)?.variants?.some((variant) => variant.id === created.id)) {
+          throw new Error("The colour was created, but its server read-back is unavailable. Refresh the product before editing its gallery.");
+        }
         setPendingVariantId(created.id);
-        await onSaved?.();
-        // The parent reload supplies the new canonical variant list. Do not
-        // consult the stale `variants` prop captured before the POST.
-        setVariantId(created.id);
       }
       else await onSaved?.();
     } catch (value) { setError(value instanceof Error ? value.message : "Unable to add colour."); }

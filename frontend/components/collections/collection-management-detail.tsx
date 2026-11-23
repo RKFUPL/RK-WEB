@@ -940,7 +940,6 @@ export function CollectionManagementDetail({
   const [message, setMessage] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [productOpenTarget, setProductOpenTarget] = useState<{ productId: string; variantId?: string } | null>(null);
-  const [productRefreshRevision, setProductRefreshRevision] = useState(0);
   const [editingCollection, setEditingCollection] = useState(false);
   const [heroPreviewFailed, setHeroPreviewFailed] = useState(false);
   const [coverPreviewFailed, setCoverPreviewFailed] = useState(false);
@@ -1871,7 +1870,7 @@ export function CollectionManagementDetail({
       </section>
       {selectedProduct ? (
         <ProductDrawer
-          key={`${selectedProduct.id}:${productRefreshRevision}`}
+          key={selectedProduct.id}
           product={selectedProduct}
           collection={collection}
           collections={data.allCollections}
@@ -1882,9 +1881,7 @@ export function CollectionManagementDetail({
           initialVariantId={productOpenTarget?.productId === selectedProduct.id ? productOpenTarget.variantId : undefined}
           onClose={() => { setSelectedId(null); setProductOpenTarget(null); }}
           onReload={async () => {
-            const refreshed = await load(true);
-            setProductRefreshRevision((current) => current + 1);
-            return refreshed;
+            return load(true);
           }}
           onRemove={async () => {
             const payload = await relationRequest(

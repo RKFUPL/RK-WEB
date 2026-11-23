@@ -27,6 +27,79 @@ async function mockStorefront(page: Page, data: object = product) {
   await page.route('**/*test-*.svg*', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="500"><rect width="400" height="500" fill="#ddd"/></svg>' }));
 }
 
+test('global search combines products and collections and opens the product detail', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const queries: string[] = [];
+  await page.route('**/api/**', route => route.fulfill({ json: {} }));
+  await page.route('**/api/catalog/collections', route => route.fulfill({ json: { collections: [
+    { id: 'hastakala-id', name: 'Hastakala', slug: 'collections-of-hastakala', description: 'Craft-led pieces' },
+  ] } }));
+  await page.route('**/api/catalog/products?*', route => {
+    const query = new URL(route.request().url()).searchParams.get('q') || '';
+    queries.push(query);
+    const matches = ['hastakala', 'ruhani', 'ck184', 'hk-ck184-red'].includes(query.toLowerCase());
+    return route.fulfill({ json: { products: matches ? [{
+      id: 'ruhani-id', name: 'RUHANI', productCode: 'CK184', parentSku: 'HK-CK184',
+      media: ['/search-product.svg'], collections: [{ id: 'hastakala-id', name: 'Hastakala', slug: 'collections-of-hastakala' }],
+    }] : [] } });
+  });
+  await page.route('**/search-product.svg', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="56" height="72"/>' }));
+  await page.goto('/about');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Search products, collections, and pages' });
+  await expect(input).toBeVisible();
+  expect(queries).toEqual([]);
+  await input.fill('Hastakala');
+  await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Collections' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Hastakala', exact: true })).toHaveAttribute('href', '/collections/collections-of-hastakala');
+  const productLink = page.getByRole('link', { name: /RUHANI.*CK184.*Hastakala/ });
+  await expect(productLink).toHaveAttribute('href', '/products/ruhani-id');
+  await expect(productLink.locator('img')).toHaveAttribute('src', '/search-product.svg');
+  await input.fill('CK184');
+  await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible();
+  await productLink.click();
+  await expect(page).toHaveURL(/\/products\/ruhani-id/);
+  expect(queries.some(query => query.toLowerCase() === 'hastakala')).toBe(true);
+  expect(queries.some(query => query.toLowerCase() === 'ck184')).toBe(true);
+});
+
+test('global search reports failures and ignores obsolete product responses', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const queries: string[] = [];
+  await page.route('**/api/**', route => route.fulfill({ json: {} }));
+  await page.route('**/api/catalog/collections', route => route.fulfill({ json: { collections: [] } }));
+  await page.route('**/api/catalog/products?*', async route => {
+    const query = new URL(route.request().url()).searchParams.get('q') || '';
+    queries.push(query);
+    if (query === 'fail') return route.fulfill({ status: 503, json: { error: 'Unavailable' } });
+    if (query === 'slow') await new Promise(resolve => setTimeout(resolve, 900));
+    try {
+      await route.fulfill({ json: { products: query === 'ruhani' ? [{ id: 'current', name: 'RUHANI', productCode: 'CK184', media: [] }] : query === 'slow' ? [{ id: 'obsolete', name: 'Old piece', media: [] }] : [] } });
+    } catch { /* The obsolete request may have been aborted by the browser. */ }
+  });
+  await page.goto('/about');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Search products, collections, and pages' });
+  await input.fill('no-match-9283');
+  await expect(page.getByText('Searching products…')).toBeVisible();
+  await expect(page.getByText('No matching products, collections or pages found.')).toBeVisible();
+  await input.fill('!!!');
+  await expect(page.getByText('No matching products, collections or pages found.')).toBeVisible();
+  await input.fill('fail');
+  await expect(page.getByText('Product search could not be loaded. Please try again.')).toBeVisible();
+  await expect(page.getByText('No matching products, collections or pages found.')).toHaveCount(0);
+  await input.fill('slow');
+  await expect.poll(() => queries.includes('slow')).toBe(true);
+  await input.fill('ruhani');
+  await expect(page.getByRole('link', { name: /RUHANI.*CK184/ })).toBeVisible();
+  await page.waitForTimeout(950);
+  await expect(page.getByText('Old piece')).toHaveCount(0);
+  await input.fill('');
+  await expect(page.getByRole('heading', { name: 'Products' })).toHaveCount(0);
+  expect(queries).not.toContain('');
+});
+
 for (const viewport of [{ width: 1440, height: 1000 }, { width: 768, height: 1024 }, { width: 390, height: 844 }]) {
   test(`colour swatches preserve variant data and keyboard selection at ${viewport.width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
@@ -249,6 +322,108 @@ test('admin creates and edits optional attributes through the existing API and s
     await expect(page.getByRole('heading', { name: 'Admin couture test', exact: true })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Disclaimer', exact: true })).toHaveCount(0);
   }
+});
+
+test('adding a colour keeps the product drawer and media gallery selected after authoritative read-back', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('rk_access_token', 'mock-admin-token'));
+  const managedProduct = { ...product, id: 'managed-piece', name: 'Managed piece', sku: 'RK-MANAGED', variants: [variant('blue', 'BLUE', 12000)] };
+  const variants = [...managedProduct.variants];
+  let collectionReads = 0;
+  let colourPosts = 0;
+  let redGalleryReads = 0;
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/auth/me') return route.fulfill({ json: { user: { id: 'admin', role: 'admin', isActive: true, must_change_password: false } } });
+    if (path === '/api/staff/collections/test') {
+      collectionReads += 1;
+      return route.fulfill({ json: { collection: { id: 'collection', name: 'Test collection', slug: 'test', status: 'published', products: [{ ...managedProduct, variants }] }, allCollections: [], availableProducts: [], permissions: ['products:manage'] } });
+    }
+    if (path === '/api/staff/products/managed-piece/variants' && route.request().method() === 'POST') {
+      colourPosts += 1;
+      const colour = String(route.request().postDataJSON().colour);
+      if (colour === 'BLUE') return route.fulfill({ status: 409, json: { error: 'Colour already exists.' } });
+      if (colour === 'FAILED') return route.fulfill({ status: 500, json: { error: 'Unable to create colour.' } });
+      const created = variant('red', colour, 12000);
+      variants.push(created);
+      return route.fulfill({ json: { variant: created } });
+    }
+    if (path.startsWith('/api/staff/products/managed-piece/variants/')) {
+      const id = path.split('/').at(-1);
+      if (id === 'red') redGalleryReads += 1;
+      return route.fulfill({ json: { images: id === 'blue' ? ['/blue-image.svg'] : [], imageMeta: [] } });
+    }
+    if (path === '/api/admin/colour-swatches') return route.fulfill({ json: { colourSwatches: {} } });
+    return route.fulfill({ json: {} });
+  });
+  const loadedRoutes: string[] = [];
+  page.on('load', () => loadedRoutes.push(new URL(page.url()).pathname));
+  await page.goto('/admin/products/test');
+  const originalUrl = page.url();
+  await page.getByRole('cell', { name: 'Managed piece', exact: true }).click();
+  const drawer = page.getByRole('dialog', { name: 'Managed piece' });
+  await drawer.getByRole('tab', { name: 'Media & galleries' }).click();
+  await expect(drawer.getByRole('tab', { name: 'BLUE' })).toHaveAttribute('aria-selected', 'true');
+  await expect(drawer.getByRole('heading', { name: 'BLUE gallery' })).toBeVisible();
+  await expect(drawer.getByRole('heading', { name: 'BLUE gallery' }).locator('..').getByText(/1 image.*RK-blue/)).toBeVisible();
+
+  await drawer.getByLabel('New colour name').fill('BLUE');
+  await drawer.getByRole('button', { name: 'Add colour', exact: true }).click();
+  await expect(drawer.getByRole('alert')).toContainText('Colour already exists.');
+  await expect(drawer.getByRole('tab', { name: 'BLUE' })).toHaveAttribute('aria-selected', 'true');
+  await drawer.getByLabel('New colour name').fill('FAILED');
+  await drawer.getByRole('button', { name: 'Add colour', exact: true }).click();
+  await expect(drawer.getByRole('alert')).toContainText('Unable to create colour.');
+  await expect(drawer.getByRole('tab', { name: 'BLUE' })).toHaveAttribute('aria-selected', 'true');
+
+  await drawer.getByLabel('New colour name').fill('RED');
+  const readsBeforeCreation = collectionReads;
+  await drawer.getByRole('button', { name: 'Add colour', exact: true }).click();
+  await expect.poll(() => collectionReads).toBeGreaterThan(readsBeforeCreation);
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByRole('tab', { name: 'Media & galleries' })).toHaveAttribute('aria-selected', 'true');
+  await expect(drawer.getByRole('tab', { name: 'RED' })).toHaveAttribute('aria-selected', 'true');
+  await expect(drawer.getByRole('heading', { name: 'RED gallery' })).toBeVisible();
+  await expect.poll(() => redGalleryReads).toBeGreaterThan(0);
+  await expect(drawer.getByRole('heading', { name: 'RED gallery' }).locator('..').getByText(/0 images.*RK-red/)).toBeVisible();
+  expect(page.url()).toBe(originalUrl);
+  expect(loadedRoutes).toEqual(['/admin/products/test']);
+  expect(colourPosts).toBe(3);
+  await drawer.getByRole('tab', { name: 'BLUE' }).click();
+  await expect(drawer.getByRole('heading', { name: 'BLUE gallery' })).toBeVisible();
+  await expect(drawer.getByRole('tab', { name: 'RED' })).toHaveAttribute('aria-selected', 'false');
+  await drawer.getByPlaceholder('Landscape main.jpg - https://workdrive.zoho.in/file/...').fill('Unsaved gallery draft');
+  await drawer.getByLabel('New colour name').fill('GOLD');
+  await drawer.getByRole('button', { name: 'Add colour', exact: true }).click();
+  await expect(drawer.getByRole('alert')).toContainText('Save or discard the unsaved BLUE gallery changes');
+  expect(colourPosts).toBe(3);
+  await expect(drawer.getByRole('tab', { name: 'BLUE' })).toHaveAttribute('aria-selected', 'true');
+});
+
+test('product creation conflict still opens the persisted existing colour gallery', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('rk_access_token', 'mock-admin-token'));
+  const existing = { ...product, id: 'existing-piece', name: 'Existing piece', sku: 'RK-EXISTING', variants: [variant('blue', 'BLUE', 12000)] };
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/auth/me') return route.fulfill({ json: { user: { id: 'admin', role: 'admin', isActive: true, must_change_password: false } } });
+    if (path === '/api/staff/collections/test') return route.fulfill({ json: { collection: { id: 'collection', name: 'Test collection', slug: 'test', status: 'published', products: [existing] }, allCollections: [], availableProducts: [], permissions: ['products:manage'] } });
+    if (path === '/api/staff/resources/products' && route.request().method() === 'POST') return route.fulfill({ status: 409, json: { code: 'SKU_COLOUR_CONFLICT', existingProduct: { id: existing.id, name: existing.name, sku: existing.sku }, variantId: 'blue', existingColour: 'BLUE' } });
+    if (path === '/api/staff/products/existing-piece/variants/blue') return route.fulfill({ json: { images: [], imageMeta: [] } });
+    return route.fulfill({ json: {} });
+  });
+  await page.goto('/admin/products/test');
+  await page.getByRole('button', { name: 'Add product', exact: true }).click();
+  const creation = page.getByRole('dialog');
+  await creation.getByLabel('Product name', { exact: true }).fill('Duplicate piece');
+  await creation.getByLabel('Style code / SKU').fill('RK-EXISTING');
+  await creation.getByRole('tab', { name: 'Pricing & inventory' }).click();
+  await creation.getByLabel('Base INR price').fill('12000');
+  await creation.getByRole('button', { name: 'Create product' }).click();
+  await expect(page.getByRole('heading', { name: 'Colour already exists' })).toBeVisible();
+  await page.getByRole('button', { name: 'Open existing colour' }).click();
+  const drawer = page.getByRole('dialog', { name: 'Existing piece' });
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByRole('tab', { name: 'Media & galleries' })).toHaveAttribute('aria-selected', 'true');
+  await expect(drawer.getByRole('tab', { name: 'BLUE' })).toHaveAttribute('aria-selected', 'true');
 });
 
 test('admin WhatsApp setting changes product links and can disable them', async ({ page }) => {

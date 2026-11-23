@@ -9,7 +9,7 @@ from flask import Blueprint, current_app, jsonify, request
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError, OperationFailure
 
-from ...catalog import ensure_catalog_seed, is_excluded_collection
+from ...catalog import ensure_catalog_seed, is_excluded_collection, public_variant_primary_image
 from ...inventory import STANDARD_SIZES, has_size_system, validate_custom_size
 from ...order_fulfillment import (
     actor_view,
@@ -25,7 +25,7 @@ from ...whatsapp import normalize_phone
 from ...checkout_whatsapp import checkout_recipient
 from ...whatsapp_consent import consent_phone, order_consent_status, record_consent
 from ...whatsapp_marketing_consent import record_marketing_consent
-from ...order_confirmation import send_order_confirmation
+from ...order_confirmation import email_image_url, send_order_confirmation
 from ...payments import RazorpayAPIError, is_configured, razorpay_api_request, verify_payment_signature, verify_webhook_signature
 from ...product_variants import find_variant, sync_product_variants
 from ...rbac import authenticated_user_id, current_user, database, requireAuth
@@ -191,7 +191,7 @@ def _checkout_items(db, cart: object) -> tuple[list[dict], float]:
         subtotal += line_total
         size_entry = next((entry for entry in variant.get("sizeInventory", []) if str(entry.get("size") or "").strip().upper() == size), None) if size else None
         requires_confirmation = purchase_mode == "custom_size" or not size_entry or int(size_entry.get("stock") or 0) < quantity
-        media = variant.get("images") if isinstance(variant.get("images"), list) else []
+        image = email_image_url(public_variant_primary_image(product, variant_id))
         collection = next((item for item in db.collections.find(
             {"productRefs.productId": product_id},
             {"name": 1, "slug": 1, "collectionType": 1},
@@ -209,7 +209,7 @@ def _checkout_items(db, cart: object) -> tuple[list[dict], float]:
             "quantity": quantity,
             "unitPrice": price,
             "lineTotal": line_total,
-            "image": media[0] if media and isinstance(media[0], str) else "",
+            "image": image,
             "availability": "confirmation_required" if requires_confirmation else "in_stock",
             "requiresAvailabilityConfirmation": requires_confirmation,
             "variantStatus": variant_status,

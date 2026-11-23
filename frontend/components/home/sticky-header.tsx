@@ -18,7 +18,7 @@ import {
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { brandLogoUrl, searchItems } from '@/lib/home-content';
 import { apiBaseUrl, logout } from '@/lib/rbac';
-import { fetchCatalogCollections } from '@/lib/catalog-client';
+import { fetchCatalogCollections, searchCatalogProducts, type CatalogSearchProduct } from '@/lib/catalog-client';
 import { cartChangedEvent, readStoredCart, removeStoredCartItem, updateStoredCartQuantity } from '@/lib/storefront-cart';
 import { readWishlist, removeFromWishlist, wishlistChangedEvent, type StorefrontWishlistItem } from '@/lib/storefront-wishlist';
 import type { Cart } from '@/lib/store-types';
@@ -43,6 +43,15 @@ const utilityLinks = [
 ] as const;
 const navItemClass =
   'border-0 bg-transparent p-0 font-body text-[0.78rem] uppercase tracking-[0.24em] text-current transition duration-500 hover:text-gold';
+
+const searchTokens = (value: string) => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(/\s+/).filter(Boolean);
+const matchesSearch = (value: string, query: string) => {
+  if (!query.trim()) return true;
+  const terms = searchTokens(query);
+  if (!terms.length) return false;
+  const haystack = searchTokens(value).join(' ');
+  return terms.every((token) => haystack.includes(token));
+};
 
 type StickyHeaderProps = {
   transparentAtTop?: boolean;
@@ -73,7 +82,11 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
   const [shoppingBag, setShoppingBag] = useState<Cart>({ items: [], currency: 'INR' });
   const [wishlistNotice, setWishlistNotice] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [collectionLinks, setCollectionLinks] = useState<Array<{ id: string; name: string; route: string; summary: string }>>([]);
+  const [productResults, setProductResults] = useState<CatalogSearchProduct[]>([]);
+  const [productSearchState, setProductSearchState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [collectionSearchError, setCollectionSearchError] = useState(false);
+  const [collectionLinks, setCollectionLinks] = useState<Array<{ id: string; name: string; slug: string; route: string; summary: string }>>([]);
+  const searchVersionRef = useRef(0);
   const headerRef = useRef<HTMLElement | null>(null);
   const previousScrollYRef = useRef(0);
   const scrollFrameRef = useRef<number | null>(null);
@@ -90,10 +103,43 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
 
   const loadCollectionLinks = () => {
     if (collectionLinks.length) return;
+    setCollectionSearchError(false);
     void fetchCatalogCollections()
-      .then((collections) => setCollectionLinks(collections.map((collection) => ({ id: collection.id, name: collection.name, route: `/collections/${collection.slug}`, summary: collection.description || '' }))))
-      .catch(() => setCollectionLinks([]));
+      .then((collections) => setCollectionLinks(collections.map((collection) => ({ id: collection.id, name: collection.name, slug: collection.slug, route: `/collections/${collection.slug}`, summary: collection.description || '' }))))
+      .catch(() => { setCollectionLinks([]); setCollectionSearchError(true); });
   };
+
+  const updateSearchQuery = (value: string) => {
+    searchVersionRef.current += 1;
+    setProductResults([]);
+    setSearchQuery(value);
+  };
+
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (!searchOpen || !query) {
+      setProductResults([]);
+      setProductSearchState('idle');
+      return;
+    }
+    const controller = new AbortController();
+    const version = searchVersionRef.current;
+    setProductResults([]);
+    setProductSearchState('loading');
+    const timer = window.setTimeout(() => {
+      void searchCatalogProducts(query, controller.signal)
+        .then((products) => {
+          if (!controller.signal.aborted && version === searchVersionRef.current) {
+            setProductResults(products);
+            setProductSearchState('ready');
+          }
+        })
+        .catch(() => {
+          if (!controller.signal.aborted && version === searchVersionRef.current) setProductSearchState('error');
+        });
+    }, 300);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [searchOpen, searchQuery]);
 
   useEffect(() => {
     const syncBag = () => setShoppingBag(readStoredCart());
@@ -272,16 +318,15 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
   };
 
   const searchResults = useMemo(() => {
-    const dynamicItems = collectionLinks.map((collection) => ({ title: collection.name, type: 'Collection', href: collection.route, keywords: `${collection.name} ${collection.summary}` }));
-    const items = [...dynamicItems, ...searchItems.filter((item) => item.type !== 'Collection' || item.title === 'All Collections')];
-    const normalizedQuery = searchQuery.trim().toLowerCase();
-    if (!normalizedQuery) {
-      return items;
-    }
-
-    return items.filter((item) =>
-      `${item.title} ${item.type} ${item.keywords}`.toLowerCase().includes(normalizedQuery)
-    );
+    const collections = [
+      ...collectionLinks.map((collection) => ({ title: collection.name, href: collection.route, keywords: `${collection.name} ${collection.slug} ${collection.summary}` })),
+      ...searchItems.filter((item) => item.type === 'Collection' && item.title === 'All Collections'),
+    ];
+    const pages = searchItems.filter((item) => item.type !== 'Collection');
+    return {
+      collections: collections.filter((item) => matchesSearch(`${item.title} ${item.keywords}`, searchQuery)),
+      pages: pages.filter((item) => matchesSearch(`${item.title} ${item.keywords}`, searchQuery)),
+    };
   }, [collectionLinks, searchQuery]);
 
   const scrollToHome = () => {
@@ -470,10 +515,10 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
                 <input
                   autoFocus
                   value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="Search collections, lookbooks, keywords..."
+                  onChange={(event) => updateSearchQuery(event.target.value)}
+                  placeholder="Search products, collections, lookbooks..."
                   className="w-full bg-transparent text-base outline-none placeholder:text-charcoal/40"
-                  aria-label="Search collections, lookbooks, and keywords"
+                  aria-label="Search products, collections, and pages"
                 />
                 <button type="button" onClick={() => setSearchOpen(false)} aria-label="Close search">
                   <X className="h-5 w-5 text-charcoal/60" />
@@ -487,7 +532,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
                       <button
                         key={suggestion}
                         type="button"
-                        onClick={() => setSearchQuery(suggestion)}
+                        onClick={() => updateSearchQuery(suggestion)}
                         className="block text-left transition hover:text-gold"
                       >
                         {suggestion}
@@ -496,23 +541,28 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
                   </div>
                 </aside>
                 <section>
-                  <div className="flex gap-8 border-b border-black/10 text-xs uppercase tracking-[0.3em] text-charcoal/45">
-                    <span className="border-b border-charcoal pb-4 text-charcoal">Results</span>
-                    <span className="pb-4">Collections</span>
-                    <span className="pb-4">Pages</span>
-                  </div>
-                  <div className="divide-y divide-black/10 border-b border-black/10">
-                    {searchResults.length ? searchResults.map((item) => (
-                      <Link
-                        key={`${item.type}-${item.href}`}
-                        href={item.href}
-                        onClick={handleNavigation}
-                        className="flex items-center justify-between py-5 transition hover:text-gold"
-                      >
-                        <span className="text-base tracking-[0.08em]">{item.title}</span>
-                        <span className="text-[0.62rem] uppercase tracking-[0.28em] text-charcoal/45">{item.type}</span>
-                      </Link>
-                    )) : <p className="py-5 text-sm text-charcoal/55">No matching collections or lookbooks found.</p>}
+                  <div aria-live="polite" className="space-y-8">
+                    {productSearchState === 'loading' ? <p className="text-sm text-charcoal/55">Searching products…</p> : null}
+                    {productSearchState === 'error' ? <p role="alert" className="text-sm text-red-700">Product search could not be loaded. Please try again.</p> : null}
+                    {collectionSearchError ? <p role="alert" className="text-sm text-red-700">Collections could not be loaded. Please try again.</p> : null}
+                    {productResults.length ? <div>
+                      <h2 className="border-b border-black/10 pb-3 text-xs uppercase tracking-[0.3em]">Products</h2>
+                      <div className="divide-y divide-black/10">
+                        {productResults.map((product) => <Link key={product.id} href={`/products/${product.id}`} onClick={handleNavigation} className="flex items-center gap-4 py-3 transition hover:text-gold">
+                          {product.media?.[0] ? <img src={product.media[0]} alt="" width="56" height="72" className="h-[72px] w-14 shrink-0 bg-[#eee6da] object-cover" /> : <span aria-hidden="true" className="h-[72px] w-14 shrink-0 bg-[#eee6da]" />}
+                          <span className="min-w-0"><span className="block truncate font-display text-lg">{product.name || 'RK piece'}</span><span className="block text-xs text-charcoal/55">{product.productCode || product.parentSku || product.sku}{product.collections?.[0]?.name ? ` · ${product.collections[0].name}` : ''}</span></span>
+                        </Link>)}
+                      </div>
+                    </div> : null}
+                    {searchResults.collections.length ? <div>
+                      <h2 className="border-b border-black/10 pb-3 text-xs uppercase tracking-[0.3em]">Collections</h2>
+                      <div className="divide-y divide-black/10">{searchResults.collections.map((item) => <Link key={item.href} href={item.href} onClick={handleNavigation} className="block py-4 text-sm tracking-[0.08em] transition hover:text-gold">{item.title}</Link>)}</div>
+                    </div> : null}
+                    {searchResults.pages.length ? <div>
+                      <h2 className="border-b border-black/10 pb-3 text-xs uppercase tracking-[0.3em]">Pages / Lookbooks</h2>
+                      <div className="divide-y divide-black/10">{searchResults.pages.map((item) => <Link key={item.href} href={item.href} onClick={handleNavigation} className="block py-4 text-sm tracking-[0.08em] transition hover:text-gold">{item.title}</Link>)}</div>
+                    </div> : null}
+                    {searchQuery.trim() && productSearchState === 'ready' && !collectionSearchError && !productResults.length && !searchResults.collections.length && !searchResults.pages.length ? <p className="py-5 text-sm text-charcoal/55">No matching products, collections or pages found.</p> : null}
                   </div>
                 </section>
               </div>
