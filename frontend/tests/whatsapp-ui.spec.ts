@@ -1,5 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
 
+async function selectPhoneCountry(page: Page, code: 'US' | 'GB') {
+  const country = code === 'US' ? /United States \(\+1\)$/ : /United Kingdom \(\+44\)$/;
+  await page.getByRole('combobox', { name: 'Country and dialling code', exact: true }).fill(code);
+  await page.getByRole('option', { name: country }).click();
+}
+
+
 async function mockLinkedCheckout(page: Page, options: { savedConsent?: boolean; mandatory?: boolean; profilePhone?: string } = {}) {
   const requests: Record<string, unknown>[] = [];
   await page.addInitScript(() => {
@@ -44,7 +51,7 @@ for (const width of [1440, 390]) for (const linked of [false, true]) test(`check
   for (let i = 0; i < shippingLabels.length; i++) await expect(field(shippingLabels[i])).toHaveValue(expectedSaved[i]);
   if (linked) await same.check();
   else {
-    await page.getByLabel('Country and dialling code').selectOption('GB');
+    await selectPhoneCountry(page, 'GB');
     await page.getByLabel('Mobile number', { exact: true }).fill('2079460018');
     await consent.check();
   }
@@ -63,10 +70,10 @@ for (const width of [1440, 390]) for (const linked of [false, true]) test(`check
   expect(requests).toHaveLength(0);
   await field('Country').fill(fresh[7]);
   if (linked) {
-    await expect(page.getByLabel('Country and dialling code')).toHaveValue('GB');
+    await expect(page.getByLabel('Country and dialling code')).toHaveValue(/United Kingdom \(\+44\)/);
     await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('2079460018');
   } else {
-    await page.getByLabel('Country and dialling code').selectOption('GB');
+    await selectPhoneCountry(page, 'GB');
     await page.getByLabel('Mobile number', { exact: true }).fill('2079460018');
   }
   await expect(consent).not.toBeChecked();
@@ -112,17 +119,17 @@ for (const mobile of [false, true]) test(`checkout linked recipient copies and s
   await expect(same).not.toBeChecked();
   await same.check();
   await expect(consent).not.toBeChecked();
-  await expect(page.getByLabel('Country and dialling code')).toHaveValue('US');
+  await expect(page.getByLabel('Country and dialling code')).toHaveValue(/United States \(\+1\)/);
   await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('4155552671');
-  await expect(page.getByLabel('Country and dialling code').locator('option:checked')).toContainText('(+1)');
+  await expect(page.getByLabel('Country and dialling code')).toHaveValue(/\(\+1\)/);
   await consent.check();
   await page.getByRole('textbox', { name: /^Phone/ }).fill('+91 96198 88755');
-  await expect(page.getByLabel('Country and dialling code')).toHaveValue('IN');
+  await expect(page.getByLabel('Country and dialling code')).toHaveValue(/India \(\+91\)/);
   await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('9619888755');
   await expect(consent).not.toBeChecked();
   await consent.check();
   await page.getByLabel('Use a saved address').selectOption('gb');
-  await expect(page.getByLabel('Country and dialling code')).toHaveValue('GB');
+  await expect(page.getByLabel('Country and dialling code')).toHaveValue(/United Kingdom \(\+44\)/);
   await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('2079460018');
   await expect(page.getByText('Using delivery contact number:', { exact: false })).toContainText('+442079460018');
   await same.locator('..').locator('..').screenshot({ path: test.info().outputPath('linked-whatsapp.png') });
@@ -143,7 +150,7 @@ test('checkout unlinking preserves a separate number and manual edits unlink cou
   await mockLinkedCheckout(page);
   const same = page.getByRole('checkbox', { name: 'Same as contact phone', exact: true });
   const number = page.getByLabel('Mobile number', { exact: true });
-  await page.getByLabel('Country and dialling code').selectOption('GB');
+  await selectPhoneCountry(page, 'GB');
   await number.fill('2079460018');
   await same.check();
   await expect(number).toHaveValue('4155552671');
@@ -155,7 +162,7 @@ test('checkout unlinking preserves a separate number and manual edits unlink cou
   await number.fill('9619888756');
   await expect(same).not.toBeChecked();
   await same.check();
-  await page.getByLabel('Country and dialling code').selectOption('GB');
+  await selectPhoneCountry(page, 'GB');
   await expect(same).not.toBeChecked();
   await expect(number).toHaveValue('');
 });
@@ -186,7 +193,7 @@ for (const linked of [false, true]) test(`checkout saved consent applies only to
     await page.getByRole('checkbox', { name: 'Same as contact phone', exact: true }).check();
     await page.getByLabel('Use a saved address').selectOption('gb');
   } else {
-    await page.getByLabel('Country and dialling code').selectOption('GB');
+    await selectPhoneCountry(page, 'GB');
     await page.getByLabel('Mobile number', { exact: true }).fill('2079460018');
   }
   const consent = page.getByRole('checkbox', { name: /Keep me updated on WhatsApp/ });
@@ -207,12 +214,12 @@ test('checkout retains the copied number after unlinking when there was no indep
   await same.uncheck();
   await page.getByRole('textbox', { name: /^Phone/ }).fill('+442079460018');
   await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('4155552671');
-  await expect(page.getByLabel('Country and dialling code')).toHaveValue('US');
+  await expect(page.getByLabel('Country and dialling code')).toHaveValue(/United States \(\+1\)/);
 });
 
 test('checkout phone controls have refined keyboard focus and reduced motion styling', async ({ page }) => {
   await mockLinkedCheckout(page, { profilePhone: '' });
-  for (const control of [page.getByLabel('Search telephone countries'), page.getByLabel('Country and dialling code'), page.getByLabel('Mobile number', { exact: true })]) {
+  for (const control of [page.getByLabel('Country and dialling code'), page.getByLabel('Mobile number', { exact: true })]) {
     await control.focus();
     // Tailwind's outline-none retains a transparent forced-colors fallback.
     await expect(control).toHaveCSS('outline-color', 'rgba(0, 0, 0, 0)');
@@ -973,7 +980,7 @@ test('signup requests WhatsApp OTP and transactional consent separately and opti
   await page.getByLabel('Last name', { exact: true }).fill('Customer');
   await page.getByLabel('Username', { exact: true }).fill('fixture.signup');
   await page.getByLabel('Email', { exact: true }).fill('signup@example.test');
-  await page.getByLabel('Country and dialling code', { exact: true }).selectOption('US');
+  await selectPhoneCountry(page, 'US');
   await page.getByLabel('Mobile number', { exact: true }).fill('4155552671');
   await page.getByLabel('Date of birth', { exact: true }).fill('1990-01-01');
   await page.getByRole('combobox', { name: 'Gender', exact: true }).selectOption('female');
@@ -1533,4 +1540,74 @@ for (const width of [1440, 768, 390]) test(`compact diagnostic rows and expanded
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: info.outputPath(`diagnostics-expanded-${width}.png`), fullPage: true });
   expect(calls.sent).toEqual([]);
+});
+
+
+test('international country combobox integrates search and selection in one field', async ({ page }) => {
+  await mockLinkedCheckout(page);
+  const field = page.getByRole('combobox', { name: 'Country and dialling code', exact: true });
+  await expect(field).toHaveCount(1);
+  await expect(page.getByLabel('Search telephone countries')).toHaveCount(0);
+  await expect(page.locator('select').filter({ has: page.locator('option[value="IN"]') })).toHaveCount(0);
+  for (const query of ['India', 'IN', '+91']) {
+    await field.fill(query);
+    await expect(field).toHaveAttribute('aria-expanded', 'true');
+    const india = page.getByRole('option', { name: /India \(\+91\)$/ });
+    await expect(india).toBeVisible();
+    if (query === '+91') await expect(page.getByRole('listbox', { name: 'Telephone countries' }).getByRole('option')).toHaveCount(1);
+    await india.click();
+    await expect(field).toHaveValue(/India \(\+91\)/);
+    await expect(field).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByRole('listbox', { name: 'Telephone countries' })).toHaveCount(0);
+  }
+  await page.getByLabel('Mobile number', { exact: true }).fill('9619888755');
+  await selectPhoneCountry(page, 'GB');
+  await expect(field).toHaveValue(/United Kingdom \(\+44\)/);
+  await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('');
+});
+
+test('international country combobox supports arrows Enter Escape and Tab', async ({ page }) => {
+  await mockLinkedCheckout(page);
+  const field = page.getByRole('combobox', { name: 'Country and dialling code', exact: true });
+  await field.focus();
+  await expect(field).toHaveAttribute('aria-expanded', 'true');
+  await field.fill('India');
+  await field.press('ArrowDown');
+  await field.press('ArrowUp');
+  await field.press('Enter');
+  await expect(field).toHaveValue(/India \(\+91\)/);
+  await field.press('u'); // Start a new search while the closed field still has focus.
+  await expect(field).toHaveValue('u');
+  await field.fill('United');
+  await field.press('ArrowUp'); // Wrap to the last result, United States.
+  await field.press('Enter');
+  await expect(field).toHaveValue(/United States \(\+1\)/);
+  await field.fill('no-such-country');
+  await expect(page.getByRole('status')).toContainText('No matching countries');
+  await field.press('Escape');
+  await expect(field).toHaveValue(/United States \(\+1\)/);
+  await field.press('ArrowDown');
+  await expect(field).toHaveAttribute('aria-expanded', 'true');
+  await field.press('Tab');
+  await expect(field).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByLabel('Mobile number', { exact: true })).toBeFocused();
+});
+
+for (const width of [1440, 390]) test(`international country combobox closes outside and escapes clipping at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 });
+  await mockLinkedCheckout(page);
+  const field = page.getByRole('combobox', { name: 'Country and dialling code', exact: true });
+  const original = await field.inputValue();
+  await field.evaluate(element => { element.closest('fieldset')!.style.overflow = 'hidden'; });
+  await field.fill('India');
+  const list = page.getByRole('listbox', { name: 'Telephone countries' });
+  await expect(list).toBeVisible();
+  expect(await list.evaluate(element => element.parentElement === document.body)).toBe(true);
+  const box = await list.boundingBox();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+  await page.getByLabel('Mobile number', { exact: true }).click();
+  await expect(list).toHaveCount(0);
+  await expect(field).toHaveValue(original);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
 });

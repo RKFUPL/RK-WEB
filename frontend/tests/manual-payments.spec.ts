@@ -1,5 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
 
+async function selectPhoneCountry(page: Page, code: 'US' | 'GB') {
+  const country = code === 'US' ? /United States \(\+1\)$/ : /United Kingdom \(\+44\)$/;
+  await page.getByRole('combobox', { name: 'Country and dialling code', exact: true }).fill(code);
+  await page.getByRole('option', { name: country }).click();
+}
+
+
 const fixtureOrder = () => ({ id: 'manual-order', orderNumber: 'RK-MANUAL-1', customerName: 'Fixture Customer', email: 'fixture@example.test',
   total: 1000, payment: { gateway: 'manual', status: 'pending' }, paymentStatus: 'pending',
   fulfillment: { status: 'order_placed' }, fulfillmentStatus: 'order_placed', availableActions: ['confirmed', 'cancelled'],
@@ -258,7 +265,7 @@ test('a missing WhatsApp number is entered separately and is never copied from t
   await page.getByRole('button', { name: /^Place order/ }).click();
   await expect(page.getByText('Enter a valid WhatsApp number for order updates.', { exact: true })).toBeVisible();
   expect(calls).toHaveLength(0);
-  await page.getByLabel('Country and dialling code').selectOption('US');
+  await selectPhoneCountry(page, 'US');
   await page.getByLabel('Mobile number').fill('4155552671');
   await expect(consent).not.toBeChecked();
   await consent.check();
