@@ -474,3 +474,60 @@ for (const scenario of ['accepted-cancelled', 'rejected', 'active', 'missing-ref
     }
   });
 }
+
+
+for (const scenario of [
+  { status: 'order_placed', decision: undefined, acceptedId: undefined, accepted: false },
+  { status: 'awaiting_confirmation', decision: undefined, acceptedId: '', accepted: false },
+  { status: 'confirmed', decision: 'accepted', acceptedId: undefined, accepted: true },
+  { status: 'processing', decision: 'accepted', acceptedId: undefined, accepted: true },
+  { status: 'packed', decision: 'accepted', acceptedId: undefined, accepted: true },
+  { status: 'processing', decision: undefined, acceptedId: 'persisted-acceptance', accepted: true },
+]) test(`cancellation action label follows persisted acceptance: ${scenario.status}, ${scenario.decision || scenario.acceptedId || 'unaccepted'}`, async ({ page }) => {
+  const label = scenario.accepted ? 'Cancellation Requested' : 'Reject Order';
+  const requests: Record<string, unknown>[] = [];
+  let order = { ...fixtureOrder(), fulfillment: { status: scenario.status }, fulfillmentStatus: scenario.status,
+    availableActions: ['cancelled'], availabilityDecision: scenario.decision ? { status: scenario.decision } : undefined,
+    timeline: scenario.acceptedId !== undefined ? [{ status: 'order_accepted', id: scenario.acceptedId,
+      label: 'Order Accepted', timestamp: '2026-11-19T07:00:00Z', actor: { type: 'staff' } }] : [] };
+  await page.addInitScript(() => localStorage.setItem('rk_access_token', 'fixture-token'));
+  await page.route('**/*', route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/auth/me') return route.fulfill({ json: { user: { id: 'fixture-admin', role: 'admin', isActive: true, must_change_password: false } } });
+    if (url.pathname === '/api/staff/orders/manual-order/fulfillment') {
+      const body = route.request().postDataJSON(); requests.push(body);
+      const event = scenario.accepted ? 'cancelled' : 'order_rejected';
+      order = { ...order, fulfillment: { status: 'cancelled' }, fulfillmentStatus: 'cancelled', availableActions: [],
+        availabilityDecision: scenario.accepted ? order.availabilityDecision : { status: 'rejected' },
+        timeline: [...order.timeline, { id: 'saved-transition', status: event, label: event, timestamp: '2026-11-19T08:00:00Z', actor: { type: 'staff' } }] };
+      return route.fulfill({ json: { order } });
+    }
+    if (url.pathname === '/api/staff/orders/manual-order') return route.fulfill({ json: { order } });
+    if (url.pathname.startsWith('/api/')) return route.fulfill({ json: {} });
+    if (url.origin !== 'http://127.0.0.1:3210') return route.fulfill({ status: 204, body: '' });
+    return route.continue();
+  });
+  await page.goto('/admin/orders/manual-order');
+  const action = page.getByRole('button', { name: label, exact: true });
+  await expect(action).toBeVisible();
+  await expect(page.getByRole('button', { name: scenario.accepted ? 'Reject Order' : 'Cancellation Requested', exact: true })).toHaveCount(0);
+  await action.click();
+  await expect(page.getByRole('heading', { name: label, exact: true })).toBeVisible();
+  if (scenario.accepted) {
+    await expect(page.getByLabel('Rejection reason')).toHaveCount(0);
+    await expect(page.getByLabel(/^Explanation/)).toHaveCount(0);
+  } else {
+    await page.getByLabel('Rejection reason').selectOption('other');
+    await expect(page.getByLabel(/^Explanation/)).toHaveAttribute('required', '');
+    await page.getByLabel(/^Explanation/).fill('Synthetic availability explanation');
+  }
+  expect(requests).toEqual([]);
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].status).toBe('cancelled');
+  expect(requests[0].sendCustomerNotification).toBe(true);
+  expect(requests[0].rejectionReason).toBe(scenario.accepted ? '' : 'other');
+  await expect(page.getByText('Order updated successfully.', { exact: true })).toBeVisible();
+  expect(order.timeline.at(-1)?.status).toBe(scenario.accepted ? 'cancelled' : 'order_rejected');
+  if (scenario.decision === 'accepted') expect(order.availabilityDecision?.status).toBe('accepted');
+});

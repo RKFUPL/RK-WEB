@@ -27,12 +27,19 @@ const actionLabels: Record<string, string> = {
   shipped: "Mark as Shipped",
   out_for_delivery: "Mark as Out for Delivery",
   delivered: "Mark as Delivered",
-  cancelled: "Reject Order",
   returned: "Mark Returned",
   refunded: "Mark Refunded",
   shipment_update: "Update Tracking",
   return_accept: "Accept Return",
 };
+const hasOrderAcceptance = (order: Order) =>
+  order.availabilityDecision?.status === "accepted" ||
+  order.timeline?.some(event => event.status === "order_accepted" && typeof event.id === "string" && Boolean(event.id.trim()));
+const actionLabel = (action: string, order: Order) =>
+  action === "cancelled"
+    ? hasOrderAcceptance(order) ? "Cancellation Requested" : "Reject Order"
+    : actionLabels[action] || titleCase(action);
+
 const whatsappReasons: Record<string, string> = {
   ...Object.fromEntries(['legacy_template_mapping_requires_migration', 'meta_body_correction_required',
     'template_approval_unverified', 'template_components_unverified', 'template_mapping_disabled', 'template_evidence_stale']
@@ -621,7 +628,7 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
                 onClick={() => openAction(next)}
                 className="rounded-lg bg-[#24211e] px-4 py-2.5 text-xs text-white hover:bg-[#9a7a4d]"
               >
-                {actionLabels[next] || titleCase(next)}
+                {actionLabel(next, order)}
               </button>
             ))}
           </div>
@@ -680,7 +687,7 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
                   Order action
                 </p>
                 <h2 className="mt-2 text-xl font-semibold">
-                  {actionLabels[action] || titleCase(action)}
+                  {actionLabel(action, order)}
                 </h2>
               </div>
               <button onClick={() => setAction(null)}>
@@ -732,8 +739,8 @@ export function AdminOrderDetail({ orderId }: { orderId: string }) {
                 <label className="text-[9px] uppercase tracking-[.16em] text-[#858b94]">Shipment dispatch date and time<input type="datetime-local" value={form.shippedAt} onChange={event => setForm(current => ({ ...current, shippedAt: event.target.value }))} className={fieldClass} /></label>
               </div>
             ) : null}
-            {action === "cancelled" &&
-            ["order_placed", "awaiting_confirmation"].includes(order.fulfillmentStatus) ? (
+            {action === "cancelled" && !hasOrderAcceptance(order) &&
+            ["order_placed", "awaiting_confirmation"].includes(order.fulfillment.status || order.fulfillmentStatus) ? (
               <div className="mt-6 grid gap-4">
                 <label className="text-[9px] uppercase tracking-[.16em] text-[#858b94]">
                   Rejection reason
