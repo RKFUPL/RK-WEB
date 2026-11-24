@@ -327,9 +327,12 @@ export default function AccountPage() {
 
         <section className="flex items-center justify-center px-6 py-12 lg:px-20">
           <div className={`w-full ${isSignup ? 'max-w-2xl' : 'max-w-md'}`}>
-            <div className="mb-12 flex justify-end">
+            <div className="mb-12 flex flex-col items-end gap-3">
               <a href="/" className="inline-flex">
                 <img src={brandLogoUrl} alt="RK Logo" className="rk-logo h-16 w-auto" />
+              </a>
+              <a href="/" className="text-sm text-charcoal/60 underline decoration-gold/50 underline-offset-4 transition hover:text-gold">
+                ← Back to Home
               </a>
             </div>
             <p className="mt-8 text-xs uppercase tracking-[0.35em] text-charcoal/45">{isSignup ? 'Create your profile' : isForgot ? 'Account recovery' : 'Welcome back'}</p>
