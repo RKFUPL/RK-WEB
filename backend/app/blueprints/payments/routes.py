@@ -500,7 +500,9 @@ def create_razorpay_order():
     db = database()
     store_settings = db.admin_settings.find_one({"_id": "store"}) or {}
     online = store_settings.get("razorpayEnabled") is not False
-    mandatory_whatsapp = store_settings.get("requireWhatsappConsentForCheckout") is True
+    from ...communication_preferences import collection_mode
+    onboarding = collection_mode(db) == 'onboarding'
+    mandatory_whatsapp = not onboarding and store_settings.get("requireWhatsappConsentForCheckout") is True
     if mandatory_whatsapp and payload.get("whatsappTransactionalConsent") is not True:
         return jsonify(error="Explicit transactional WhatsApp consent is required before checkout.", code="whatsapp_consent_required"), 400
     try:

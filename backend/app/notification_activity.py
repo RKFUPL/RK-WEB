@@ -47,6 +47,10 @@ def expire_stale_email_claims(db, order_id, at=None):
 
 def claim_email(db, order_id, event, key, *, snapshot=None):
     """One order-level atomic fence covers canonical and pre-existing alias keys."""
+    from .communication_preferences import channel_enabled
+    if not channel_enabled(db, 'transactional', 'email'):
+        record_channel(db, order_id, event, 'email', 'skipped', 'admin_channel_disabled', key='routing:' + notification_key(event, key))
+        return None
     key = notification_key(event, key)
     expire_stale_email_claims(db, order_id)
     identity = activity_id(order_id, "email", key)

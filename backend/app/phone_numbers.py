@@ -3,6 +3,15 @@ import re
 import phonenumbers
 
 
+def profile_contact_phone(value, country=None, region=None):
+    """International prefix, explicit phone country, then unambiguous saved region."""
+    if isinstance(value, str) and value.strip().startswith(('+', '00')):
+        return customer_phone(value)
+    if not str(country or '').strip():
+        country = {'asia-india': 'IN', 'us': 'US'}.get(region)
+    return customer_phone(value, country)
+
+
 def customer_phone(value, country=None):
     if not isinstance(value, str) or not re.fullmatch(r"\+?[0-9 ().-]{6,40}|00[0-9 ().-]{6,38}", value.strip()):
         raise ValueError("Enter a valid WhatsApp number and select its country code.")

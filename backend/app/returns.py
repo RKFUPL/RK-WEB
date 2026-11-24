@@ -62,6 +62,11 @@ def _send_return_submission(record: dict, shipment: dict) -> None:
 
 def send_return_accepted(db, order: dict, token: str, customer_note: str = "") -> None:
     notify(db, "return_status", order, key=f"return:accepted:{order.get('_id')}", parameters={"reference": str(order.get("orderNumber") or order["_id"]), "status": "return accepted"})
+    from .communication_preferences import channel_enabled
+    if not channel_enabled(db, 'transactional', 'email'):
+        from .notification_activity import record_channel
+        record_channel(db, order['_id'], 'return_requested', 'email', 'skipped', 'admin_channel_disabled', key='routing:return:accepted')
+        return
     email = str(order.get("email") or "").strip().lower()
     if not email:
         return

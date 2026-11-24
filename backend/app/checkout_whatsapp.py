@@ -5,6 +5,25 @@ from .whatsapp_consent import consent_phone
 
 def checkout_recipient(db, config, user, payload, shipping, *, mandatory=False):
     from .whatsapp import opted_out
+    from .communication_preferences import collection_mode
+    if collection_mode(db) == 'onboarding':
+        if payload.get('saveWhatsappAsPrimary') is True:
+            raise ValueError('Update your primary WhatsApp number and permission in Account Settings.')
+        try:
+            approved_phone = consent_phone(db, config, user, {})
+        except ValueError:
+            approved_phone = None
+        supplied = payload.get('whatsappRecipient')
+        if not approved_phone:
+            if payload.get('whatsappTransactionalConsent') is True or payload.get('saveWhatsappAsPrimary') is True:
+                raise ValueError('Update WhatsApp permission in Account Settings before selecting this recipient.')
+            return {'phone': None, 'country': None, 'source': 'account_email', 'consent': None, 'reason': 'email_channel_selected'}
+        if supplied:
+            phone, _ = customer_phone(supplied, payload.get('whatsappCountry'))
+            if phone != approved_phone:
+                raise ValueError('Update your WhatsApp recipient and permission in Account Settings before checkout.')
+        phone, country = customer_phone(approved_phone)
+        return {'phone': phone, 'country': country, 'source': 'primary_account', 'consent': user['whatsappConsent'], 'reason': None}
     for key in ("whatsappTransactionalConsent", "saveWhatsappAsPrimary"):
         if key in payload and not isinstance(payload[key], bool):
             raise ValueError("WhatsApp choices must be boolean.")

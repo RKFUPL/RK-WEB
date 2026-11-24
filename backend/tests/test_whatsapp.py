@@ -24,6 +24,7 @@ from app.whatsapp_templates import EVENTS
 class WhatsAppTests(unittest.TestCase):
     def setUp(self):
         self.db = mongomock.MongoClient(tz_aware=True).whatsapp_tests
+        self.db.admin_settings.insert_one({'_id': 'store', 'authenticationDeliveryMode': 'both'})
         self.config = dict(TESTING=True, RATELIMIT_ENABLED=False,
             JWT_SECRET_KEY="test-signing-key-that-is-more-than-32-bytes",
             WHATSAPP_ENVIRONMENT="development", WHATSAPP_TEST_SEND_ENABLED=True,
@@ -103,6 +104,32 @@ class WhatsAppTests(unittest.TestCase):
         raw = json.dumps(payload).encode()
         signature = "sha256=" + hmac.new(self.config["WHATSAPP_APP_SECRET"].encode(), raw, hashlib.sha256).hexdigest()
         return self.client.post("/api/webhooks/whatsapp", data=raw, headers={"X-Hub-Signature-256": signature}, content_type="application/json")
+
+    def test_admin_transactional_routing_and_existing_channel_idempotency(self):
+        from app.order_confirmation import send_order_confirmation
+        for mode in ('email', 'whatsapp', 'both'):
+            self.db.admin_settings.update_one({'_id': 'store'}, {'$set': {'transactionalDeliveryMode': mode}})
+            order = self.confirmed_order()
+            self.db.orders.update_one({'_id': order['_id']}, {'$set': {'email': self.user['email']}})
+            before = self.db.whatsapp_outbox.count_documents({})
+            with self.app.app_context(), patch('app.order_confirmation.send_html_email', return_value={'id': 'synthetic-email'}) as mail:
+                send_order_confirmation(self.db, order, self.app.config, self.app.logger)
+                first = self.db.whatsapp_outbox.count_documents({})
+                send_order_confirmation(self.db, order, self.app.config, self.app.logger)
+            self.assertEqual(mail.call_count, int(mode in ('email', 'both')))
+            self.assertEqual(first > before, mode in ('whatsapp', 'both'))
+            self.assertEqual(self.db.whatsapp_outbox.count_documents({}), first)
+
+    def test_mode_change_does_not_replay_or_dispatch_queued_transactional_messages(self):
+        order = self.confirmed_order()
+        with self.app.app_context():
+            notify(self.db, 'order_confirmation', order)
+            self.assertEqual(self.db.whatsapp_outbox.count_documents({'status': 'pending'}), 1)
+            self.db.admin_settings.update_one({'_id': 'store'}, {'$set': {'transactionalDeliveryMode': 'email'}})
+            self.assertEqual(self.db.whatsapp_outbox.count_documents({'status': 'pending'}), 1)
+            process_outbox(self.db, self.app.config)
+        self.http.assert_not_called()
+        self.assertEqual(self.db.whatsapp_outbox.count_documents({'status': 'pending'}), 0)
 
     def test_verification_valid_and_invalid(self):
         path = "/api/webhooks/whatsapp?hub.mode=subscribe&hub.challenge=123&hub.verify_token="
@@ -1562,12 +1589,14 @@ class WhatsAppTests(unittest.TestCase):
         self.assertEqual(response.json["user"]["role"], "customer")
 
     def test_whatsapp_only_otp_never_silently_sends_email_when_disabled(self):
+        self.db.admin_settings.update_one({'_id': 'store'}, {'$set': {'authenticationDeliveryMode': 'whatsapp'}})
         self.app.config["WHATSAPP_ENABLED"] = False
         with patch("app.blueprints.auth.routes._database", return_value=self.db), patch("app.blueprints.auth.routes._send_otp_email") as email:
             response = self.client.post("/api/auth/request-otp", json={"email": self.user["email"], "otpChannel": "whatsapp", "whatsappOtpConsent": True})
             self.assertEqual(response.status_code, 400)
             email.assert_not_called()
             self.assertNotIn("otpHash", self.db.users.find_one({"_id": self.user["_id"]}))
+            self.db.admin_settings.update_one({"_id": "store"}, {"$set": {"authenticationDeliveryMode": "email"}})
             self.assertEqual(self.client.post("/api/auth/request-otp", json={"email": self.user["email"], "otpChannel": "email"}).status_code, 202)
             self.assertEqual(email.call_count, 1)
         self.assertEqual(self.db.whatsapp_outbox.count_documents({}), 0)

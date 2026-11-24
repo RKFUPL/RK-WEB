@@ -1,7 +1,7 @@
 """Category-specific marketing grants and suppression, separate from order consent."""
 from bson import ObjectId
 from .time_utils import as_utc_datetime
-from .whatsapp_definitions import MARKETING_POLICY_VERSION
+from .whatsapp_definitions import MARKETING_CONSENT_TEXT, MARKETING_POLICY_VERSION
 
 
 def record_marketing_consent(db, config, customer_id, phone, enabled, source, *, update_user=True, timestamp=None, audit_key=None):
@@ -19,6 +19,8 @@ def record_marketing_consent(db, config, customer_id, phone, enabled, source, *,
               "category": "marketing", "enabled": enabled is True, "status": "granted" if enabled else "withdrawn",
               "timestamp": timestamp, "source": source, "policyVersion": MARKETING_POLICY_VERSION,
               "withdrawnAt": None if enabled else timestamp}
+    record['text'] = ('I would also like to receive occasional collection launches and promotional offers from Rashi Kapoor. This is optional and can be withdrawn separately.'
+                      if source == 'authenticated_profile' else MARKETING_CONSENT_TEXT)
     if audit_key:
         db.whatsapp_consents.update_one({"_id": audit_key}, {"$setOnInsert": record}, upsert=True)
     else:

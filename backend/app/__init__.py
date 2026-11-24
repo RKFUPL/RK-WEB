@@ -47,7 +47,7 @@ from .whatsapp_routes import webhook_bp as whatsapp_webhook_bp, admin_bp as what
 from .whatsapp import ensure_indexes as ensure_whatsapp_indexes
 from .config import get_config, validate_database_maintenance_target, validate_security_config
 from .extensions import cors, jwt, limiter, mail, mongo
-from .order_fulfillment import migrate_legacy_orders
+from .order_fulfillment import ensure_order_indexes, migrate_legacy_orders
 
 
 def create_app() -> Flask:
@@ -147,6 +147,7 @@ def create_app() -> Flask:
         ensure_dashboard_indexes(database)
         ensure_feedback_indexes(database)
         ensure_whatsapp_indexes(database)
+        ensure_order_indexes(database)
         migrate_legacy_orders(database)
         click.echo("Database maintenance completed")
 

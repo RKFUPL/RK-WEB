@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import re
+from threading import Lock
+from time import perf_counter
 
 from bson import ObjectId
 from flask import Blueprint, current_app, jsonify, request
@@ -16,7 +18,6 @@ from ...order_fulfillment import (
     canonical_payment_status,
     ensure_order_indexes,
     ensure_order_tracking,
-    migrate_legacy_orders,
     order_view,
     payment_confirmation_changes,
     update_shipment,
@@ -47,12 +48,22 @@ def _staff_order_rate_guard():
     return None
 
 
+_index_lock = Lock()
+
+
 def _prepare(database_instance) -> None:
-    ensure_order_indexes(database_instance)
-    migrate_legacy_orders(database_instance)
+    # Legacy migration belongs to the guarded `database-maintenance` CLI, not a GET.
+    # Views still interpret legacy documents through the canonical helpers.
+    key = (id(database_instance.client), database_instance.name)
+    with _index_lock:
+        initialized = current_app.extensions.setdefault('order_indexes', set())
+        if key not in initialized:
+            ensure_order_indexes(database_instance)
+            initialized.add(key)
 
 
 def _staff_view(db, order):
+    started = perf_counter()
     from ...notification_activity import expire_stale_email_claims
     expire_stale_email_claims(db, order["_id"])
     order = db.orders.find_one({"_id": order["_id"]}) or order
@@ -84,6 +95,7 @@ def _staff_view(db, order):
         if reference:
             entry["notificationOutcomes"] = [row for row in entry["notificationOutcomes"]
                 if row.get("reference") == reference or row.get("notificationKey") in {"payment:" + reference, "refund:" + reference}]
+    current_app.logger.info('orders.detail duration_ms=%.2f result_count=1', (perf_counter() - started) * 1000)
     return view
 
 
@@ -122,11 +134,6 @@ def _parse_date(value: str, end_of_day: bool = False):
 
 def _customer_order_query(user_id: ObjectId) -> dict:
     query: dict = {"customerId": user_id}
-    scope = str(request.args.get("scope") or "all").strip().lower()
-    if scope == "active":
-        query["fulfillment.status"] = {"$in": list(ACTIVE_FULFILLMENT_STATUSES)}
-    elif scope == "past":
-        query["fulfillment.status"] = {"$in": ["delivered", "cancelled", "returned", "refunded"]}
     search = _safe_regex(request.args.get("q"))
     if search:
         query["orderNumber"] = search
@@ -191,16 +198,53 @@ def _configured_couriers(database_instance) -> list[str]:
     return result[:30]
 
 
+_FINANCIAL_FIELDS = (
+    'payment', 'paymentStatus', 'paymentGateway', 'total', 'currency', 'paymentTransactions',
+    'paymentDueAt', 'refunds', 'razorpayPaymentId', 'paymentVerifiedAt', 'amountPaise',
+    'fulfillment', 'fulfillmentStatus', 'status',
+)
+_SUMMARY_PROJECTION = {key: 1 for key in (
+    'payment.status', 'payment.gateway', 'payment.razorpayPaymentId', 'payment.verifiedAt',
+    'paymentStatus', 'paymentGateway', 'total', 'currency', 'paymentTransactions.amountPaise',
+    'paymentDueAt', 'refunds.id', 'refunds.paymentId', 'refunds.currency', 'refunds.status',
+    'refunds.source', 'refunds.amountPaise', 'refunds.processedAt', 'razorpayPaymentId',
+    'paymentVerifiedAt', 'amountPaise', 'fulfillment.status', 'fulfillmentStatus', 'status',
+)}
+_LIST_PROJECTION = {**_SUMMARY_PROJECTION, **{key: 1 for key in ('orderNumber', 'customerName', 'email', 'createdAt', 'availabilityDecision.status')}}
+
+
+def _staff_list_view(order):
+    """No activity, inventory, timeline, mutation or additional database reads."""
+    return json_value({
+        'id': str(order['_id']), 'orderNumber': order.get('orderNumber', ''),
+        'customerName': order.get('customerName', ''), 'email': order.get('email', ''),
+        'createdAt': order.get('createdAt'), 'total': order.get('total', 0),
+        'paymentStatus': canonical_payment_status(order),
+        'payment': {'gateway': (order.get('payment') or {}).get('gateway') or order.get('paymentGateway')},
+        'fulfillmentStatus': canonical_fulfillment_status(order),
+        'availabilityDecision': {'status': (order.get('availabilityDecision') or {}).get('status')},
+    })
+
+
 def _order_counts(database_instance) -> dict:
+    started = perf_counter()
     payment_counts = {status: 0 for status in PAYMENT_STATUSES}
-    for order in database_instance.orders.find({}, {"payment": 1, "paymentStatus": 1, "paymentGateway": 1, "total": 1, "paymentTransactions": 1, "paymentDueAt": 1}):
+    fulfillment_counts = {status: 0 for status in FULFILLMENT_STATUSES}
+    # Group equivalent financial/status inputs server-side, retaining the exact
+    # Python refund-evidence and ledger rules rather than duplicating them in SQL-like expressions.
+    groups = database_instance.orders.aggregate([
+        {'$project': _SUMMARY_PROJECTION},
+        {'$group': {'_id': {key: {'$ifNull': ['$' + key, None]} for key in _FINANCIAL_FIELDS}, 'count': {'$sum': 1}}},
+    ])
+    group_count = 0
+    for group in groups:
+        group_count += 1
+        order = {key: value for key, value in group['_id'].items() if value is not None}
         status = canonical_payment_status(order)
-        payment_counts[status] = payment_counts.get(status, 0) + 1
-    fulfillment_counts = {
-        status: database_instance.orders.count_documents({"$or": [{"fulfillment.status": status}, {"fulfillmentStatus": status}, {"status": status}]})
-        for status in FULFILLMENT_STATUSES
-    }
+        payment_counts[status] = payment_counts.get(status, 0) + group['count']
+        fulfillment_counts[canonical_fulfillment_status(order)] += group['count']
     fulfillment_counts["returns"] = sum(fulfillment_counts.get(status, 0) for status in RETURN_FULFILLMENT_STATUSES)
+    current_app.logger.info('orders.counts duration_ms=%.2f result_count=%d query_count=1', (perf_counter() - started) * 1000, group_count)
     return {"payment": payment_counts, "fulfillment": fulfillment_counts}
 
 
@@ -210,11 +254,19 @@ def list_customer_orders():
     db = database()
     _prepare(db)
     user_id = authenticated_user_id()
-    orders = list(db.orders.find(_customer_order_query(user_id)).sort("createdAt", -1).limit(100))
+    scope = str(request.args.get('scope') or 'all').strip().lower()
+    allowed = set(ACTIVE_FULFILLMENT_STATUSES) if scope == 'active' else {'delivered', 'cancelled', 'returned', 'refunded'} if scope == 'past' else None
+    orders = []
+    for order in db.orders.find(_customer_order_query(user_id)).sort('createdAt', -1):
+        if allowed is None or canonical_fulfillment_status(order) in allowed:
+            orders.append(order)
+            if len(orders) == 100:
+                break
     views = [_customer_view(db, ensure_order_tracking(db, order)) for order in orders]
-    active = db.orders.count_documents({"customerId": user_id, "fulfillment.status": {"$in": list(ACTIVE_FULFILLMENT_STATUSES)}})
-    past = db.orders.count_documents({"customerId": user_id, "fulfillment.status": {"$in": ["delivered", "cancelled", "return_requested", "returned", "refunded"]}})
-    total = db.orders.count_documents({"customerId": user_id})
+    states = [canonical_fulfillment_status(order) for order in db.orders.find({'customerId': user_id}, _SUMMARY_PROJECTION)]
+    active = sum(status in ACTIVE_FULFILLMENT_STATUSES for status in states)
+    past = sum(status in {'delivered', 'cancelled', 'return_requested', 'returned', 'refunded'} for status in states)
+    total = len(states)
     return jsonify({"orders": views, "counts": {"active": active, "past": past, "all": total}}), 200
 
 
@@ -296,22 +348,51 @@ def request_order_return(order_id: str):
 @staff_orders_bp.get("")
 @requirePermission("orders:manage")
 def list_staff_orders():
+    started = perf_counter()
     db = database()
     _prepare(db)
     query, error = _staff_order_query()
     if error:
         return jsonify({"error": error}), 400
     collection_filter = query.pop("$paymentCollectionFilter", None)
-    orders = db.orders.find(query).sort("createdAt", -1)
-    if collection_filter:
-        orders = [order for order in orders if canonical_payment_status(order) == collection_filter][:200]
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+        page_size = min(100, max(1, int(request.args.get('pageSize', 50))))
+    except (ValueError, TypeError):
+        return jsonify(error='Choose a valid page and page size.'), 400
+    queried = perf_counter()
+    # Canonical filters must include legacy and ledger-derived states. Use the
+    # narrow projection; never fetch detail/timeline/customer payloads to filter.
+    fulfillment_filter = query.pop('fulfillment.status', None)
+    payment_filter = query.pop('payment.status', None)
+    if collection_filter or fulfillment_filter or payment_filter:
+        candidates = db.orders.find(query, _LIST_PROJECTION).sort([('createdAt', -1), ('_id', -1)])
+        matches = []
+        for order in candidates:
+            if (collection_filter or payment_filter) and canonical_payment_status(order) != (collection_filter or payment_filter):
+                continue
+            if fulfillment_filter:
+                allowed = fulfillment_filter.get('$in', []) if isinstance(fulfillment_filter, dict) else [fulfillment_filter]
+                if canonical_fulfillment_status(order) not in allowed:
+                    continue
+            matches.append(order)
+        total = len(matches)
+        orders = matches[(page - 1) * page_size:page * page_size]
+        query_count = 1
     else:
-        orders = orders.limit(200)
-    return jsonify({
-        "orders": [_staff_view(db, ensure_order_tracking(db, order)) for order in orders],
-        "counts": _order_counts(db),
-        "courierOptions": _configured_couriers(db),
-    }), 200
+        total = db.orders.count_documents(query)
+        orders = list(db.orders.find(query, _LIST_PROJECTION).sort([('createdAt', -1), ('_id', -1)]).skip((page - 1) * page_size).limit(page_size))
+        query_count = 2
+    current_app.logger.info('orders.query duration_ms=%.2f result_count=%d query_count=%d', (perf_counter() - queried) * 1000, len(orders), query_count)
+    serialized = perf_counter()
+    rows = [_staff_list_view(order) for order in orders]
+    current_app.logger.info('orders.list_serialization duration_ms=%.2f result_count=%d query_count=0', (perf_counter() - serialized) * 1000, len(rows))
+    payload = {'orders': rows, 'page': page, 'pageSize': page_size, 'total': total, 'totalPages': (total + page_size - 1) // page_size}
+    if request.args.get('includeCounts', 'true') != 'false':
+        payload['counts'] = _order_counts(db)
+        payload['countsCheckedAt'] = datetime.now(timezone.utc).isoformat()
+    current_app.logger.info('orders.list_total duration_ms=%.2f result_count=%d', (perf_counter() - started) * 1000, len(rows))
+    return jsonify(payload), 200
 
 
 @staff_orders_bp.get("/summary")

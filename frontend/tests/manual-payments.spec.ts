@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 async function selectPhoneCountry(page: Page, code: 'US' | 'GB') {
   const country = code === 'US' ? /United States \(\+1\)$/ : /United Kingdom \(\+44\)$/;
-  await page.getByRole('combobox', { name: 'Country and dialling code', exact: true }).fill(code);
+  await page.getByRole('combobox', { name: 'Country and dialling code', exact: true }).last().fill(code);
   await page.getByRole('option', { name: country }).click();
 }
 
@@ -15,6 +15,77 @@ const fixtureOrder = () => ({ id: 'manual-order', orderNumber: 'RK-MANUAL-1', cu
   paymentCollection: { total: 1000, received: 0, balanceDue: 1000, status: 'pending', instructions: 'Wait for payment instructions.' },
   whatsappUpdates: { number: '+14155552671', enabled: false },
   whatsapp: { consent: 'missing', automationEnabled: false, templates: [], activity: [] },
+});
+
+test('admin orders paginate, toggle every fulfilment card and retain search and payment filters', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('rk_access_token', 'synthetic-admin-token'));
+  const calls: URLSearchParams[] = [];
+  await page.route('**/api/**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/auth/me') return route.fulfill({ json: { user: { id: 'synthetic-admin', role: 'admin', isActive: true, must_change_password: false } } });
+    if (url.pathname === '/api/staff/orders') {
+      calls.push(url.searchParams);
+      const currentPage = Number(url.searchParams.get('page') || 1);
+      return route.fulfill({ json: { orders: [{ ...fixtureOrder(), id: `synthetic-${currentPage}`, orderNumber: `PAGE-${currentPage}` }], page: currentPage, pageSize: 50, total: 80, totalPages: 2,
+        ...(url.searchParams.get('includeCounts') !== 'false' ? { counts: { payment: { pending: 80 }, fulfillment: { processing: 20, packed: 10, returns: 6, cancelled: 10 } } } : {}) } });
+    }
+    return route.fulfill({ json: {} });
+  });
+  await page.goto('/admin/orders?q=SYNTHETIC&payment=pending');
+  await expect(page.getByText('#PAGE-1', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pending: 80', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(page.getByText('#PAGE-2', { exact: true })).toBeVisible();
+  expect(calls.at(-1)?.get('includeCounts')).toBe('false');
+  for (const label of ['Processing', 'Packed', 'Shipped', 'Out for delivery', 'Delivered', 'Returns', 'Cancelled']) {
+    const card = page.getByRole('button', { name: new RegExp(`^${label}\\s+\\d+$`, 'i') });
+    await card.click();
+    await expect(card).toHaveAttribute('aria-pressed', 'true');
+    const expected = label.toLowerCase().replaceAll(' ', '_');
+    await expect(page.getByLabel('Fulfillment', { exact: true })).toHaveValue(expected);
+    await expect.poll(() => calls.at(-1)?.get('fulfillment')).toBe(expected);
+    expect(calls.at(-1)?.get('q')).toBe('SYNTHETIC');
+    expect(calls.at(-1)?.get('payment')).toBe('pending');
+    expect(new URL(page.url()).searchParams.get('fulfillment')).toBe(expected);
+    await card.click();
+    await expect(card).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByLabel('Fulfillment', { exact: true })).toHaveValue('all');
+    await expect.poll(() => calls.at(-1)?.has('fulfillment')).toBe(false);
+  }
+  await page.getByRole('button', { name: /^Processing / }).click();
+  await page.getByRole('button', { name: /^Packed / }).click();
+  await expect(page.getByRole('button', { name: /^Processing / })).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByRole('button', { name: /^Packed / })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByLabel('Fulfillment', { exact: true })).toHaveValue('packed');
+});
+
+test('admin orders show loading and errors while preventing obsolete filter results', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('rk_access_token', 'synthetic-admin-token'));
+  const requests: string[] = [];
+  await page.route('**/api/**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/auth/me') return route.fulfill({ json: { user: { id: 'admin', role: 'admin', isActive: true, must_change_password: false } } });
+    if (url.pathname === '/api/staff/orders') {
+      const filter = url.searchParams.get('fulfillment') || 'all'; requests.push(filter);
+      if (filter === 'processing') await new Promise(resolve => setTimeout(resolve, 800));
+      if (filter === 'cancelled') return route.fulfill({ status: 503, json: { error: 'Synthetic list unavailable' } });
+      try { return await route.fulfill({ json: { orders: [{ ...fixtureOrder(), orderNumber: filter }], total: 1, totalPages: 1, counts: { payment: { pending: 1 }, fulfillment: {} } } }); } catch { /* Aborted stale request. */ }
+    }
+    return route.fulfill({ json: {} });
+  });
+  await page.goto('/admin/orders');
+  await expect(page.getByText('#all', { exact: true })).toBeVisible();
+  await page.getByLabel('Fulfillment', { exact: true }).selectOption('processing');
+  await expect(page.getByRole('status').filter({ hasText: 'Loading orders' })).toBeVisible();
+  await expect(page.getByText('#all', { exact: true })).toBeVisible();
+  await expect.poll(() => requests.includes('processing')).toBe(true);
+  await page.getByLabel('Fulfillment', { exact: true }).selectOption('packed');
+  await expect(page.getByText('#packed', { exact: true })).toBeVisible();
+  await page.waitForTimeout(850);
+  await expect(page.getByText('#processing', { exact: true })).toHaveCount(0);
+  await page.getByLabel('Fulfillment', { exact: true }).selectOption('cancelled');
+  await expect(page.getByRole('alert').filter({ hasText: 'Synthetic list unavailable' })).toBeVisible();
+  await expect(page.getByText('#packed', { exact: true })).toBeVisible();
 });
 
 async function setup(page: Page, online = false, admin = false, mandatory = false, settingsError = false) {
@@ -239,7 +310,7 @@ for (const scenario of [
     const consent = page.getByRole('checkbox', { name: /Keep me updated on WhatsApp about this order/ });
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(consent).not.toBeChecked();
-    await expect(page.getByRole('textbox', { name: 'Phone' })).toHaveValue(scenario.deliveryPhone);
+    await expect(page.getByRole('textbox', { name: /^Phone/ })).toHaveValue(scenario.deliveryPhone.replace(/^\+91/, ''));
     await consent.check();
     await page.getByRole('button', { name: /^Place order/ }).click();
     await expect.poll(() => calls.length).toBe(1);
@@ -260,7 +331,7 @@ test('a missing WhatsApp number is entered separately and is never copied from t
   const consent = page.getByRole('checkbox', { name: /Keep me updated on WhatsApp about this order/ });
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByLabel('Mobile number')).toHaveValue('');
-  await expect(page.getByRole('textbox', { name: 'Phone' })).toHaveValue('+919769115870');
+  await expect(page.getByRole('textbox', { name: /^Phone/ })).toHaveValue('9769115870');
   await consent.check();
   await page.getByRole('button', { name: /^Place order/ }).click();
   await expect(page.getByText('Enter a valid WhatsApp number for order updates.', { exact: true })).toBeVisible();
@@ -322,6 +393,44 @@ test('admin warning and acknowledgement guard the mandatory checkout switch', as
   await expect(toggle).toBeChecked();
   expect(saved.requireWhatsappConsentForCheckout).toBe(true);
   expect(saved.requireWhatsappConsentAcknowledged).toBe(true);
+});
+
+test('admin communication collection mode saves without activating a WhatsApp gate', async ({ page }) => {
+  await setup(page, false, true);
+  let saved: Record<string, unknown> | null = null;
+  await page.route('**/api/admin/settings', route => {
+    if (route.request().method() === 'PUT') saved = route.request().postDataJSON();
+    return route.fulfill({ json: { settings: { razorpayEnabled: false, requireWhatsappConsentForCheckout: false, whatsappConsentCollectionMode: 'checkout', ...saved } } });
+  });
+  await page.goto('/admin/settings');
+  const collection = page.getByRole('combobox', { name: 'Communication preference collection', exact: true });
+  await expect(collection).toHaveValue('checkout');
+  await collection.selectOption('onboarding');
+  await expect(page.getByRole('switch', { name: 'Require Transactional WhatsApp Consent at Checkout' })).not.toBeChecked();
+  await expect(page.getByText(/Requiring WhatsApp consent as a condition of purchase may conflict/)).toBeVisible();
+  await page.getByRole('button', { name: 'Save settings', exact: true }).click();
+  await expect.poll(() => saved).not.toBeNull();
+  expect(saved).toMatchObject({ whatsappConsentCollectionMode: 'onboarding', requireWhatsappConsentForCheckout: false, razorpayEnabled: false });
+  for (const key of ['WHATSAPP_ENABLED', 'WHATSAPP_ORDER_NOTIFICATIONS_ENABLED', 'WHATSAPP_MARKETING_ENABLED', 'orderNotificationsEnabled']) expect(saved).not.toHaveProperty(key);
+});
+
+test('admin owns independent routing selectors and persists every mode without changing gates', async ({ page }) => {
+  await setup(page, false, true);
+  let settings: Record<string, unknown> = { razorpayEnabled: false, authenticationDeliveryMode: 'email', transactionalDeliveryMode: 'both' };
+  await page.route('**/api/admin/settings', route => {
+    if (route.request().method() === 'PUT') settings = { ...settings, ...route.request().postDataJSON() };
+    return route.fulfill({ json: { settings } });
+  });
+  await page.goto('/admin/settings');
+  for (const mode of ['whatsapp', 'both', 'email']) {
+    await page.getByRole('combobox', { name: 'Authentication / OTP delivery channel', exact: true }).selectOption(mode);
+    await page.getByRole('combobox', { name: 'Transactional / Utility delivery channel', exact: true }).selectOption(mode);
+    await page.getByRole('button', { name: 'Save settings', exact: true }).click();
+    await expect.poll(() => settings.authenticationDeliveryMode).toBe(mode);
+    await page.reload();
+    await expect(page.getByRole('combobox', { name: 'Transactional / Utility delivery channel', exact: true })).toHaveValue(mode);
+  }
+  expect(settings).not.toHaveProperty('WHATSAPP_ENABLED');
 });
 
 test('customer can explicitly opt into future order updates after checkout', async ({ page }) => {

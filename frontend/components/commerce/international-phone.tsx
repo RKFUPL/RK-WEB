@@ -3,15 +3,14 @@
 import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
-import { getCountries, getCountryCallingCode, type CountryCode } from 'libphonenumber-js/max';
+import { getCountryCallingCode, type CountryCode } from 'libphonenumber-js/max';
+import { countryNames, telephoneCountries as countries } from '@/lib/phone-number';
 
-const countryNames = new Intl.DisplayNames(['en'], { type: 'region' });
-const countries = getCountries().sort((a, b) => (countryNames.of(a) || a).localeCompare(countryNames.of(b) || b));
 const flag = (code: string) => String.fromCodePoint(...[...code].map(letter => 127397 + letter.charCodeAt(0)));
 const phoneControl = 'w-full rounded-none border-b border-black/15 bg-transparent py-3 text-sm outline-none transition-colors duration-200 hover:border-gold/60 focus:border-gold focus-visible:ring-1 focus-visible:ring-gold/40 disabled:cursor-not-allowed disabled:opacity-50 read-only:cursor-default read-only:text-charcoal/60 dark:border-white/20 dark:focus:border-gold motion-reduce:transition-none';
 
-export function InternationalPhone({ value, country, onChange, label = 'WhatsApp number', disabled = false, inputRef }: {
-  value: string; country: CountryCode; onChange: (value: string, country: CountryCode) => void; label?: string; disabled?: boolean; inputRef?: RefObject<HTMLInputElement | null>;
+export function CountrySelector({ country, onChange, label = 'Country and dialling code', disabled = false, callingCode = true }: {
+  country?: CountryCode; onChange: (country: CountryCode) => void; label?: string; disabled?: boolean; callingCode?: boolean;
 }) {
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
@@ -20,7 +19,7 @@ export function InternationalPhone({ value, country, onChange, label = 'WhatsApp
   const selector = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const id = useId();
-  const countryLabel = (code: CountryCode) => `${flag(code)} ${countryNames.of(code)} (+${getCountryCallingCode(code)})`;
+  const countryLabel = (code: CountryCode) => `${flag(code)} ${countryNames.of(code)}${callingCode ? ` (+${getCountryCallingCode(code)})` : ''}`;
   const query = search.trim().toLowerCase();
   const exactMatch = (code: CountryCode) => [countryNames.of(code)?.toLowerCase(), code.toLowerCase(), `+${getCountryCallingCode(code)}`, getCountryCallingCode(code)].includes(query);
   const filtered = countries.filter(code => `${countryNames.of(code)} ${code} +${getCountryCallingCode(code)}`.toLowerCase().includes(query))
@@ -28,10 +27,10 @@ export function InternationalPhone({ value, country, onChange, label = 'WhatsApp
   const expanded = open && !disabled;
   const close = () => { setOpen(false); setSearch(''); };
   const show = () => {
-    setSearch(''); setActive(Math.max(0, countries.indexOf(country))); setOpen(true);
+    setSearch(''); setActive(country ? Math.max(0, countries.indexOf(country)) : 0); setOpen(true);
   };
   const choose = (code: CountryCode) => {
-    onChange('', code);
+    onChange(code);
     selector.current?.focus();
     close();
   };
@@ -63,14 +62,13 @@ export function InternationalPhone({ value, country, onChange, label = 'WhatsApp
   useEffect(() => {
     if (expanded) document.getElementById(`${id}-option-${active}`)?.scrollIntoView({ block: 'nearest' });
   }, [active, expanded, id]);
-  return <fieldset disabled={disabled} className="space-y-3 text-xs normal-case tracking-normal">
-    <legend className="mb-3 text-xs text-charcoal/70">{label}</legend>
+  return <>
     <div className="relative">
-      <label className="sr-only" htmlFor={`${id}-country`}>Country and dialling code</label>
+      <label className="sr-only" htmlFor={`${id}-country`}>{label}</label>
       <input ref={selector} id={`${id}-country`} role="combobox" type="text" autoComplete="off" spellCheck={false}
         aria-autocomplete="list" aria-expanded={expanded} aria-controls={expanded ? `${id}-countries` : undefined}
         aria-activedescendant={expanded && filtered[active] ? `${id}-option-${active}` : undefined}
-        value={expanded ? search : countryLabel(country)} className={`${phoneControl} pr-8`}
+        disabled={disabled} value={expanded ? search : country ? countryLabel(country) : ''} className={`${phoneControl} pr-8`}
         onFocus={show} onClick={() => { if (!expanded) show(); }}
         onBlur={event => { if (!list.current?.contains(event.relatedTarget as Node)) close(); }}
         onChange={event => { setSearch(event.target.value); setActive(0); setOpen(true); }}
@@ -101,7 +99,17 @@ export function InternationalPhone({ value, country, onChange, label = 'WhatsApp
       </button>)}
       {!filtered.length && <p role="status" className="px-3 py-2 text-charcoal/70">No matching countries</p>}
     </div>, document.body)}
-    <label className="block" htmlFor={`${id}-number`}>Mobile number</label>
+  </>;
+}
+
+export function InternationalPhone({ value, country, onChange, label = 'WhatsApp number', disabled = false, inputRef, numberLabel = 'Mobile number' }: {
+  value: string; country: CountryCode; onChange: (value: string, country: CountryCode) => void; label?: string; disabled?: boolean; inputRef?: RefObject<HTMLInputElement | null>; numberLabel?: string;
+}) {
+  const id = useId();
+  return <fieldset disabled={disabled} className="space-y-3 text-xs normal-case tracking-normal">
+    <legend className="mb-3 text-xs text-charcoal/70">{label}</legend>
+    <CountrySelector country={country} disabled={disabled} onChange={code => onChange('', code)} />
+    <label className="block" htmlFor={`${id}-number`}>{numberLabel}</label>
     <input ref={inputRef} id={`${id}-number`} type="tel" inputMode="tel" autoComplete="tel-national" value={value} onChange={event => onChange(event.target.value, country)} className={phoneControl} />
   </fieldset>;
 }

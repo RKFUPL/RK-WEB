@@ -205,6 +205,12 @@ def _test_template_components(template, supplied):
 
 def send(db, config, recipient, event, parameters, key, *, order_id=None, text=None, test_send=False, consent=False, auth_context=None, consent_check=None, allow_rate_limit_retry=False, button_parameters=None, campaign_context=None, test_parameters=None, production_test=False, order_notification=False):
     """Internal-only transport; callers must enforce consent. No arbitrary send API."""
+    from .communication_preferences import channel_enabled
+    from .whatsapp_events import ORDER_EVENTS
+    if not test_send and (event in ORDER_EVENTS or event in {'payment_failure', 'return_requested', 'return_status', 'refund_initiated', 'custom_order_received', 'custom_order_status', 'signup_otp', 'login_otp', 'forgot_password_otp'}):
+        category = 'authentication' if event.endswith('_otp') else 'transactional'
+        if not channel_enabled(db, category, 'whatsapp'):
+            return {'status': 'skipped', 'reason': 'admin_channel_disabled'}
     if production_test and (not test_send or text is not None or test_parameters is None):
         return {"status": "skipped", "reason": "invalid_test_type"}
     if test_send:
@@ -242,7 +248,7 @@ def send(db, config, recipient, event, parameters, key, *, order_id=None, text=N
             return {"status": "skipped", "reason": "marketing_not_authorized_or_suppressed"}
         suppressed = marketing_suppressed(db, config, phone)
     else:
-        suppressed = opted_out(db, config, phone)
+        suppressed = opted_out(db, config, phone, category='authentication' if template and template.get('category') == 'AUTHENTICATION' else 'transactional')
     if suppressed:
         return {"status": "skipped", "reason": "recipient_opted_out"}
     if text is None and (not template or not template["approved"] or (not test_send and not template["enabled"])):
@@ -327,7 +333,7 @@ def send(db, config, recipient, event, parameters, key, *, order_id=None, text=N
         if marketing:
             if not marketing_enabled(db, config) or not valid_campaign_delivery(db, config, campaign_context, event, phone, parameters, button_parameters):
                 blocked = "marketing_not_authorized_or_suppressed"
-        elif opted_out(db, config, phone):
+        elif opted_out(db, config, phone, category='authentication' if template and template.get('category') == 'AUTHENTICATION' else 'transactional'):
             blocked = "recipient_opted_out"
         if consent_check is not None and not consent_check():
             blocked = "no_consent"
@@ -449,9 +455,17 @@ def valid_auth_delivery(db, context, event, code, phone):
     if not isinstance(context, dict):
         return False
     purpose = {"signup_otp": "signup", "login_otp": "login", "forgot_password_otp": "forgot-password"}.get(event)
-    if not purpose or context.get("purpose") != purpose or not ObjectId.is_valid(context.get("consentId")):
+    if not purpose or context.get("purpose") not in (("forgot-password", "password-change") if event == "forgot_password_otp" else (purpose,)) or not ObjectId.is_valid(context.get("consentId")):
         return False
     audit = db.whatsapp_consents.find_one({"_id": ObjectId(context["consentId"])}) or {}
+    identity = audit.get('customerId')
+    if ObjectId.is_valid(str(identity)):
+        user = db.users.find_one({'_id': ObjectId(str(identity))}) or {}
+        withdrawal = user.get('whatsappOtpConsentRecord') or {}
+        withdrawn_at = as_utc_datetime(withdrawal.get('timestamp'))
+        granted_at = as_utc_datetime(audit.get('timestamp'))
+        if withdrawal.get('enabled') is False and withdrawal.get('phone') == phone and withdrawn_at and (not granted_at or withdrawn_at >= granted_at):
+            return False
     return bool(audit.get("enabled") is True and audit.get("category") == "authentication"
                 and audit.get("phone") == phone and audit.get("challengeId") == context.get("challengeId")
                 and valid_auth_code(db, context, code))
@@ -491,6 +505,11 @@ def _enqueue_notification(db, event, record, *, key=None, parameters=None, user=
     if not has_app_context():
         return {"status": "skipped", "reason": "disabled"}
     try:
+        from .communication_preferences import channel_enabled
+        from .whatsapp_events import ORDER_EVENTS
+        if event in ORDER_EVENTS or event in {'payment_failure', 'return_requested', 'return_status', 'refund_initiated', 'custom_order_received', 'custom_order_status', 'signup_otp', 'login_otp', 'forgot_password_otp'}:
+            if not channel_enabled(db, 'authentication' if event.endswith('_otp') else 'transactional', 'whatsapp'):
+                return {'status': 'skipped', 'reason': 'admin_channel_disabled'}
         if not automation_enabled(db, current_app.config, event):
             return {"status": "skipped", "reason": "disabled"}
         if not enabled(db, current_app.config) and (not business_event_key or not record.get("_id")):
@@ -506,7 +525,7 @@ def _enqueue_notification(db, event, record, *, key=None, parameters=None, user=
             if not auth_context or not user or not valid_auth_code(db, auth_context, (parameters or {}).get("code", "")):
                 return {"status": "skipped", "reason": "otp_unrequested_or_expired"}
             phone = normalize_phone(user.get("phone"))
-            if user.get("isActive", True) is False or opted_out(db, config, phone):
+            if user.get("isActive", True) is False or opted_out(db, config, phone, category='authentication'):
                 return {"status": "skipped", "reason": "no_consent"}
         elif event in {"new_collection_drop", "exclusive_offer"}:
             from .whatsapp_campaigns import marketing_enabled
@@ -669,10 +688,9 @@ def process_outbox(db, config, limit=50, *, stop_requested=None):
                 raise ValueError("template_mapping_changed")
             user = db.users.find_one({"_id": ObjectId(identity)}) if identity else None
             if payload["event"] in {"signup_otp", "login_otp", "forgot_password_otp"}:
-                audit = db.whatsapp_consents.find_one({"_id": ObjectId(context["consentId"])}) if context and ObjectId.is_valid(context.get("consentId")) else None
-                valid = bool(audit and audit.get("enabled") is True and audit.get("category") == "authentication"
-                             and audit.get("phone") == payload["recipient"] and valid_auth_code(db, context, payload["parameters"]["code"]))
-                if identity and (not user or user.get("isActive", True) is False or normalize_phone(user.get("phone")) != payload["recipient"]):
+                valid = valid_auth_delivery(db, context, payload['event'], payload['parameters']['code'], payload['recipient'])
+                from .communication_preferences import authentication_recipient
+                if identity and (not user or user.get("isActive", True) is False or normalize_phone(authentication_recipient(db, config, user)) != payload["recipient"]):
                     valid = False
                 payload["auth_context"] = context
             elif payload["event"] in {"new_collection_drop", "exclusive_offer"}:
@@ -709,7 +727,7 @@ def process_outbox(db, config, limit=50, *, stop_requested=None):
                         expected_buttons = order_button_parameters(template, record)
                         if payload.get("button_parameters", {}) != expected_buttons:
                             raise ValueError("button_destination_changed")
-            if not valid or (not payload.get("campaign_context") and opted_out(db, config, payload["recipient"])):
+            if not valid or (not payload.get("campaign_context") and opted_out(db, config, payload["recipient"], category='authentication' if payload['event'] in {'signup_otp', 'login_otp', 'forgot_password_otp'} else 'transactional')):
                 result = {"status": "skipped", "reason": "consent_or_event_changed"}
             else:
                 def still_consented():
@@ -727,7 +745,7 @@ def process_outbox(db, config, limit=50, *, stop_requested=None):
                     latest_user = db.users.find_one({"_id": ObjectId(identity)}) if identity else None
                     if context:
                         return bool((not identity or latest_user and latest_user.get("isActive", True) is not False
-                                     and normalize_phone(latest_user.get("phone")) == payload["recipient"])
+                                     and normalize_phone(authentication_recipient(db, config, latest_user)) == payload["recipient"])
                                     and valid_auth_delivery(db, context, payload["event"], payload["parameters"]["code"], payload["recipient"]))
                     latest_record = {}
                     if payload.get("order_id"):

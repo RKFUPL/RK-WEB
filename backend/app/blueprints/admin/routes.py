@@ -143,6 +143,9 @@ _dashboard_indexes_ready = False
 SETTINGS_DEFAULTS = {
     "razorpayEnabled": True,
     "requireWhatsappConsentForCheckout": False,
+    "whatsappConsentCollectionMode": "checkout",
+    "authenticationDeliveryMode": "email",
+    "transactionalDeliveryMode": "both",
     "storeName": "Rashi Kapoor",
     "supportEmail": "",
     "currency": "INR",
@@ -756,7 +759,7 @@ def refresh_forex():
 @storefront_lookbooks_bp.get("/storefront-settings")
 def get_public_storefront_settings():
     settings = _settings(database())
-    return jsonify({"settings": {"colourSwatches": _colour_swatches(settings.get("colourSwatches")), "whatsappNumber": settings.get("whatsappNumber", SETTINGS_DEFAULTS["whatsappNumber"]), "razorpayEnabled": settings.get("razorpayEnabled") is not False, "requireWhatsappConsentForCheckout": settings.get("requireWhatsappConsentForCheckout") is True}}), 200
+    return jsonify({"settings": {"colourSwatches": _colour_swatches(settings.get("colourSwatches")), "whatsappNumber": settings.get("whatsappNumber", SETTINGS_DEFAULTS["whatsappNumber"]), "razorpayEnabled": settings.get("razorpayEnabled") is not False, "requireWhatsappConsentForCheckout": settings.get("requireWhatsappConsentForCheckout") is True, "whatsappConsentCollectionMode": settings.get('whatsappConsentCollectionMode', 'checkout')}}), 200
 
 
 @storefront_lookbooks_bp.get("/lookbooks")
@@ -927,6 +930,12 @@ def update_settings():
     if "requireWhatsappConsentForCheckout" in payload and not isinstance(payload["requireWhatsappConsentForCheckout"], bool):
         return jsonify(error="Require WhatsApp Consent Before Placing an Order must be boolean."), 400
     current_settings = _settings(database())
+    collection_mode = payload.get('whatsappConsentCollectionMode', current_settings['whatsappConsentCollectionMode'])
+    if collection_mode not in ('checkout', 'onboarding'):
+        return jsonify(error='Choose a valid WhatsApp consent collection mode.'), 400
+    for field in ('authenticationDeliveryMode', 'transactionalDeliveryMode'):
+        if payload.get(field, current_settings[field]) not in ('email', 'whatsapp', 'both'):
+            return jsonify(error='Choose Email, WhatsApp or Both for delivery channels.'), 400
     require_whatsapp = payload.get("requireWhatsappConsentForCheckout", current_settings["requireWhatsappConsentForCheckout"])
     if require_whatsapp and not current_settings["requireWhatsappConsentForCheckout"] and payload.get("requireWhatsappConsentAcknowledged") is not True:
         return jsonify(error="Acknowledge the legal and compliance warning before requiring WhatsApp consent."), 400
@@ -956,6 +965,9 @@ def update_settings():
     settings = {
         "razorpayEnabled": payload.get("razorpayEnabled", _settings(database()).get("razorpayEnabled", True)),
         "requireWhatsappConsentForCheckout": require_whatsapp,
+        "whatsappConsentCollectionMode": collection_mode,
+        "authenticationDeliveryMode": payload.get("authenticationDeliveryMode", current_settings["authenticationDeliveryMode"]),
+        "transactionalDeliveryMode": payload.get("transactionalDeliveryMode", current_settings["transactionalDeliveryMode"]),
         "storeName": store_name,
         "supportEmail": support_email,
         "currency": currency,

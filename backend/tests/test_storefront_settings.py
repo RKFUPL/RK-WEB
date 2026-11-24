@@ -21,7 +21,7 @@ class StorefrontSettingsTests(unittest.TestCase):
         with patch("app.blueprints.admin.routes.database", return_value=database):
             response = self.public_app().test_client().get("/api/storefront-settings")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json(), {"settings": {"colourSwatches": {}, "whatsappNumber": "918879597878", "razorpayEnabled": True, "requireWhatsappConsentForCheckout": False}})
+        self.assertEqual(response.get_json(), {"settings": {"colourSwatches": {}, "whatsappNumber": "918879597878", "razorpayEnabled": True, "requireWhatsappConsentForCheckout": False, "whatsappConsentCollectionMode": "checkout"}})
         self.assertTrue(SETTINGS_DEFAULTS["showStorefrontForex"])
 
     def test_public_forex_display_reflects_persisted_disabled_value(self):
@@ -29,7 +29,7 @@ class StorefrontSettingsTests(unittest.TestCase):
         database.admin_settings.insert_one({"_id": "store", "showStorefrontForex": False, "supportEmail": "private@example.com"})
         with patch("app.blueprints.admin.routes.database", return_value=database):
             response = self.public_app().test_client().get("/api/storefront-settings")
-        self.assertEqual(response.get_json(), {"settings": {"colourSwatches": {}, "whatsappNumber": "918879597878", "razorpayEnabled": True, "requireWhatsappConsentForCheckout": False}})
+        self.assertEqual(response.get_json(), {"settings": {"colourSwatches": {}, "whatsappNumber": "918879597878", "razorpayEnabled": True, "requireWhatsappConsentForCheckout": False, "whatsappConsentCollectionMode": "checkout"}})
 
     def test_settings_mutation_requires_admin_authentication(self):
         app = Flask(__name__)
@@ -85,7 +85,7 @@ class StorefrontSettingsTests(unittest.TestCase):
                 response = app.test_client().put("/api/admin/settings", json={**SETTINGS_DEFAULTS, "whatsappNumber": value}, headers=headers)
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(db.admin_settings.find_one({"_id": "store"})["whatsappNumber"], expected)
-                self.assertEqual(app.test_client().get("/api/storefront-settings").get_json(), {"settings": {"colourSwatches": {}, "whatsappNumber": expected, "razorpayEnabled": True, "requireWhatsappConsentForCheckout": False}})
+                self.assertEqual(app.test_client().get("/api/storefront-settings").get_json(), {"settings": {"colourSwatches": {}, "whatsappNumber": expected, "razorpayEnabled": True, "requireWhatsappConsentForCheckout": False, "whatsappConsentCollectionMode": "checkout"}})
             for invalid in ["javascript:alert(1)", "123", "0" * 10, "1234567890123456"]:
                 response = app.test_client().put("/api/admin/settings", json={**SETTINGS_DEFAULTS, "whatsappNumber": invalid}, headers=headers)
                 self.assertEqual(response.status_code, 400)

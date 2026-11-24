@@ -6,6 +6,7 @@ const statuses: Record<string, string> = {
   failed: 'Failed', held: 'Held for reconciliation', unknown: 'Delivery outcome unknown',
 };
 const reasons: Record<string, string> = {
+  admin_channel_disabled: 'This channel is disabled by Admin Studio Communication Channels. Changing routing does not replay historical messages.',
   legacy_template_mapping_requires_migration: 'The superseded order-placed mapping requires an operator-reviewed migration to order_received.',
   meta_body_correction_required: 'The observed Meta BODY requires correction and fresh approval.',
   template_mapping_disabled: 'Template mapping is disabled in this environment.',
@@ -13,7 +14,7 @@ const reasons: Record<string, string> = {
   template_components_unverified: 'Exact template components have not been verified.',
   template_evidence_stale: 'Template evidence needs a fresh verification.',
   template_not_approved_or_enabled: 'Template is disabled or its approval is not verified.',
-  missing_or_withdrawn_consent: 'Consent for this order recipient is missing or withdrawn.',
+  missing_or_withdrawn_consent: 'Consent for this order recipient is missing or withdrawn. The recipient must authorize transactional WhatsApp or an administrator must configure Email or Both.',
   business_event_not_confirmed: 'The required business event has not been verified.',
   refund_not_processed: 'A verified processed refund has not been recorded.',
   refund_status_only: 'Status-only update; refund notifications require the verified provider event.',

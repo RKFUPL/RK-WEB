@@ -4,10 +4,10 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { RbacGuard } from '@/components/rbac-guard';
 import { apiBaseUrl, getCurrentUser, logout, type AuthUser } from '@/lib/rbac';
-import { InternationalPhone } from '@/components/commerce/international-phone';
-import { canonicalPhone } from '@/lib/phone-number';
-import { parsePhoneNumberFromString, type CountryCode } from 'libphonenumber-js/max';
-import { whatsappConsentText, whatsappMarketingConsentText } from '@/lib/whatsapp-consent';
+import { CountrySelector, InternationalPhone } from '@/components/commerce/international-phone';
+import { addressCountryCode, canonicalPhone, internationalPhoneParts, profileContactCountry, profileContactPhoneParts } from '@/lib/phone-number';
+import { type CountryCode } from 'libphonenumber-js/max';
+import { whatsappAuthenticationConsentText, whatsappConsentText, whatsappMarketingConsentText } from '@/lib/whatsapp-consent';
 import { brandLogoUrl } from '@/lib/home-content';
 
 type Profile = AuthUser & {
@@ -25,6 +25,13 @@ type Profile = AuthUser & {
   whatsappNotifications?: boolean;
   whatsappMarketingNotifications?: boolean;
   whatsappMarketingPhone?: string;
+  whatsappSameAsContact?: boolean;
+  whatsappIndependentPhone?: string;
+  whatsappIndependentCountry?: CountryCode;
+  whatsappConsentValid?: boolean;
+  whatsappMarketingConsentValid?: boolean;
+  whatsappOtpConsentValid?: boolean;
+  phoneCountry?: CountryCode;
 };
 
 type ProfileForm = {
@@ -43,19 +50,27 @@ type ProfileForm = {
   marketingEmails: boolean;
   whatsappNotifications: boolean;
   whatsappMarketingNotifications: boolean;
+  whatsappSameAsContact: boolean;
+  whatsappOtpConsent: boolean;
+  phoneCountry?: CountryCode;
 };
 
 type Address = { id: string; label?: string; fullName: string; phone: string; line1: string; line2?: string; city: string; state: string; postalCode: string; country: string; isDefault: boolean };
-const emptyForm: ProfileForm = { profileImage: null, firstName: '', lastName: '', username: '', email: '', phone: '', whatsappPhone: '', whatsappCountry: 'IN', dob: '', gender: '', language: 'English', region: 'asia-india', currency: 'INR', newsletter: false, marketingEmails: false, whatsappNotifications: false, whatsappMarketingNotifications: false };
+const emptyForm: ProfileForm = { profileImage: null, firstName: '', lastName: '', username: '', email: '', phone: '', whatsappPhone: '', whatsappCountry: 'IN', dob: '', gender: '', language: 'English', region: 'asia-india', currency: 'INR', newsletter: false, marketingEmails: false, whatsappNotifications: false, whatsappMarketingNotifications: false, whatsappSameAsContact: false, whatsappOtpConsent: false };
 const inputClass = 'mt-3 w-full border-b border-black/10 bg-transparent px-0 py-3 text-sm outline-none transition placeholder:text-charcoal/30 focus:border-gold';
 const cardClass = 'border border-white/70 bg-white/65 p-6 shadow-[0_20px_60px_rgba(42,38,34,0.06)] backdrop-blur-xl md:p-8';
 const regionCurrency: Record<string, string> = { 'asia-india': 'INR', us: 'USD', europe: 'EUR', 'anywhere-else': 'USD' };
 
 function toForm(user: Profile): ProfileForm {
+  const contact = profileContactPhoneParts(user.phone || '', user.phoneCountry, user.region);
+  const savedPhone = (user.whatsappSameAsContact ? user.whatsappIndependentPhone : '') || user.whatsappPhone || user.phone || '';
+  const phone = internationalPhoneParts(canonicalPhone(savedPhone, savedPhone.trim().startsWith('+') ? undefined : (user.whatsappSameAsContact ? user.whatsappIndependentCountry : undefined) || user.whatsappCountry || user.phoneCountry));
   return {
     profileImage: user.profileImage ?? null, firstName: user.firstName ?? '', lastName: user.lastName ?? '', username: user.username ?? '', email: user.email,
-    phone: user.phone ?? '', whatsappPhone: user.whatsappCountry ? (user.whatsappPhone ?? user.phone ?? '') : canonicalPhone(user.whatsappPhone || user.phone || ''), whatsappCountry: user.whatsappCountry || parsePhoneNumberFromString(user.whatsappPhone || user.phone || '')?.country || 'IN', dob: user.dob ?? '', gender: user.gender ?? '', language: user.language ?? 'English', region: user.region ?? 'asia-india', currency: user.currency ?? 'INR',
-    newsletter: user.newsletter ?? false, marketingEmails: user.marketingEmails ?? false, whatsappNotifications: user.whatsappNotifications ?? false, whatsappMarketingNotifications: user.whatsappMarketingNotifications ?? false,
+    phone: contact?.nationalNumber || user.phone || '', whatsappPhone: phone?.nationalNumber || '', whatsappCountry: phone?.country || user.whatsappCountry || 'IN', dob: user.dob ?? '', gender: user.gender ?? '', language: user.language ?? 'English', region: user.region ?? 'asia-india', currency: user.currency ?? 'INR',
+    newsletter: user.newsletter ?? false, marketingEmails: user.marketingEmails ?? false, whatsappNotifications: user.whatsappConsentValid === true, whatsappMarketingNotifications: user.whatsappMarketingConsentValid === true,
+    whatsappSameAsContact: user.whatsappSameAsContact === true, whatsappOtpConsent: user.whatsappOtpConsentValid === true,
+    phoneCountry: contact?.country || profileContactCountry(user.phoneCountry, user.region),
   };
 }
 
@@ -71,6 +86,9 @@ function ProfilePageContent() {
   const [user, setUser] = useState<Profile | null>(null);
   const [form, setForm] = useState<ProfileForm>(emptyForm);
   const [saved, setSaved] = useState<ProfileForm>(emptyForm);
+  const [transactionalGrantRecipient, setTransactionalGrantRecipient] = useState<string | null>(null);
+  const [authenticationGrantRecipient, setAuthenticationGrantRecipient] = useState<string | null>(null);
+  const [marketingGrantRecipient, setMarketingGrantRecipient] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -91,6 +109,13 @@ function ProfilePageContent() {
   const token = () => window.localStorage.getItem('rk_access_token') ?? '';
   const dirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(saved), [form, saved]);
   const initials = `${form.firstName.charAt(0)}${form.lastName.charAt(0)}`.toUpperCase() || form.username.slice(0, 2).toUpperCase() || 'RK';
+  const contactParts = profileContactPhoneParts(form.phone, form.phoneCountry);
+  const contactRecipient = contactParts?.recipient || '';
+  const recipient = form.whatsappSameAsContact ? contactParts?.recipient || '' : canonicalPhone(form.whatsappPhone, form.whatsappCountry);
+  const displayedPhone = form.whatsappSameAsContact ? contactParts?.nationalNumber || '' : form.whatsappPhone;
+  const displayedCountry = form.whatsappSameAsContact ? contactParts?.country || form.whatsappCountry : form.whatsappCountry;
+  useEffect(() => { if (form.whatsappSameAsContact && contactParts) setErrors(current => ({ ...current, whatsappPhone: '' })); }, [form.whatsappSameAsContact, contactRecipient]);
+  useEffect(() => { setTransactionalGrantRecipient(null); setAuthenticationGrantRecipient(null); setMarketingGrantRecipient(null); }, [recipient]);
 
   useEffect(() => {
     getCurrentUser().then((current) => {
@@ -107,12 +132,24 @@ function ProfilePageContent() {
 
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(null), 4500); return () => window.clearTimeout(timer); }, [toast]);
 
-  const setValue = <K extends keyof ProfileForm>(key: K, value: ProfileForm[K]) => setForm((current) => ({ ...current, [key]: value }));
+  const setValue = <K extends keyof ProfileForm>(key: K, value: ProfileForm[K]) => setForm((current) => ({ ...current, [key]: value,
+    ...(key === 'phone' && current.whatsappSameAsContact && profileContactPhoneParts(String(value), current.phoneCountry)?.recipient !== profileContactPhoneParts(current.phone, current.phoneCountry)?.recipient ? { whatsappNotifications: false, whatsappOtpConsent: false, whatsappMarketingNotifications: false } : {}) }));
+  const setContactCountry = (country: CountryCode) => setForm(current => ({ ...current, phoneCountry: country,
+    ...(current.whatsappSameAsContact && profileContactPhoneParts(current.phone, current.phoneCountry)?.recipient !== profileContactPhoneParts(current.phone, country)?.recipient ? { whatsappNotifications: false, whatsappOtpConsent: false, whatsappMarketingNotifications: false } : {}) }));
+  const linkContact = (linked: boolean) => { setErrors(current => ({ ...current, whatsappPhone: '' })); setForm(current => {
+    const old = current.whatsappSameAsContact ? profileContactPhoneParts(current.phone, current.phoneCountry)?.recipient || '' : canonicalPhone(current.whatsappPhone, current.whatsappCountry);
+    const next = linked ? profileContactPhoneParts(current.phone, current.phoneCountry)?.recipient || '' : canonicalPhone(current.whatsappPhone, current.whatsappCountry);
+    const copy = !linked && !current.whatsappPhone ? profileContactPhoneParts(current.phone, current.phoneCountry) : null;
+    return { ...current, whatsappSameAsContact: linked, ...(copy ? { whatsappPhone: copy.nationalNumber, whatsappCountry: copy.country } : {}),
+      ...(old !== (copy?.recipient || next) ? { whatsappNotifications: false, whatsappOtpConsent: false, whatsappMarketingNotifications: false } : {}) };
+  }); };
 
   const validate = () => {
     const next: Record<string, string> = {};
     if (!/^[a-zA-Z0-9_.-]{3,30}$/.test(form.username)) next.username = 'Use 3–30 letters, numbers, dots, dashes, or underscores.';
-    if (!canonicalPhone(form.whatsappPhone, form.whatsappCountry)) next.whatsappPhone = 'Confirm your WhatsApp number and country code.';
+    if (form.whatsappSameAsContact) {
+      if (!contactParts) next.whatsappPhone = 'Enter a valid contact phone with an international prefix, or select its Contact phone country.';
+    } else if ((displayedPhone || form.whatsappNotifications || form.whatsappOtpConsent || form.whatsappMarketingNotifications) && !recipient) next.whatsappPhone = 'Confirm your WhatsApp number and country code.';
     if (!form.phone.trim()) next.phone = 'Phone number is required.';
     else if (!/^\+?[0-9\s().-]{7,20}$/.test(form.phone)) next.phone = 'Enter a valid phone number.';
     if (!form.dob) next.dob = 'Date of birth is required.';
@@ -135,10 +172,13 @@ function ProfilePageContent() {
     if (!validate()) return;
     setSaving(true); setToast(null);
     try {
-      const response = await fetch(`${apiBaseUrl}/api/auth/profile`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` }, body: JSON.stringify({ ...form, whatsappPhone: canonicalPhone(form.whatsappPhone, form.whatsappCountry) }) });
+      const response = await fetch(`${apiBaseUrl}/api/auth/profile`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` }, body: JSON.stringify({ ...form, ...(contactParts ? { phone: contactParts.recipient, phoneCountry: contactParts.country } : {}), whatsappPhone: recipient, whatsappCountry: displayedCountry,
+        whatsappTransactionalConsent: !form.whatsappNotifications ? false : transactionalGrantRecipient === recipient ? true : undefined,
+        whatsappOtpConsent: !form.whatsappOtpConsent ? false : authenticationGrantRecipient === recipient ? true : undefined,
+        whatsappMarketingConsent: !form.whatsappMarketingNotifications ? false : marketingGrantRecipient === recipient ? true : undefined }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? 'We could not save your profile.');
-      const profile = data.user as Profile; const next = toForm(profile); setUser(profile); setForm(next); setSaved(next); window.localStorage.setItem('rk_auth_user', JSON.stringify(profile)); setToast({ type: 'success', text: 'Your profile has been saved.' });
+      const profile = data.user as Profile; const next = toForm(profile); setUser(profile); setForm(next); setSaved(next); setTransactionalGrantRecipient(null); setAuthenticationGrantRecipient(null); setMarketingGrantRecipient(null); window.localStorage.setItem('rk_auth_user', JSON.stringify(profile)); setToast({ type: 'success', text: 'Your profile has been saved.' });
     } catch (error) { setToast({ type: 'error', text: error instanceof Error ? error.message : 'We could not save your profile.' }); } finally { setSaving(false); }
   };
 
@@ -213,8 +253,25 @@ function ProfilePageContent() {
     <div className="mx-auto mt-16 max-w-6xl"><p className="text-[10px] uppercase tracking-[0.35em] text-gold">Personal space</p><div className="mt-3 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><h1 className="font-display text-6xl leading-none md:text-8xl">My profile.</h1><p className="mt-5 max-w-xl text-sm leading-7 text-charcoal/60">A quieter place to keep your RK experience personal.</p></div><div className="flex flex-wrap items-center gap-4">{user.role === 'customer' ? <Link href="/account/orders" className="rounded-full border border-gold/70 px-5 py-3 text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">My orders</Link> : user.role === 'admin' ? <Link href="/admin" className="rounded-full border border-gold/70 px-5 py-3 text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">Admin dashboard</Link> : user.role === 'staff' ? <Link href="/staff" className="rounded-full border border-gold/70 px-5 py-3 text-[10px] uppercase tracking-[0.2em] text-gold transition hover:bg-gold hover:text-ink">Staff dashboard</Link> : null}{dirty ? <p className="text-xs text-charcoal/55">You have unsaved changes.</p> : null}</div></div></div>
     <div className="mx-auto mt-12 grid max-w-6xl gap-6 lg:grid-cols-[0.75fr_1.25fr]">
       <section className={`${cardClass} h-fit rounded-[2rem]`}><p className="text-[10px] uppercase tracking-[0.3em] text-charcoal/45">Profile picture</p><div className="mt-8 flex items-center gap-5"><div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-charcoal text-2xl text-ivory">{form.profileImage ? <img src={form.profileImage} alt="Profile preview" className="h-full w-full object-cover" /> : initials}</div><div className="min-w-0"><p className="truncate text-sm font-medium">{form.firstName || form.lastName ? `${form.firstName} ${form.lastName}`.trim() : 'Your full name'}</p><p className="mt-1 text-[10px] uppercase tracking-[.18em] text-gold">{user.role}</p><p className="mt-1 truncate text-xs text-charcoal/50">{form.email}</p><p className="mt-2 text-xs text-charcoal/45">JPG, PNG or WebP · 3 MB max</p><div className="mt-4 flex gap-4 text-[10px] uppercase tracking-[0.2em]"><label className="cursor-pointer text-gold hover:text-charcoal">{form.profileImage ? 'Change' : 'Upload'}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={chooseImage} className="hidden" /></label>{form.profileImage ? <button type="button" onClick={() => setValue('profileImage', null)} className="text-charcoal/45 hover:text-red-600">Remove</button> : null}</div></div></div></section>
-      <section className={`${cardClass} rounded-[2rem]`}><div className="flex items-end justify-between"><div><p className="text-[10px] uppercase tracking-[0.3em] text-charcoal/45">Personal information</p><h2 className="mt-3 font-display text-4xl">Tell us about you.</h2><p className="mt-3 text-xs text-charcoal/50">Phone number, date of birth, and gender are required to save your profile.</p></div></div><div className="mt-10 grid gap-7 md:grid-cols-2"><Field label="First name" value={form.firstName} onChange={(value) => setValue('firstName', value)} /><Field label="Last name" value={form.lastName} onChange={(value) => setValue('lastName', value)} /><Field label="Username" value={form.username} onChange={(value) => setValue('username', value)} error={errors.username} /><Field label="Email" value={form.email} /><Field label="Phone number · required" required value={form.phone} onChange={(value) => setValue('phone', value)} error={errors.phone} placeholder="+91 00000 00000" /><Field label="Date of birth · required" required type="date" value={form.dob} onChange={(value) => setValue('dob', value)} error={errors.dob} max={new Date().toISOString().slice(0, 10)} /><label className="block text-[10px] uppercase tracking-[0.25em] text-charcoal/55">Gender · required<select required value={form.gender} aria-invalid={Boolean(errors.gender)} onChange={(event) => { setValue('gender', event.target.value); setErrors((current) => ({ ...current, gender: '' })); }} className={`${inputClass} ${errors.gender ? 'border-red-500 text-red-700' : ''}`}><option value="">Select</option><option value="male">Male</option><option value="female">Female</option><option value="prefer-not-to-say">Prefer not to say</option></select>{errors.gender ? <span role="alert" className="mt-2 block text-[10px] normal-case tracking-normal text-red-600">{errors.gender}</span> : null}</label><label className="block text-[10px] uppercase tracking-[0.25em] text-charcoal/55">Region<select value={form.region} onChange={(event) => { const region = event.target.value; setForm((current) => ({ ...current, region, currency: regionCurrency[region] })); }} className={inputClass}><option value="asia-india">Asia (India)</option><option value="us">US</option><option value="europe">Europe</option><option value="anywhere-else">Anywhere else</option></select></label><label className="block text-[10px] uppercase tracking-[0.25em] text-charcoal/55">Currency<input value={form.currency} readOnly className={`${inputClass} cursor-not-allowed text-charcoal/50`} /></label></div></section>
-      <section className={`${cardClass} rounded-[2rem] lg:col-start-2`}><div><p className="text-[10px] uppercase tracking-[0.3em] text-charcoal/45">Preferences</p><h2 className="mt-3 font-display text-4xl">Make it yours.</h2></div><div className="mt-7"><label className="block text-[10px] uppercase tracking-[0.25em] text-charcoal/55">Language<select value={form.language} onChange={(event) => setValue('language', event.target.value)} className={inputClass}><option>English</option><option>Hindi</option></select></label></div><div className="mt-5"><InternationalPhone label="Primary WhatsApp number" value={form.whatsappPhone} country={form.whatsappCountry} onChange={(value, country) => setForm(current => ({ ...current, whatsappPhone: value, whatsappCountry: country, whatsappNotifications: false, whatsappMarketingNotifications: false }))} />{errors.whatsappPhone && <p role="alert" className="text-xs text-red-600">{errors.whatsappPhone}</p>}<Toggle label="Newsletter subscription" checked={form.newsletter} onChange={(value) => setValue('newsletter', value)} /><Toggle label="Marketing emails" checked={form.marketingEmails} onChange={(value) => setValue('marketingEmails', value)} /><p className="mt-4 text-xs leading-6 text-charcoal/70">{whatsappConsentText}</p><Toggle label="Transactional WhatsApp updates (optional). You can opt out here at any time." checked={form.whatsappNotifications} onChange={(value) => setValue('whatsappNotifications', value)} /><label className="flex items-start gap-3 py-4 text-sm"><input type="checkbox" checked={form.whatsappMarketingNotifications} onChange={event => setValue('whatsappMarketingNotifications', event.target.checked)} />{whatsappMarketingConsentText}</label>{user?.whatsappMarketingPhone && <p className="text-xs text-charcoal/60">Marketing consent number: {user.whatsappMarketingPhone}</p>}</div></section>
+      <section className={`${cardClass} rounded-[2rem]`}><div className="flex items-end justify-between"><div><p className="text-[10px] uppercase tracking-[0.3em] text-charcoal/45">Personal information</p><h2 className="mt-3 font-display text-4xl">Tell us about you.</h2><p className="mt-3 text-xs text-charcoal/50">Phone number, date of birth, and gender are required to save your profile.</p></div></div><div className="mt-10 grid gap-7 md:grid-cols-2"><Field label="First name" value={form.firstName} onChange={(value) => setValue('firstName', value)} /><Field label="Last name" value={form.lastName} onChange={(value) => setValue('lastName', value)} /><Field label="Username" value={form.username} onChange={(value) => setValue('username', value)} error={errors.username} /><Field label="Email" value={form.email} /><div><Field label="Phone number · required" required value={form.phone} onChange={(value) => setValue('phone', value)} error={errors.phone} placeholder="+91 00000 00000" />{!form.phone.trim().startsWith('+') && !form.phone.trim().startsWith('00') ? <div className="mt-3"><span className="text-xs text-charcoal/60">Contact phone country</span><CountrySelector label="Contact phone country" country={contactParts?.country || (form.phoneCountry ? addressCountryCode(form.phoneCountry) : undefined)} onChange={setContactCountry} /></div> : null}</div><Field label="Date of birth · required" required type="date" value={form.dob} onChange={(value) => setValue('dob', value)} error={errors.dob} max={new Date().toISOString().slice(0, 10)} /><label className="block text-[10px] uppercase tracking-[0.25em] text-charcoal/55">Gender · required<select required value={form.gender} aria-invalid={Boolean(errors.gender)} onChange={(event) => { setValue('gender', event.target.value); setErrors((current) => ({ ...current, gender: '' })); }} className={`${inputClass} ${errors.gender ? 'border-red-500 text-red-700' : ''}`}><option value="">Select</option><option value="male">Male</option><option value="female">Female</option><option value="prefer-not-to-say">Prefer not to say</option></select>{errors.gender ? <span role="alert" className="mt-2 block text-[10px] normal-case tracking-normal text-red-600">{errors.gender}</span> : null}</label><label className="block text-[10px] uppercase tracking-[0.25em] text-charcoal/55">Region<select value={form.region} onChange={(event) => { const region = event.target.value; setForm((current) => ({ ...current, region, currency: regionCurrency[region] })); }} className={inputClass}><option value="asia-india">Asia (India)</option><option value="us">US</option><option value="europe">Europe</option><option value="anywhere-else">Anywhere else</option></select></label><label className="block text-[10px] uppercase tracking-[0.25em] text-charcoal/55">Currency<input value={form.currency} readOnly className={`${inputClass} cursor-not-allowed text-charcoal/50`} /></label></div></section>
+      <section id="communication-preferences" className={`${cardClass} rounded-[2rem] lg:col-start-2`}>
+        <p className="text-[10px] uppercase tracking-[0.3em] text-charcoal/45">Preferences</p><h2 className="mt-3 font-display text-4xl">Make it yours.</h2>
+        <label className="mt-7 block text-xs">Language<select value={form.language} onChange={event => setValue('language', event.target.value)} className={inputClass}><option>English</option><option>Hindi</option></select></label>
+        <div className="mt-7 border-t border-black/10 pt-6">
+          <h3 className="text-xs uppercase tracking-[.18em]">WhatsApp permissions</h3><p className="mt-3 text-xs leading-6 text-charcoal/70">Choose which WhatsApp messages you authorize at your selected number. You can withdraw each permission independently. Delivery depends on the store's available communication services.</p>
+          <label className="mt-5 flex items-start gap-3 text-sm"><input type="checkbox" checked={form.whatsappSameAsContact} onChange={event => linkContact(event.target.checked)} className="mt-1 accent-[#b58a4c]"/>Same as contact phone</label>
+          <div className="mt-4"><InternationalPhone label="Primary WhatsApp number" value={displayedPhone} country={displayedCountry} onChange={(value, country) => setForm(current => ({ ...current, whatsappSameAsContact: false, whatsappPhone: value, whatsappCountry: country, whatsappNotifications: false, whatsappOtpConsent: false, whatsappMarketingNotifications: false }))} /></div>
+          {errors.whatsappPhone ? <p role="alert" className="mt-2 text-xs text-red-600">{errors.whatsappPhone}</p> : null}
+          <label className="mt-5 flex items-start gap-3 text-xs leading-6"><input type="checkbox" checked={form.whatsappOtpConsent} onChange={event => { setAuthenticationGrantRecipient(event.target.checked ? recipient : null); setForm(current => ({ ...current, whatsappOtpConsent: event.target.checked })); }} className="mt-1"/>{whatsappAuthenticationConsentText}</label>
+          <label className="mt-5 flex items-start gap-3 text-xs leading-6"><input type="checkbox" checked={form.whatsappNotifications} onChange={event => { setTransactionalGrantRecipient(event.target.checked ? recipient : null); setForm(current => ({ ...current, whatsappNotifications: event.target.checked })); }} className="mt-1"/>{whatsappConsentText}</label>
+          <p className="mt-2 text-xs text-charcoal/60">You can withdraw this WhatsApp permission at any time.</p>
+        </div>
+        <div className="mt-7 border-t border-black/10 pt-6"><h3 className="text-xs uppercase tracking-[.18em]">Optional communications</h3>
+          <Toggle label="Newsletter subscription" checked={form.newsletter} onChange={value => setValue('newsletter', value)} />
+          <Toggle label="Marketing emails" checked={form.marketingEmails} onChange={value => setValue('marketingEmails', value)} />
+          <label className="mt-4 flex items-start gap-3 text-xs leading-6 text-charcoal/70"><input type="checkbox" checked={form.whatsappMarketingNotifications} onChange={event => { setMarketingGrantRecipient(event.target.checked ? recipient : null); setValue('whatsappMarketingNotifications', event.target.checked); }} className="mt-1"/>{whatsappMarketingConsentText}</label>
+        </div>
+      </section>
       <section className={`${cardClass} rounded-[2rem] lg:col-span-2`}><div className="flex items-end justify-between"><div><p className="text-[10px] uppercase tracking-[0.3em] text-charcoal/45">Addresses</p><h2 className="mt-3 font-display text-4xl">Where should we send it?</h2></div><button type="button" onClick={() => setAddressOpen((current) => !current)} className="rounded-full bg-ink px-5 py-3 text-[10px] uppercase tracking-[0.2em] text-ivory transition hover:bg-gold">{addressOpen ? 'Close' : 'Add address'}</button></div>{addressOpen ? <div className="mt-8 grid gap-5 border-y border-black/5 py-7 md:grid-cols-3"><Field label="Label" value={addressForm.label} onChange={(value) => setAddressForm((current) => ({ ...current, label: value }))} /><Field label="Full name" value={addressForm.fullName} onChange={(value) => setAddressForm((current) => ({ ...current, fullName: value }))} /><Field label="Phone" value={addressForm.phone} onChange={(value) => setAddressForm((current) => ({ ...current, phone: value }))} placeholder="+91 00000 00000" /><Field label="Address line 1" value={addressForm.line1} onChange={(value) => setAddressForm((current) => ({ ...current, line1: value }))} /><Field label="Address line 2" value={addressForm.line2} onChange={(value) => setAddressForm((current) => ({ ...current, line2: value }))} /><Field label="City" value={addressForm.city} onChange={(value) => setAddressForm((current) => ({ ...current, city: value }))} /><Field label="State" value={addressForm.state} onChange={(value) => setAddressForm((current) => ({ ...current, state: value }))} /><Field label="Postal code" value={addressForm.postalCode} onChange={(value) => setAddressForm((current) => ({ ...current, postalCode: value }))} /><Field label="Country" value={addressForm.country} onChange={(value) => setAddressForm((current) => ({ ...current, country: value }))} /><label className="flex items-center gap-3 text-xs text-charcoal/65"><input type="checkbox" checked={addressForm.isDefault} onChange={(event) => setAddressForm((current) => ({ ...current, isDefault: event.target.checked }))} /> Make default</label><button type="button" disabled={addressBusy} onClick={createAddress} className="rounded-full bg-ink px-5 py-3 text-[10px] uppercase tracking-[0.2em] text-ivory disabled:opacity-40">{addressBusy ? 'Saving…' : 'Save address'}</button></div> : null}<div className="mt-7 grid gap-4 md:grid-cols-2">{addresses.length ? addresses.map((address) => <div key={address.id} className="border border-black/8 p-5"><div className="flex items-center justify-between"><p className="text-[10px] uppercase tracking-[0.2em] text-gold">{address.label || 'Address'} {address.isDefault ? '· Default' : ''}</p><button type="button" onClick={() => removeAddress(address.id)} className="text-[10px] uppercase tracking-[0.15em] text-charcoal/40 hover:text-red-600">Remove</button></div><p className="mt-4 text-sm">{address.fullName}</p><p className="mt-1 text-sm leading-6 text-charcoal/60">{address.line1}{address.line2 ? `, ${address.line2}` : ''}<br />{address.city}, {address.state} {address.postalCode}<br />{address.country} · {address.phone}</p></div>) : <p className="text-sm text-charcoal/50">No saved addresses yet.</p>}</div></section>
       <section className={`${cardClass} rounded-[2rem] lg:col-start-1 lg:row-start-3`}>
         <p className="text-[10px] uppercase tracking-[0.3em] text-charcoal/45">Security</p><h2 className="mt-3 font-display text-4xl">Keep it yours.</h2>

@@ -1,8 +1,267 @@
 import { expect, test, type Page } from '@playwright/test';
 
+async function mockProfileCommunications(page: Page, completed = true, consent = false, contactPhone = '+442079460018', phoneCountry: string | null = 'GB', initial: Record<string, unknown> = {}) {
+  const writes: Record<string, unknown>[] = [];
+  let user = { id: 'synthetic-profile', role: 'customer', isActive: true, email: 'synthetic@example.test', username: 'synthetic.profile', firstName: 'Synthetic', lastName: 'Profile', phone: contactPhone, phoneCountry, whatsappSameAsContact: false, whatsappIndependentPhone: '+14155552671', whatsappIndependentCountry: 'US', dob: '1990-01-01', gender: 'female', whatsappPhone: '+14155552671', whatsappCountry: 'US', whatsappConsentValid: consent, whatsappMarketingConsentValid: false, whatsappOtpConsentValid: false,
+    ...initial, communicationPreferences: { completed, otpChannel: 'email', utilityChannel: consent ? 'whatsapp' : 'email', effectiveOtpChannel: 'email', effectiveUtilityChannel: consent ? 'whatsapp' : 'email' } };
+  await page.addInitScript(() => localStorage.setItem('rk_access_token', 'synthetic-profile-token'));
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/auth/me') return route.fulfill({ json: { user } });
+    if (path === '/api/storefront-settings') return route.fulfill({ json: { settings: { whatsappConsentCollectionMode: 'onboarding' } } });
+    if (path === '/api/auth/profile') {
+      const body = route.request().postDataJSON(); writes.push(body);
+      user = { ...user, ...body, whatsappIndependentPhone: body.whatsappSameAsContact ? (user.whatsappSameAsContact ? user.whatsappIndependentPhone : user.whatsappPhone) : body.whatsappPhone, whatsappIndependentCountry: body.whatsappSameAsContact ? (user.whatsappSameAsContact ? user.whatsappIndependentCountry : user.whatsappCountry) : body.whatsappCountry, whatsappConsentValid: body.whatsappTransactionalConsent === true || (body.whatsappTransactionalConsent === undefined && user.whatsappConsentValid && body.whatsappNotifications === true && body.whatsappPhone === user.whatsappPhone),
+        whatsappOtpConsentValid: body.whatsappOtpConsent === true || (body.whatsappOtpConsent === undefined && user.whatsappOtpConsentValid && body.whatsappPhone === user.whatsappPhone),
+        communicationPreferences: { ...body.communicationPreferences, completed: true } };
+      return route.fulfill({ json: { user } });
+    }
+    return route.fulfill({ json: { addresses: [] } });
+  });
+  await page.goto('/account/profile');
+  await expect(page.getByRole('heading', { name: 'My profile.' })).toBeVisible();
+  return writes;
+}
+
+test('profile communications link actual contact digits without granting permission and manual edits unlink', async ({ page }) => {
+  const writes = await mockProfileCommunications(page);
+  const same = page.getByRole('checkbox', { name: 'Same as contact phone', exact: true });
+  const phone = page.getByRole('group', { name: 'Primary WhatsApp number' });
+  const consent = page.getByRole('checkbox', { name: /^I agree to receive transactional WhatsApp/ });
+  await expect(phone.getByLabel('Mobile number')).toHaveValue('4155552671');
+  await same.check();
+  await expect(phone.getByLabel('Mobile number')).toHaveValue('2079460018');
+  await expect(phone.getByRole('combobox')).toHaveValue(/United Kingdom \(\+44\)/);
+  await expect(consent).not.toBeChecked();
+  await page.getByRole('textbox', { name: /^Phone number/ }).fill('+919619888755');
+  await expect(phone.getByLabel('Mobile number')).toHaveValue('9619888755');
+  await expect(phone.getByRole('combobox')).toHaveValue(/India \(\+91\)/);
+  await same.uncheck();
+  await expect(phone.getByLabel('Mobile number')).toHaveValue('4155552671');
+  await same.check();
+  await phone.getByLabel('Mobile number').fill('9619888756');
+  await expect(same).not.toBeChecked();
+  await expect(consent).not.toBeChecked();
+  await same.check();
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0]).toMatchObject({ whatsappPhone: '+919619888755', whatsappCountry: 'IN', whatsappSameAsContact: true, whatsappTransactionalConsent: false, whatsappMarketingNotifications: false });
+});
+
+test('profile communications preserve an existing valid grant without customer routing selectors', async ({ page }) => {
+  const writes = await mockProfileCommunications(page, false, true);
+  await expect(page.getByRole('combobox', { name: /Authentication communication|Order communication/ })).toHaveCount(0);
+  await page.getByRole('textbox', { name: 'First name', exact: true }).fill('Updated');
+  await expect(page.getByRole('checkbox', { name: /^I agree to receive transactional WhatsApp/ })).toBeChecked();
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0]).not.toHaveProperty('whatsappTransactionalConsent');
+  await expect(page.getByRole('status').filter({ hasText: 'Complete your communication channel choices' })).toHaveCount(0);
+  await page.getByRole('checkbox', { name: /^I agree to receive transactional WhatsApp/ }).uncheck();
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect.poll(() => writes.length).toBe(2);
+  expect(writes[1].whatsappTransactionalConsent).toBe(false);
+  expect(writes[1].whatsappMarketingNotifications).toBe(false);
+});
+
+test('profile communications changing a linked recipient invalidates an existing grant', async ({ page }) => {
+  await mockProfileCommunications(page, true, true);
+  const consent = page.getByRole('checkbox', { name: /^I agree to receive transactional WhatsApp/ });
+  await expect(consent).toBeChecked();
+  await page.getByRole('checkbox', { name: 'Same as contact phone', exact: true }).check();
+  await expect(consent).not.toBeChecked();
+  const phone = page.getByRole('group', { name: 'Primary WhatsApp number' });
+  await phone.getByRole('combobox').fill('US');
+  await page.getByRole('option', { name: /United States \(\+1\)$/ }).click();
+  await expect(page.getByRole('checkbox', { name: 'Same as contact phone', exact: true })).not.toBeChecked();
+  await expect(consent).not.toBeChecked();
+});
+
+test('profile communications authentication permission is separate and withdrawable', async ({ page }) => {
+  const writes = await mockProfileCommunications(page);
+  const otp = page.getByRole('checkbox', { name: /^I request authentication codes from Rashi Kapoor/ });
+  await expect(otp).not.toBeChecked();
+  await otp.check();
+  await expect(page.getByRole('checkbox', { name: /^I agree to receive transactional WhatsApp/ })).not.toBeChecked();
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0].whatsappOtpConsent).toBe(true);
+  expect(writes[0].whatsappTransactionalConsent).toBe(false);
+  // Withdrawal switches the channel to Email and removes this category control.
+  await otp.click();
+  await expect(otp).not.toBeChecked();
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect.poll(() => writes.length).toBe(2);
+  expect(writes[1].whatsappOtpConsent).toBe(false);
+  expect(writes[1].whatsappTransactionalConsent).toBe(false);
+});
+
+for (const entry of [
+  { phone: '+919819887755', country: 'IN', national: '9819887755', name: 'India', code: '91' },
+  { phone: '9819887755', country: 'IN', national: '9819887755', name: 'India', code: '91' },
+  { phone: '+442079460018', country: 'GB', national: '2079460018', name: 'United Kingdom', code: '44' },
+]) test(`profile communications linked contact format persists: ${entry.phone}`, async ({ page }, info) => {
+  const writes = await mockProfileCommunications(page, true, false, entry.phone, entry.country);
+  await page.getByRole('checkbox', { name: 'Same as contact phone', exact: true }).check();
+  const number = page.getByRole('group', { name: 'Primary WhatsApp number' });
+  await expect(number.getByLabel('Mobile number')).toHaveValue(entry.national);
+  await expect(number.getByRole('combobox')).toHaveValue(new RegExp(entry.name));
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0]).toMatchObject({ whatsappPhone: '+' + entry.code + entry.national, whatsappCountry: entry.country, whatsappSameAsContact: true });
+  await page.reload();
+  await expect(page.getByRole('checkbox', { name: 'Same as contact phone', exact: true })).toBeChecked();
+  await expect(number.getByLabel('Mobile number')).toHaveValue(entry.national);
+  await expect(page.getByRole('alert').filter({ hasText: 'Confirm your WhatsApp number' })).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('linked-profile.png'), fullPage: true });
+  await page.getByRole('checkbox', { name: 'Same as contact phone', exact: true }).uncheck();
+  await expect(number.getByLabel('Mobile number')).toHaveValue('4155552671');
+  await expect(number.getByRole('combobox')).toHaveValue(/United States/);
+});
+
+for (const entry of [
+  { label: 'international without saved WhatsApp', phone: '+919819887755', country: null, national: '9819887755', code: 'IN' },
+  { label: 'legacy trunk prefix', phone: '09819887755', country: 'IN', national: '9819887755', code: 'IN' },
+  { label: 'legacy lowercase country', phone: '09819887755', country: 'in', national: '9819887755', code: 'IN' },
+  { label: 'international dial prefix', phone: '00919819887755', country: null, national: '9819887755', code: 'IN' },
+  { label: 'international overrides stale country', phone: '+442079460018', country: 'IN', national: '2079460018', code: 'GB' },
+]) test(`profile communications hydrates already-linked empty independent value: ${entry.label}`, async ({ page }, info) => {
+  const writes = await mockProfileCommunications(page, true, false, entry.phone, entry.country,
+    { whatsappSameAsContact: true, whatsappPhone: '', whatsappCountry: 'IN', whatsappIndependentPhone: '' });
+  const number = page.getByRole('group', { name: 'Primary WhatsApp number' });
+  await expect(page.getByRole('checkbox', { name: 'Same as contact phone', exact: true })).toBeChecked();
+  await expect(number.getByLabel('Mobile number')).toHaveValue(entry.national);
+  await expect(number.getByRole('combobox')).toHaveValue(entry.code === 'IN' ? /India.*\(\+91\)/ : /United Kingdom.*\(\+44\)/);
+  await expect(page.getByRole('checkbox', { name: /^I agree to receive transactional WhatsApp/ })).not.toBeChecked();
+  await page.getByRole('textbox', { name: 'First name', exact: true }).fill('Updated');
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0]).toMatchObject({ phoneCountry: entry.code, whatsappCountry: entry.code, whatsappSameAsContact: true, whatsappTransactionalConsent: false });
+  expect(writes[0].phone).toBe(writes[0].whatsappPhone);
+  await page.reload();
+  await expect(number.getByLabel('Mobile number')).toHaveValue(entry.national);
+  // Next.js keeps an empty route-announcer alert after reload; it is not a field error.
+  await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toHaveCount(0);
+  await expect(page.locator('[aria-invalid="true"]')).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('hydrated-linked-profile.png'), fullPage: true });
+});
+
+for (const phone of ['+919819887755', '09819887755', '9819887755']) test(`profile communications saved India region resolves exact screenshot format: ${phone}`, async ({ page }, info) => {
+  const writes = await mockProfileCommunications(page, true, false, phone, null,
+    { region: 'asia-india', whatsappSameAsContact: true, whatsappPhone: '', whatsappIndependentPhone: '', whatsappCountry: 'IN' });
+  // Assert the JSON field values, not merely an HTTP 200 response.
+  // The browser route fixture is inspected through the same fetch used by getCurrentUser.
+  const me = await page.evaluate(async () => (await fetch('/api/auth/me')).json());
+  expect(me.user).toMatchObject({ phone, phoneCountry: null, region: 'asia-india', whatsappSameAsContact: true, whatsappPhone: '' });
+  await expect(page.getByRole('textbox', { name: /^Phone number/ })).toHaveValue('9819887755');
+  await expect(page.getByRole('combobox', { name: 'Contact phone country', exact: true })).toHaveValue(/India.*\(\+91\)/);
+  const number = page.getByRole('group', { name: 'Primary WhatsApp number' });
+  await expect(number.getByRole('combobox')).toHaveValue(/India.*\(\+91\)/);
+  await expect(number.getByLabel('Mobile number')).toHaveValue('9819887755');
+  await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toHaveCount(0);
+  await expect(page.getByRole('checkbox', { name: /^I agree to receive transactional WhatsApp/ })).not.toBeChecked();
+  await page.getByRole('textbox', { name: 'First name', exact: true }).fill('Updated');
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0]).toMatchObject({ phone: '+919819887755', phoneCountry: 'IN', whatsappPhone: '+919819887755', whatsappCountry: 'IN', whatsappSameAsContact: true, whatsappTransactionalConsent: false });
+  await page.reload();
+  await expect(number.getByLabel('Mobile number')).toHaveValue('9819887755');
+  await expect(page.getByRole('textbox', { name: /^Phone number/ })).toHaveValue('9819887755');
+  await page.screenshot({ path: info.outputPath('india-region-linked-profile.png'), fullPage: true });
+});
+
+test('profile communications missing contact country is explicit and recoverable without guessing', async ({ page }) => {
+  const writes = await mockProfileCommunications(page, true, false, '09819887755', null,
+    { region: 'anywhere-else', whatsappSameAsContact: true, whatsappPhone: '', whatsappCountry: 'IN', whatsappIndependentPhone: '' });
+  const country = page.getByRole('combobox', { name: 'Contact phone country', exact: true });
+  await expect(country).toHaveValue('');
+  const number = page.getByRole('group', { name: 'Primary WhatsApp number' });
+  await expect(number.getByLabel('Mobile number')).toHaveValue('');
+  await page.getByRole('textbox', { name: 'First name', exact: true }).fill('Updated');
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Contact phone country' })).toBeVisible();
+  expect(writes).toHaveLength(0);
+  await country.fill('India');
+  await page.getByRole('option', { name: /India.*\(\+91\)/ }).click();
+  await expect(number.getByLabel('Mobile number')).toHaveValue('9819887755');
+  await expect(page.getByRole('alert').filter({ hasText: 'Contact phone country' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0]).toMatchObject({ phone: '+919819887755', phoneCountry: 'IN', whatsappPhone: '+919819887755', whatsappSameAsContact: true, whatsappTransactionalConsent: false });
+});
+
+test('profile communications invalid linked contact blocks saving without a stale recipient', async ({ page }) => {
+  const writes = await mockProfileCommunications(page);
+  await page.getByRole('checkbox', { name: 'Same as contact phone', exact: true }).check();
+  await page.getByRole('textbox', { name: /^Phone number/ }).fill('123');
+  await expect(page.getByRole('group', { name: 'Primary WhatsApp number' }).getByLabel('Mobile number')).toHaveValue('');
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: /valid contact phone/ })).toBeVisible();
+  expect(writes).toHaveLength(0);
+});
+
+for (const width of [1440, 390]) test(`profile communications groups remain accessible and responsive at ${width}px`, async ({ page }, info) => {
+  await page.setViewportSize({ width, height: 950 });
+  await mockProfileCommunications(page, false);
+  await expect(page.getByRole('heading', { name: 'WhatsApp permissions' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Optional communications' })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: /^I agree to receive transactional WhatsApp/ })).toBeEnabled();
+  await expect(page.getByLabel(/I would also like to receive occasional collection launches/)).not.toBeChecked();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  await page.screenshot({ path: info.outputPath(`profile-communications-${width}.png`), fullPage: true });
+});
+
+for (const channel of ['email', 'whatsapp']) test(`onboarding signup permissions stay separate without routing selectors: ${channel}`, async ({ page }) => {
+  const writes: Record<string, unknown>[] = [];
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/auth/me') return route.fulfill({ status: 401, json: {} });
+    if (path === '/api/storefront-settings') return route.fulfill({ json: { settings: { whatsappConsentCollectionMode: 'onboarding' } } });
+    if (path === '/api/auth/signup/request-otp') { writes.push(route.request().postDataJSON()); return route.fulfill({ status: 202, json: { delivery: { email: 'sent' } } }); }
+    return route.fulfill({ json: {} });
+  });
+  await page.goto('/account');
+  await page.getByRole('button', { name: 'Create an account', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'OTP delivery channel' })).toHaveCount(0);
+  await page.getByLabel('First name', { exact: true }).fill('Synthetic');
+  await page.getByLabel('Last name', { exact: true }).fill('Signup');
+  await page.getByLabel('Username', { exact: true }).fill('synthetic.signup');
+  await page.getByLabel('Email', { exact: true }).fill('synthetic.signup@example.test');
+  await selectPhoneCountry(page, 'US'); await page.getByLabel('Mobile number').fill('4155552671');
+  await page.getByLabel('Date of birth', { exact: true }).fill('1990-01-01');
+  await page.getByRole('combobox', { name: 'Gender', exact: true }).selectOption('female');
+  await page.getByRole('combobox', { name: 'Region', exact: true }).selectOption('us');
+  await page.locator('input[type=password]').nth(0).fill('synthetic-password');
+  await page.locator('input[type=password]').nth(1).fill('synthetic-password');
+  if (channel === 'whatsapp') {
+    const consent = page.getByLabel('I agree to receive transactional WhatsApp updates, including order confirmations, payment updates, shipping and delivery notifications.', { exact: true });
+    await expect(consent).not.toBeChecked();
+    await consent.check();
+  }
+  await page.getByRole('button', { name: 'Send signup code' }).click();
+  await expect.poll(() => writes.length).toBe(1);
+  expect(writes[0]).not.toHaveProperty('communicationPreferences');
+  expect(writes[0]).not.toHaveProperty('otpChannel');
+  expect(writes[0].whatsappOtpConsent).toBe(false);
+  expect(writes[0].whatsappTransactionalConsent).toBe(channel === 'whatsapp');
+});
+
+for (const choice of ['email', 'whatsapp', 'missing', 'withdrawn']) test(`onboarding checkout communications avoid duplicate opt-in: ${choice}`, async ({ page }) => {
+  const requests = await mockLinkedCheckout(page, { savedConsent: choice === 'whatsapp' });
+  await page.route('**/api/storefront-settings', route => route.fulfill({ json: { settings: { razorpayEnabled: false, requireWhatsappConsentForCheckout: true, whatsappConsentCollectionMode: 'onboarding' } } }));
+  await page.route('**/api/auth/me', route => route.fulfill({ json: { user: { id: 'fixture', email: 'synthetic@example.test', whatsappPhone: '+14155552671', whatsappConsentValid: choice === 'whatsapp', communicationPreferences: { completed: choice !== 'missing', otpChannel: 'email', utilityChannel: choice === 'email' ? 'email' : 'whatsapp', effectiveUtilityChannel: choice === 'whatsapp' ? 'whatsapp' : 'email' } } } }));
+  await page.reload();
+  await expect(page.getByRole('link', { name: 'Manage WhatsApp permissions' })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: /Keep me updated on WhatsApp/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Place order', exact: true }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].whatsappRecipient).toBe(choice === 'whatsapp' ? '+14155552671' : '');
+  expect(requests[0]).not.toHaveProperty('whatsappTransactionalConsent');
+});
+
 async function selectPhoneCountry(page: Page, code: 'US' | 'GB') {
   const country = code === 'US' ? /United States \(\+1\)$/ : /United Kingdom \(\+44\)$/;
-  await page.getByRole('combobox', { name: 'Country and dialling code', exact: true }).fill(code);
+  await page.getByRole('combobox', { name: 'Country and dialling code', exact: true }).last().fill(code);
   await page.getByRole('option', { name: country }).click();
 }
 
@@ -33,20 +292,69 @@ async function mockLinkedCheckout(page: Page, options: { savedConsent?: boolean;
     return route.continue();
   });
   await page.goto('/checkout');
-  await expect(page.getByRole('textbox', { name: /^Phone/ })).toHaveValue('+14155552671');
+  await expect(page.getByRole('textbox', { name: /^Phone/ })).toHaveValue('4155552671');
   return requests;
 }
 
 const shippingLabels = ['Full name', 'Phone', 'Address line 1', 'Address line 2', 'City', 'State', 'Postal code', 'Country'];
 
+test('checkout delivery country drives national phone defaults and preserves explicit telephone overrides', async ({ page }) => {
+  const requests = await mockLinkedCheckout(page);
+  const delivery = page.getByRole('group', { name: 'Delivery phone · required', exact: true });
+  const whatsapp = page.getByRole('group', { name: 'WhatsApp number for this order', exact: true });
+  const addressCountry = page.getByRole('combobox', { name: 'Delivery country', exact: true });
+  const consent = page.getByRole('checkbox', { name: /Keep me updated on WhatsApp/ });
+  for (const [name, code] of [['India', '91'], ['United States', '1'], ['United Kingdom', '44'], ['France', '33']]) {
+    await addressCountry.fill(name);
+    await page.getByRole('option', { name: new RegExp(`${name}$`) }).click();
+    await expect(delivery.getByRole('combobox')).toHaveValue(new RegExp(`\\(\\+${code}\\)`));
+  }
+  await addressCountry.fill('India');
+  await page.getByRole('option', { name: /India$/ }).click();
+  await delivery.getByRole('textbox', { name: /^Phone/ }).fill('9619888755');
+  await page.getByRole('checkbox', { name: 'Same as contact phone', exact: true }).check();
+  await expect(whatsapp.getByLabel('Mobile number', { exact: true })).toHaveValue('9619888755');
+  await expect(whatsapp.getByRole('combobox')).toHaveValue(/India \(\+91\)/);
+  await expect(consent).not.toBeChecked();
+  await consent.check();
+  await page.getByRole('button', { name: 'Place order', exact: true }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].shipping).toMatchObject({ phone: '+919619888755', country: 'India' });
+  expect(requests[0].whatsappRecipient).toBe('+919619888755');
+  await delivery.getByRole('combobox').fill('GB');
+  await page.getByRole('option', { name: /United Kingdom \(\+44\)$/ }).click();
+  await delivery.getByRole('textbox', { name: /^Phone/ }).fill('2079460018');
+  await expect(addressCountry).toHaveValue(/India$/);
+  await expect(consent).not.toBeChecked();
+  await page.getByRole('textbox', { name: /^City/ }).fill('Changed city');
+  await expect(delivery.getByRole('combobox')).toHaveValue(/United Kingdom \(\+44\)/);
+  await expect(whatsapp.getByRole('combobox')).toHaveValue(/United Kingdom \(\+44\)/);
+  await page.getByLabel('Use a saved address').selectOption('us');
+  await expect(delivery.getByRole('combobox')).toHaveValue(/United States \(\+1\)/);
+  await expect(delivery.getByRole('textbox', { name: /^Phone/ })).toHaveValue('4155552671');
+});
+
+test('checkout legacy national saved phone uses its saved country', async ({ page }) => {
+  await mockLinkedCheckout(page);
+  await page.route('**/api/auth/addresses', route => route.fulfill({ json: { addresses: [
+    { id: 'legacy', fullName: 'Synthetic', phone: '9619888755', line1: 'Synthetic road', city: 'Synthetic', state: 'Synthetic', country: 'India', postalCode: '400001', isDefault: true },
+  ] } }));
+  await page.reload();
+  const delivery = page.getByRole('group', { name: 'Delivery phone · required', exact: true });
+  await expect(delivery.getByRole('combobox')).toHaveValue(/India \(\+91\)/);
+  await expect(delivery.getByRole('textbox', { name: /^Phone/ })).toHaveValue('9619888755');
+  await page.getByRole('checkbox', { name: 'Same as contact phone', exact: true }).check();
+  await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('9619888755');
+});
+
 for (const width of [1440, 390]) for (const linked of [false, true]) test(`checkout new address clears all fields and recipient (${width}px, ${linked ? 'linked' : 'independent'})`, async ({ page }) => {
   await page.setViewportSize({ width, height: 1000 });
   const requests = await mockLinkedCheckout(page, { savedConsent: true, mandatory: true });
-  const field = (label: string) => page.getByRole('textbox', { name: new RegExp(`^${label}`) });
+  const field = (label: string) => label === 'Country' ? page.getByRole('combobox', { name: 'Delivery country', exact: true }) : page.getByRole('textbox', { name: new RegExp(`^${label}`) });
   const picker = page.getByLabel('Use a saved address');
   const same = page.getByRole('checkbox', { name: 'Same as contact phone', exact: true });
   const consent = page.getByRole('checkbox', { name: /Keep me updated on WhatsApp/ });
-  const expectedSaved = ['Fixture Customer', '+14155552671', 'Fixture Street', 'Fixture Suite', 'Fixture', 'Fixture', '94105', 'United States'];
+  const expectedSaved = ['Fixture Customer', '4155552671', 'Fixture Street', 'Fixture Suite', 'Fixture', 'Fixture', '94105', '🇺🇸 United States'];
   await expect(picker).toHaveValue('us');
   for (let i = 0; i < shippingLabels.length; i++) await expect(field(shippingLabels[i])).toHaveValue(expectedSaved[i]);
   if (linked) await same.check();
@@ -69,8 +377,9 @@ for (const width of [1440, 390]) for (const linked of [false, true]) test(`check
   await page.getByRole('button', { name: 'Place order', exact: true }).click();
   expect(requests).toHaveLength(0);
   await field('Country').fill(fresh[7]);
+  await page.getByRole('option', { name: /United Kingdom$/ }).click();
   if (linked) {
-    await expect(page.getByLabel('Country and dialling code')).toHaveValue(/United Kingdom \(\+44\)/);
+    await expect(page.getByRole('group', { name: 'WhatsApp number for this order', exact: true }).getByLabel('Country and dialling code')).toHaveValue(/United Kingdom \(\+44\)/);
     await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('2079460018');
   } else {
     await selectPhoneCountry(page, 'GB');
@@ -119,17 +428,17 @@ for (const mobile of [false, true]) test(`checkout linked recipient copies and s
   await expect(same).not.toBeChecked();
   await same.check();
   await expect(consent).not.toBeChecked();
-  await expect(page.getByLabel('Country and dialling code')).toHaveValue(/United States \(\+1\)/);
+  await expect(page.getByRole('group', { name: 'WhatsApp number for this order', exact: true }).getByLabel('Country and dialling code')).toHaveValue(/United States \(\+1\)/);
   await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('4155552671');
-  await expect(page.getByLabel('Country and dialling code')).toHaveValue(/\(\+1\)/);
+  await expect(page.getByRole('group', { name: 'WhatsApp number for this order', exact: true }).getByLabel('Country and dialling code')).toHaveValue(/\(\+1\)/);
   await consent.check();
   await page.getByRole('textbox', { name: /^Phone/ }).fill('+91 96198 88755');
-  await expect(page.getByLabel('Country and dialling code')).toHaveValue(/India \(\+91\)/);
+  await expect(page.getByRole('group', { name: 'WhatsApp number for this order', exact: true }).getByLabel('Country and dialling code')).toHaveValue(/India \(\+91\)/);
   await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('9619888755');
   await expect(consent).not.toBeChecked();
   await consent.check();
   await page.getByLabel('Use a saved address').selectOption('gb');
-  await expect(page.getByLabel('Country and dialling code')).toHaveValue(/United Kingdom \(\+44\)/);
+  await expect(page.getByRole('group', { name: 'WhatsApp number for this order', exact: true }).getByLabel('Country and dialling code')).toHaveValue(/United Kingdom \(\+44\)/);
   await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('2079460018');
   await expect(page.getByText('Using delivery contact number:', { exact: false })).toContainText('+442079460018');
   await same.locator('..').locator('..').screenshot({ path: test.info().outputPath('linked-whatsapp.png') });
@@ -167,7 +476,7 @@ test('checkout unlinking preserves a separate number and manual edits unlink cou
   await expect(number).toHaveValue('');
 });
 
-test('checkout invalid linked contacts cannot retain stale recipients and optional consent never blocks', async ({ page }) => {
+test('checkout invalid linked contacts cannot retain stale recipients and delivery validation remains required', async ({ page }) => {
   const requests = await mockLinkedCheckout(page);
   await page.getByRole('checkbox', { name: 'Same as contact phone', exact: true }).check();
   const consent = page.getByRole('checkbox', { name: /Keep me updated on WhatsApp/ });
@@ -176,10 +485,13 @@ test('checkout invalid linked contacts cannot retain stale recipients and option
   await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('');
   await expect(consent).not.toBeChecked();
   await consent.check();
-  await expect(page.getByRole('alert').filter({ hasText: 'international country code' })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: 'selected calling code' })).toBeVisible();
   await page.getByRole('button', { name: 'Place order', exact: true }).click();
   expect(requests).toHaveLength(0);
   await consent.uncheck();
+  await page.getByRole('button', { name: 'Place order', exact: true }).click();
+  expect(requests).toHaveLength(0);
+  await page.getByRole('textbox', { name: /^Phone/ }).fill('4155552671');
   await page.getByRole('button', { name: 'Place order', exact: true }).click();
   await expect.poll(() => requests.length).toBe(1);
   expect(requests[0].whatsappRecipient).toBe('');
@@ -214,12 +526,12 @@ test('checkout retains the copied number after unlinking when there was no indep
   await same.uncheck();
   await page.getByRole('textbox', { name: /^Phone/ }).fill('+442079460018');
   await expect(page.getByLabel('Mobile number', { exact: true })).toHaveValue('4155552671');
-  await expect(page.getByLabel('Country and dialling code')).toHaveValue(/United States \(\+1\)/);
+  await expect(page.getByRole('group', { name: 'WhatsApp number for this order', exact: true }).getByLabel('Country and dialling code')).toHaveValue(/United States \(\+1\)/);
 });
 
 test('checkout phone controls have refined keyboard focus and reduced motion styling', async ({ page }) => {
   await mockLinkedCheckout(page, { profilePhone: '' });
-  for (const control of [page.getByLabel('Country and dialling code'), page.getByLabel('Mobile number', { exact: true })]) {
+  for (const control of [page.getByRole('group', { name: 'WhatsApp number for this order', exact: true }).getByLabel('Country and dialling code'), page.getByLabel('Mobile number', { exact: true })]) {
     await control.focus();
     // Tailwind's outline-none retains a transparent forced-colors fallback.
     await expect(control).toHaveCSS('outline-color', 'rgba(0, 0, 0, 0)');
@@ -1126,7 +1438,7 @@ test('order details clearly display missing transactional consent', async ({ pag
   expect(fixture.updates).toHaveLength(0);
 });
 
-test('one-time login keeps email available and sends the explicit WhatsApp channel choice', async ({ page }) => {
+test('one-time login sends explicit WhatsApp permission without customer routing', async ({ page }) => {
   let submitted: Record<string, unknown> | null = null;
   await page.route('**/*', async route => {
     const url = new URL(route.request().url());
@@ -1142,14 +1454,13 @@ test('one-time login keeps email available and sends the explicit WhatsApp chann
   await page.goto('/account');
   await expect(page.locator('input[type="password"]')).toHaveCount(1);
   await page.getByRole('button', { name: 'Sign in with one-time code', exact: true }).click();
-  await expect(page.getByLabel('OTP delivery channel')).toHaveValue('email');
+  await expect(page.getByLabel('OTP delivery channel')).toHaveCount(0);
   await expect(page.getByLabel('I request this verification code on WhatsApp')).not.toBeChecked();
   await page.getByLabel('Username or email').fill('fixture.customer');
-  await page.getByLabel('OTP delivery channel').selectOption('whatsapp');
   await page.getByLabel('I request this verification code on WhatsApp').check();
   await page.getByRole('button', { name: 'Send sign-in code', exact: true }).click();
   await expect(page.getByLabel('One-time code')).toBeVisible();
-  expect(submitted).toEqual({ identifier: 'fixture.customer', otpChannel: 'whatsapp', whatsappOtpConsent: true });
+  expect(submitted).toEqual({ identifier: 'fixture.customer', whatsappOtpConsent: true });
   await expect(page.getByText(/Requested delivery: email not_requested, WhatsApp queued/)).toBeVisible();
 });
 
@@ -1345,7 +1656,7 @@ test('tab navigation stays within the viewport at desktop, tablet, and mobile wi
 
 test('profile can withdraw marketing without withdrawing transactional preferences', async ({ page }) => {
   let submitted: Record<string, unknown> | null = null;
-  const user = { id: 'fixture-customer', role: 'customer', isActive: true, email: 'fixture@example.test', username: 'fixture.customer', firstName: 'Fixture', lastName: 'Customer', phone: '+14155552671', dob: '1990-01-01', gender: 'female', whatsappNotifications: true, whatsappMarketingNotifications: true, whatsappMarketingPhone: '+14155552671' };
+  const user = { id: 'fixture-customer', role: 'customer', isActive: true, email: 'fixture@example.test', username: 'fixture.customer', firstName: 'Fixture', lastName: 'Customer', phone: '+14155552671', dob: '1990-01-01', gender: 'female', whatsappNotifications: true, whatsappConsentValid: true, whatsappMarketingConsentValid: true, whatsappMarketingNotifications: true, whatsappMarketingPhone: '+14155552671' };
   await page.addInitScript(() => localStorage.setItem('rk_access_token', 'fixture-token'));
   await page.route('**/*', async route => {
     const url = new URL(route.request().url());
@@ -1545,7 +1856,7 @@ for (const width of [1440, 768, 390]) test(`compact diagnostic rows and expanded
 
 test('international country combobox integrates search and selection in one field', async ({ page }) => {
   await mockLinkedCheckout(page);
-  const field = page.getByRole('combobox', { name: 'Country and dialling code', exact: true });
+  const field = page.getByRole('group', { name: 'WhatsApp number for this order', exact: true }).getByRole('combobox', { name: 'Country and dialling code', exact: true });
   await expect(field).toHaveCount(1);
   await expect(page.getByLabel('Search telephone countries')).toHaveCount(0);
   await expect(page.locator('select').filter({ has: page.locator('option[value="IN"]') })).toHaveCount(0);
@@ -1568,7 +1879,7 @@ test('international country combobox integrates search and selection in one fiel
 
 test('international country combobox supports arrows Enter Escape and Tab', async ({ page }) => {
   await mockLinkedCheckout(page);
-  const field = page.getByRole('combobox', { name: 'Country and dialling code', exact: true });
+  const field = page.getByRole('group', { name: 'WhatsApp number for this order', exact: true }).getByRole('combobox', { name: 'Country and dialling code', exact: true });
   await field.focus();
   await expect(field).toHaveAttribute('aria-expanded', 'true');
   await field.fill('India');
@@ -1596,7 +1907,7 @@ test('international country combobox supports arrows Enter Escape and Tab', asyn
 for (const width of [1440, 390]) test(`international country combobox closes outside and escapes clipping at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 900 });
   await mockLinkedCheckout(page);
-  const field = page.getByRole('combobox', { name: 'Country and dialling code', exact: true });
+  const field = page.getByRole('group', { name: 'WhatsApp number for this order', exact: true }).getByRole('combobox', { name: 'Country and dialling code', exact: true });
   const original = await field.inputValue();
   await field.evaluate(element => { element.closest('fieldset')!.style.overflow = 'hidden'; });
   await field.fill('India');

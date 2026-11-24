@@ -17,6 +17,7 @@ from ...whatsapp_consent import record_consent
 from ...whatsapp_marketing_consent import record_marketing_consent
 from ...whatsapp_catalogue import OTP_EXPIRY_MINUTES
 from ...mail import send_otp
+from ...communication_preferences import public_preferences, authentication_consent_valid, record_authentication_consent
 from ...rbac import authenticated_user_id, effective_permissions, requireAuth
 
 auth_bp = Blueprint("auth", __name__)
@@ -119,23 +120,31 @@ def _send_otp_email(email: str, otp: str, purpose: str = "verification") -> None
 
 
 def _otp_channel(payload, event):
-    channel = payload.get("otpChannel", "both" if payload.get("whatsappOtpConsent") is True else "email")
-    if channel not in {"email", "whatsapp", "both"}:
-        raise ValueError("Choose email, WhatsApp, or both for code delivery.")
-    if channel != "email" and payload.get("whatsappOtpConsent") is not True:
-        raise ValueError("Explicitly request this verification code on WhatsApp.")
-    if channel == "whatsapp":
+    from ...communication_preferences import delivery_mode
+    channel = delivery_mode(_database(), 'authentication')
+    if channel == 'whatsapp' and payload.get('whatsappOtpConsent') is not True:
+        raise ValueError('whatsapp_authentication_permission_required: Authorize WhatsApp authentication or ask an administrator to configure Email.')
+    if channel == 'whatsapp':
         template = template_registry(_database(), current_app.config).get(event, {})
-        if not enabled(_database(), current_app.config) or not template.get("enabled") or not template.get("approved"):
-            raise ValueError("WhatsApp verification is currently unavailable. Choose email to continue.")
+        if not enabled(_database(), current_app.config) or not template.get('enabled') or not template.get('approved'):
+            raise ValueError('whatsapp_authentication_unavailable: Ask an administrator to verify the provider or configure Email.')
     return channel
 
 
 def _deliver_otp(channel, event, user, challenge, code, purpose, email):
     delivery = {"email": "not_requested", "whatsapp": "not_requested"}
     if channel in {"whatsapp", "both"}:
-        result = notify_auth_otp(_database(), event, user, code, challenge, purpose)
-        delivery["whatsapp"] = result.get("status", "unavailable")
+        from ...communication_preferences import authentication_recipient
+        if challenge.get('whatsappOtpConsent') is not True and not authentication_consent_valid(_database(), current_app.config, user):
+            delivery['whatsapp'] = 'blocked_permission_required'
+        else:
+            try:
+                otp_user = {**user, 'phone': authentication_recipient(_database(), current_app.config, user)}
+                result = notify_auth_otp(_database(), event, otp_user, code, challenge, purpose)
+                delivery['whatsapp'] = result.get('status', 'unavailable')
+            except Exception:
+                delivery['whatsapp'] = 'unavailable'
+                current_app.logger.warning('OTP WhatsApp unavailable')
     if channel in {"email", "both"}:
         try:
             _send_otp_email(email, code)
@@ -143,6 +152,8 @@ def _deliver_otp(channel, event, user, challenge, code, purpose, email):
         except Exception:
             current_app.logger.warning("OTP email unavailable")
             delivery["email"] = "unavailable"
+    collection = _database().users if purpose == 'login' else _database().otp_challenges
+    collection.update_one({'_id': challenge.get('_id')}, {'$set': {'otpDelivery': delivery, 'otpDeliveryMode': channel}})
     success = delivery["email"] == "sent" or delivery["whatsapp"] in {"queued", "accepted", "duplicate"}
     return delivery, success
 
@@ -179,6 +190,11 @@ def _public_user(user: dict) -> dict:
         "phoneCountry": user.get("phoneCountry"),
         "whatsappPhone": user.get("whatsappPhone") or saved_consent_phone,
         "whatsappCountry": user.get("whatsappCountry", user.get("phoneCountry")),
+        'whatsappSameAsContact': user.get('whatsappSameAsContact') is True,
+        'whatsappIndependentPhone': user.get('whatsappIndependentPhone'),
+        'whatsappIndependentCountry': user.get('whatsappIndependentCountry'),
+        'communicationPreferences': public_preferences(_database(), current_app.config, user),
+        'whatsappOtpConsentValid': authentication_consent_valid(_database(), current_app.config, user),
         "gender": user.get("gender"),
         "role": user.get("role", "customer"),
         "permissions": effective_permissions(user),
@@ -272,6 +288,7 @@ def request_otp():
             "otpExpiresAt": now + timedelta(minutes=OTP_EXPIRY_MINUTES),
             "otpAttempts": 0,
             "otpChannel": channel,
+            "whatsappOtpConsent": payload.get("whatsappOtpConsent") is True,
             "updatedAt": now,
         }},
     )
@@ -288,6 +305,9 @@ def request_otp():
 def signup_request_otp():
     payload = request.get_json(silent=True) or {}
     try:
+        for key in ('whatsappOtpConsent', 'whatsappTransactionalConsent'):
+            if key in payload and not isinstance(payload[key], bool):
+                raise ValueError('WhatsApp permission choices must be boolean.')
         channel = _otp_channel(payload, "signup_otp")
     except ValueError as error:
         return jsonify(error=str(error)), 400
@@ -404,6 +424,7 @@ def signup_verify_otp():
         record_consent(_database(), current_app.config, user_id, challenge["phone"], True, "signup")
     if challenge.get("whatsappOtpConsent"):
         _database().whatsapp_consents.update_many({"customerId": None, "phone": challenge["phone"], "source": "explicit_signup_otp"}, {"$set": {"customerId": str(user_id)}})
+        record_authentication_consent(_database(), current_app.config, user_id, challenge['phone'], True, 'verified_signup')
     user = _database().users.find_one({"_id": user_id})
     session_token, expires = _create_shared_session(user_id)
     response = jsonify({"accessToken": create_access_token(identity=str(user_id)), "user": _public_user(user)})
@@ -449,7 +470,7 @@ def forgot_password_request_otp():
     otp = f"{secrets.randbelow(1_000_000):06d}"
     _database().otp_challenges.replace_one(
         {"userId": user["_id"], "purpose": "forgot-password"},
-        {"userId": user["_id"], "purpose": "forgot-password", "email": user["email"], "otpHash": hashpw(otp.encode(), gensalt()).decode(), "otpExpiresAt": now + timedelta(minutes=OTP_EXPIRY_MINUTES), "otpAttempts": 0},
+        {"userId": user["_id"], "purpose": "forgot-password", "email": user["email"], "whatsappOtpConsent": payload.get("whatsappOtpConsent") is True, "otpHash": hashpw(otp.encode(), gensalt()).decode(), "otpExpiresAt": now + timedelta(minutes=OTP_EXPIRY_MINUTES), "otpAttempts": 0},
         upsert=True,
     )
     challenge = _database().otp_challenges.find_one({"userId": user["_id"], "purpose": "forgot-password"})
@@ -603,8 +624,6 @@ def update_profile():
             if not isinstance(payload[key], bool):
                 return jsonify({"error": f"{key} must be boolean."}), 400
             updates[key] = payload[key]
-            if key == "whatsappNotifications":
-                updates["whatsappConsent"] = {"enabled": payload[key]}
     if payload.get("language") is not None and updates.get("language") not in {"English", "Hindi"}:
         return jsonify({"error": "Please choose a supported language."}), 400
     if not str(updates.get("phone", current.get("phone")) or "").strip():
@@ -613,44 +632,88 @@ def update_profile():
         return jsonify({"error": "Date of birth is required."}), 400
     if updates.get("gender", current.get("gender")) not in {"male", "female", "prefer-not-to-say"}:
         return jsonify({"error": "Gender is required."}), 400
-    if not updates:
+    if not updates and not any(field in payload for field in ('phoneCountry', 'whatsappPhone', 'whatsappCountry', 'whatsappSameAsContact', 'whatsappOtpConsent', 'whatsappTransactionalConsent', 'whatsappMarketingConsent', 'authenticationDeliveryMode', 'transactionalDeliveryMode')):
         return jsonify({"error": "No profile changes were submitted."}), 400
 
-    primary_phone = current.get("whatsappPhone", current.get("phone"))
-    if "whatsappPhone" in payload:
+    for key in ('whatsappSameAsContact', 'whatsappOtpConsent', 'whatsappTransactionalConsent', 'whatsappMarketingConsent'):
+        if key in payload and not isinstance(payload[key], bool):
+            return jsonify(error='WhatsApp choices must be boolean.'), 400
+    if 'phone' in updates or 'phoneCountry' in payload:
         try:
-            primary_phone, primary_country = customer_phone(payload["whatsappPhone"], payload.get("whatsappCountry"))
+            contact = updates.get('phone', current.get('phone'))
+            from ...phone_numbers import profile_contact_phone
+            updates['phone'], updates['phoneCountry'] = profile_contact_phone(contact, payload.get('phoneCountry', current.get('phoneCountry')), current.get('region'))
         except ValueError as error:
             return jsonify(error=str(error)), 400
-        updates.update(whatsappPhone=primary_phone, whatsappCountry=primary_country)
-    elif updates.get("phone", current.get("phone")) != current.get("phone"):
-        # Compatibility for older profile clients with a single phone field.
-        primary_phone = updates["phone"]
-    primary_changed = primary_phone != current.get("whatsappPhone", current.get("phone"))
+    linked = payload.get('whatsappSameAsContact', current.get('whatsappSameAsContact') is True)
+    separate_phone = current.get('whatsappIndependentPhone') if current.get('whatsappSameAsContact') is True else None
+    primary_phone = updates.get('phone', current.get('phone')) if linked else payload.get('whatsappPhone', separate_phone or current.get('whatsappPhone', current.get('phone')))
+    primary_country = None
+    if primary_phone:
+        try:
+            if linked:
+                from ...phone_numbers import profile_contact_phone
+                primary_phone, primary_country = profile_contact_phone(primary_phone, updates.get('phoneCountry', current.get('phoneCountry')), current.get('region'))
+            else:
+                primary_phone, primary_country = customer_phone(primary_phone, payload.get('whatsappCountry', current.get('whatsappIndependentCountry') if separate_phone else current.get('whatsappCountry')))
+        except ValueError as error:
+            return jsonify(error=str(error)), 400
+    updates.update(whatsappPhone=primary_phone or None, whatsappCountry=primary_country, whatsappSameAsContact=linked)
+    old_primary = current.get('whatsappPhone', current.get('phone'))
+    try:
+        old_primary, _ = customer_phone(old_primary, None if str(old_primary).strip().startswith(('+', '00')) else current.get('whatsappCountry', current.get('phoneCountry')))
+    except ValueError:
+        pass
+    if not linked:
+        updates.update(whatsappIndependentPhone=primary_phone or None, whatsappIndependentCountry=primary_country)
+    elif current.get('whatsappSameAsContact') is not True and old_primary:
+        try:
+            independent, independent_country = customer_phone(old_primary)
+            updates.update(whatsappIndependentPhone=independent, whatsappIndependentCountry=independent_country)
+        except ValueError:
+            pass
+    primary_changed = primary_phone != old_primary
     consent_requested = payload.get("whatsappNotifications")
+    if 'whatsappTransactionalConsent' in payload:
+        consent_requested = payload['whatsappTransactionalConsent']
+    if any(field in payload for field in ('authenticationDeliveryMode', 'transactionalDeliveryMode')):
+        return jsonify(error='Delivery channels are controlled in Admin Studio.'), 400
+    try:
+        valid_existing = not primary_changed and _profile_whatsapp_consent_valid(current)
+        if consent_requested is True and not valid_existing and payload.get('whatsappTransactionalConsent') is not True:
+            raise ValueError('Explicit transactional WhatsApp permission is required for this recipient.')
+        if consent_requested is True and not primary_phone:
+            raise ValueError('Enter a valid WhatsApp number before granting permission.')
+        auth_requested = payload.get('whatsappOtpConsent')
+        if auth_requested is True and (not primary_phone or (not authentication_consent_valid(_database(), current_app.config, current, primary_phone) and payload.get('whatsappOtpConsent') is not True)):
+            raise ValueError('Explicit authentication WhatsApp permission is required, or choose Email.')
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
     marketing_requested = payload.get("whatsappMarketingNotifications")
+    if 'whatsappMarketingConsent' in payload:
+        marketing_requested = payload['whatsappMarketingConsent']
     marketing_phone_changed = primary_changed
-    marketing_needs_grant = marketing_requested is True and (current.get("whatsappMarketingNotifications") is not True or marketing_phone_changed)
+    marketing_needs_grant = marketing_requested is True and (not _profile_whatsapp_marketing_consent_valid(current) or marketing_phone_changed)
     if marketing_needs_grant:
+        if payload.get('whatsappMarketingConsent') is not True:
+            return jsonify(error='Explicit marketing WhatsApp permission is required for this recipient.'), 400
         try:
             normalize_phone(primary_phone)
         except ValueError:
             return jsonify(error="Marketing WhatsApp consent requires a valid international phone number."), 400
-    if consent_requested is not None:
-        try:
-            consent_phone = normalize_phone(primary_phone)
-        except ValueError:
-            if consent_requested:
-                return jsonify(error="WhatsApp preferences require a valid international phone number."), 400
-            consent_phone = str(primary_phone or "")
-    elif primary_changed:
-        updates["whatsappNotifications"] = False
-        updates["whatsappConsent"] = {"enabled": False, "source": "phone_changed"}
+    if primary_changed and current.get('whatsappConsent'):
+        record_consent(_database(), current_app.config, user_id, (current.get('whatsappConsent') or {}).get('phone'), False, 'phone_changed')
+    if primary_changed and current.get('whatsappOtpConsentRecord'):
+        record_authentication_consent(_database(), current_app.config, user_id, (current.get('whatsappOtpConsentRecord') or {}).get('phone'), False, 'phone_changed')
+    if primary_changed:
+        updates['whatsappNotifications'] = False
     now = datetime.now(timezone.utc)
     updates["updatedAt"] = now
     users.update_one({"_id": user_id}, {"$set": updates})
-    if consent_requested is not None:
-        record_consent(_database(), current_app.config, user_id, consent_phone, consent_requested, "authenticated_profile")
+    if consent_requested is not None and (consent_requested is False or not valid_existing):
+        record_consent(_database(), current_app.config, user_id, primary_phone, consent_requested, "authenticated_profile")
+    if auth_requested is not None and (auth_requested is False or not authentication_consent_valid(_database(), current_app.config, current, primary_phone)):
+        record_authentication_consent(_database(), current_app.config, user_id, primary_phone, auth_requested, 'authenticated_profile')
     old_marketing_phone = (current.get("whatsappMarketingConsent") or {}).get("phone") or current.get("phone")
     new_phone = primary_phone
     if marketing_requested is not None:
@@ -699,13 +762,13 @@ def request_password_change():
         },
         upsert=True,
     )
-    try:
-        _send_otp_email(user["email"], otp, "password verification")
-    except Exception:
-        current_app.logger.exception("Unable to send password-change OTP")
-        _database().otp_challenges.delete_one({"userId": user_id, "purpose": "password-change"})
-        return jsonify({"error": "We could not send the verification code. Please try again."}), 502
-    return jsonify({"message": "A verification code has been sent to your registered email."}), 202
+    challenge = _database().otp_challenges.find_one({'userId': user_id, 'purpose': 'password-change'})
+    from ...communication_preferences import delivery_mode
+    delivery, success = _deliver_otp(delivery_mode(_database(), 'authentication'), 'forgot_password_otp', user, challenge, otp, 'password-change', user['email'])
+    if not success:
+        return jsonify(error='Authentication delivery blocked. Authorize WhatsApp authentication or ask an administrator to configure Email.', delivery=delivery), 502
+    return jsonify(message='Requested verification delivery has been attempted.', delivery=delivery), 202
+
 
 
 @auth_bp.post("/profile/password/verify")
@@ -800,6 +863,9 @@ def request_email_change():
     users = _database().users
     if users.find_one({"email": email, "_id": {"$ne": user_id}}):
         return jsonify({"error": "That email is already in use."}), 409
+    from ...communication_preferences import channel_enabled
+    if not channel_enabled(_database(), 'authentication', 'email'):
+        return jsonify(error='email_ownership_verification_requires_email: Ask an administrator to enable Email or Both.'), 409
     otp = f"{secrets.randbelow(1_000_000):06d}"
     now = datetime.now(timezone.utc)
     _database().email_change_challenges.replace_one(

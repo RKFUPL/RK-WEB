@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { canonicalPhone, internationalPhoneParts } from '@/lib/phone-number';
+import { addressCountryCode, addressPhoneParts, canonicalPhone, countryNames, internationalPhoneParts } from '@/lib/phone-number';
 import { type CountryCode } from 'libphonenumber-js/max';
 import { ArrowLeft, Check, LockKeyhole, ShoppingBag } from 'lucide-react';
 import { StickyHeader } from '@/components/home/sticky-header';
@@ -14,7 +14,7 @@ import { cartChangedEvent, readStoredCart, writeStoredCart } from '@/lib/storefr
 import { useCurrency } from '@/components/commerce/currency-provider';
 import type { Cart } from '@/lib/store-types';
 import { cartItemShippingTimeline } from '@/lib/shipping-timeline';
-import { InternationalPhone } from '@/components/commerce/international-phone';
+import { CountrySelector, InternationalPhone } from '@/components/commerce/international-phone';
 
 type Address = {
   id: string;
@@ -115,6 +115,8 @@ export function CheckoutPage() {
   const [cart, setCart] = useState<Cart>({ items: [], currency: 'INR' });
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState('');
+  const [deliveryPhoneCountry, setDeliveryPhoneCountry] = useState<CountryCode>('IN');
+  const [deliveryPhoneError, setDeliveryPhoneError] = useState('');
   const [shipping, setShipping] = useState<ShippingForm>(emptyShipping);
   const [email, setEmail] = useState('');
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
@@ -125,6 +127,7 @@ export function CheckoutPage() {
   const [storefrontSettingsReady, setStorefrontSettingsReady] = useState(false);
   const [requireWhatsappConsentForCheckout, setRequireWhatsappConsentForCheckout] = useState(false);
   const [profileReady, setProfileReady] = useState(false);
+  const [collectionMode, setCollectionMode] = useState('checkout');
   const [consentRecipient, setConsentRecipient] = useState<string | null>(null);
   const [sameAsContactPhone, setSameAsContactPhone] = useState(false);
   const [primaryWhatsapp, setPrimaryWhatsapp] = useState('');
@@ -135,9 +138,10 @@ export function CheckoutPage() {
   const [whatsappCountry, setWhatsappCountry] = useState<CountryCode>('IN');
   const consentCheckboxRef = useRef<HTMLInputElement>(null);
   const whatsappPhoneInputRef = useRef<HTMLInputElement>(null);
-  const contactWhatsapp = internationalPhoneParts(shipping.phone);
+  const canonicalDeliveryPhone = addressCountryCode(shipping.country) ? canonicalPhone(shipping.phone, deliveryPhoneCountry) : '';
+  const contactWhatsapp = internationalPhoneParts(canonicalDeliveryPhone);
   const displayedWhatsappNumber = sameAsContactPhone ? contactWhatsapp?.nationalNumber || '' : whatsappNumber;
-  const displayedWhatsappCountry = sameAsContactPhone ? contactWhatsapp?.country || whatsappCountry : whatsappCountry;
+  const displayedWhatsappCountry = sameAsContactPhone ? deliveryPhoneCountry : whatsappCountry;
   // Derive linked values synchronously, so a render can never submit a stale copy.
   const selectedWhatsapp = sameAsContactPhone ? contactWhatsapp?.recipient || '' : canonicalPhone(whatsappNumber, whatsappCountry);
   const whatsappTransactionalConsent = consentRecipient !== null && consentRecipient === selectedWhatsapp;
@@ -151,7 +155,7 @@ export function CheckoutPage() {
     fetch(`${apiBaseUrl}/api/storefront-settings`, { cache: "no-store" }).then(r => {
       if (!r.ok) throw new Error('Unable to load checkout settings. Refresh and try again.');
       return r.json();
-    }).then(data => { setRazorpayEnabled(data.settings?.razorpayEnabled !== false); setRequireWhatsappConsentForCheckout(data.settings?.requireWhatsappConsentForCheckout === true); setStorefrontSettingsReady(true); }).catch(() => { setMessage('Unable to load checkout settings. Refresh and try again.'); });
+    }).then(data => { setRazorpayEnabled(data.settings?.razorpayEnabled !== false); setCollectionMode(data.settings?.whatsappConsentCollectionMode || 'checkout'); setRequireWhatsappConsentForCheckout(data.settings?.whatsappConsentCollectionMode !== 'onboarding' && data.settings?.requireWhatsappConsentForCheckout === true); setStorefrontSettingsReady(true); }).catch(() => { setMessage('Unable to load checkout settings. Refresh and try again.'); });
     const currentToken = token();
     if (!currentToken) { setSignedIn(false); return; }
     setSignedIn(true);
@@ -177,7 +181,7 @@ export function CheckoutPage() {
         const saved = (data.addresses || []) as Address[];
         setAddresses(saved);
         const defaultAddress = saved.find((address) => address.isDefault) || saved[0];
-        if (defaultAddress) { setSelectedAddressId(defaultAddress.id); setShipping({ ...defaultAddress }); }
+        if (defaultAddress) { setSelectedAddressId(defaultAddress.id); initialiseAddress(defaultAddress); }
       }
       setProfileReady(true);
     }).catch((error: unknown) => { setMessage(error instanceof Error ? error.message : 'Unable to load checkout.'); setSignedIn(false); });
@@ -185,14 +189,32 @@ export function CheckoutPage() {
   }, []);
 
   const updateShipping = (key: keyof ShippingForm, value: string) => setShipping((current) => ({ ...current, [key]: value }));
+  function initialiseAddress(address: ShippingForm) {
+    const parsed = addressPhoneParts(address.phone, address.country);
+    setShipping({ ...address, phone: parsed?.nationalNumber || address.phone });
+    setDeliveryPhoneCountry(parsed?.country || addressCountryCode(address.country) || 'IN');
+    setDeliveryPhoneError('');
+  }
+  function updateDeliveryCountry(country: CountryCode) {
+    setShipping(current => ({ ...current, country: countryNames.of(country) || country }));
+    setDeliveryPhoneCountry(country);
+    setDeliveryPhoneError('');
+  }
+  function updateDeliveryPhone(value: string, country: CountryCode) {
+    const parsed = internationalPhoneParts(value);
+    setShipping(current => ({ ...current, phone: parsed?.nationalNumber || value }));
+    setDeliveryPhoneCountry(parsed?.country || country);
+    setDeliveryPhoneError('');
+  }
   function selectShippingAddress(id: string) {
     setSelectedAddressId(id);
     if (id) {
       const address = addresses.find(entry => entry.id === id);
-      if (address) setShipping({ ...address });
+      if (address) initialiseAddress(address);
       return;
     }
     setShipping({ ...blankShipping });
+    setDeliveryPhoneError('');
     setWhatsappNumber('');
     setConsentRecipient(null);
     setWhatsappConsentError('');
@@ -228,6 +250,8 @@ export function CheckoutPage() {
     if (!cart.items.length) { setMessage('Your shopping bag is empty.'); return; }
     if (cart.items.some((item) => !item.variantId || !item.sku)) { setMessage('One or more older bag items need a colour selection. Remove them and re-add the exact colour before checkout.'); return; }
     if (!shipping.fullName || !shipping.phone || !shipping.line1 || !shipping.city || !shipping.state || !shipping.postalCode || !shipping.country) { setMessage('Please complete the shipping details before paying.'); return; }
+    if (!addressCountryCode(shipping.country)) { setMessage('Please select a valid delivery country.'); return; }
+    if (!canonicalDeliveryPhone) { setDeliveryPhoneError('Enter a valid delivery phone number for the selected calling code.'); return; }
     if (requireWhatsappConsentForCheckout && !savedRecipientConsent && !whatsappTransactionalConsent) {
       setWhatsappConsentError('Please agree to receive transactional WhatsApp updates to continue placing your order.');
       requestAnimationFrame(() => {
@@ -278,7 +302,7 @@ export function CheckoutPage() {
           checkoutAttemptId,
           whatsappRecipient: checkoutConsentAvailable ? selectedWhatsapp : '',
           ...(selectedWhatsapp && checkoutConsentAvailable ? { whatsappCountry: displayedWhatsappCountry } : {}),
-          ...(requireWhatsappConsentForCheckout || !savedRecipientConsent ? { whatsappTransactionalConsent: checkoutConsentAvailable } : {}),
+          ...(collectionMode !== 'onboarding' && (requireWhatsappConsentForCheckout || !savedRecipientConsent) ? { whatsappTransactionalConsent: checkoutConsentAvailable } : {}),
           cart: cart.items.map((item) => ({
             productId: item.productId,
             variantId: item.variantId,
@@ -289,7 +313,7 @@ export function CheckoutPage() {
             customSize: item.customSize,
           })),
           displayCurrency: currency,
-          shipping: { ...shipping, addressId: selectedAddressId || undefined },
+          shipping: { ...shipping, phone: canonicalDeliveryPhone, addressId: selectedAddressId && addresses.some(address => address.id === selectedAddressId && Object.keys(emptyShipping).every(key => (address[key as keyof ShippingForm] || '') === (key === 'phone' ? canonicalDeliveryPhone : shipping[key as keyof ShippingForm] || ''))) ? selectedAddressId : undefined },
         }),
       });
       const data = await response.json() as RazorpayResponse & { error?: string };
@@ -311,7 +335,7 @@ export function CheckoutPage() {
         name: 'Rashi Kapoor',
         description: `RK order ${data.order.orderNumber || ''}`,
         order_id: data.razorpay.orderId,
-        prefill: { name: shipping.fullName, email, contact: shipping.phone },
+        prefill: { name: shipping.fullName, email, contact: canonicalDeliveryPhone },
         notes: { orderNumber: data.order.orderNumber || '' },
         theme: { color: '#b58a4c' },
         handler: async (payment) => {
@@ -376,16 +400,17 @@ export function CheckoutPage() {
 
               <div className="mt-8 grid gap-7 sm:grid-cols-2">
                 <Field label="Full name" value={shipping.fullName} onChange={value => updateShipping('fullName', value)} />
-                <Field label="Phone" value={shipping.phone} onChange={value => updateShipping('phone', value)} placeholder="+91 00000 00000" />
+                <div><InternationalPhone label="Delivery phone · required" numberLabel="Phone · required" value={shipping.phone} country={deliveryPhoneCountry} onChange={updateDeliveryPhone} />{deliveryPhoneError ? <p role="alert" className="mt-2 text-xs text-red-800">{deliveryPhoneError}</p> : null}</div>
                 <Field label="Address line 1" value={shipping.line1} onChange={value => updateShipping('line1', value)} />
                 <Field label="Address line 2" value={shipping.line2 || ''} onChange={value => updateShipping('line2', value)} required={false} />
                 <Field label="City" value={shipping.city} onChange={value => updateShipping('city', value)} />
                 <Field label="State" value={shipping.state} onChange={value => updateShipping('state', value)} />
                 <Field label="Postal code" value={shipping.postalCode} onChange={value => updateShipping('postalCode', value)} />
-                <Field label="Country" value={shipping.country} onChange={value => updateShipping('country', value)} />
+                <div><span className="text-[0.58rem] uppercase tracking-[0.24em] text-charcoal/50">Country · required</span><CountrySelector label="Delivery country" country={addressCountryCode(shipping.country)} onChange={updateDeliveryCountry} callingCode={false} /></div>
               </div>
 
               <div className="mt-7 border-t border-black/10 pt-5 dark:border-white/10">
+                {collectionMode === 'onboarding' ? <div className="text-xs leading-6 text-charcoal/70"><p>{savedRecipientConsent ? 'Order updates may use your saved WhatsApp permission for this number, subject to the store-configured channels and delivery availability.' : 'Order updates use the store-configured available channels. WhatsApp requires your separate permission; changing permissions does not change delivery routing.'}</p><Link href="/account/profile#communication-preferences" className="mt-2 inline-block text-gold underline">Manage WhatsApp permissions</Link></div> : <>
                 {!savedRecipientConsent ? <label className="flex items-start gap-3 text-xs leading-5 text-charcoal/70 dark:text-ivory/75">
                   <input
                     ref={consentCheckboxRef}
@@ -418,8 +443,9 @@ export function CheckoutPage() {
                     onChange={updateWhatsappNumber}
                   />
                   {sameAsContactPhone && contactWhatsapp ? <p className="mt-2 text-xs leading-5 text-charcoal/60">Using delivery contact number: {contactWhatsapp.recipient}. Editing the WhatsApp number unlinks it.</p> : null}
-                  {whatsappPhoneError || (sameAsContactPhone && !contactWhatsapp && whatsappTransactionalConsent) ? <p role="alert" className="mt-2 text-xs leading-5 text-red-800 dark:text-red-200">{sameAsContactPhone && !contactWhatsapp ? 'Enter a valid delivery contact phone number including its international country code, or enter a separate WhatsApp number.' : whatsappPhoneError}</p> : null}
+                  {whatsappPhoneError || (sameAsContactPhone && !contactWhatsapp && whatsappTransactionalConsent) ? <p role="alert" className="mt-2 text-xs leading-5 text-red-800 dark:text-red-200">{sameAsContactPhone && !contactWhatsapp ? 'Enter a valid delivery contact phone number for its selected calling code, or enter a separate WhatsApp number.' : whatsappPhoneError}</p> : null}
                 </div>
+                </>}
               </div>
             </div>
           </section>

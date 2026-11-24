@@ -75,3 +75,8 @@ test('missing IDs and contradictory decisions do not expose terminal retries', (
   order.availabilityDecision.reason = 'requested_size_unavailable';
   assert.deepEqual(terminalChoices(order), []);
 });
+
+test('admin routing and missing recipient permission have safe actionable diagnostics', () => {
+  assert.match(notificationReasonLabel('admin_channel_disabled'), /Admin Studio Communication Channels/);
+  assert.match(notificationReasonLabel('missing_or_withdrawn_consent'), /authorize transactional WhatsApp.*Email or Both/);
+});

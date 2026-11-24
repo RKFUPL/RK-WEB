@@ -828,6 +828,9 @@ def lifecycle_update():
     reference = str(record.get("orderNumber") or identity)
     result = notify(db, action, record, key=event_key, parameters={"reference": reference, "status": state.replace("_", " ")})
     notify_admins(db, record, event_key)
+    from .communication_preferences import channel_enabled
+    if not channel_enabled(db, 'transactional', 'email'):
+        return jsonify(updated=True, whatsapp=result, email='skipped', emailReason='admin_channel_disabled')
     # The existing app had no email for these two manual events. Use the
     # same Zoho service and separate claims; neither channel gates the other.
     try:

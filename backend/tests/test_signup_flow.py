@@ -96,7 +96,7 @@ class SignupFlowTests(unittest.TestCase):
         with app.app_context():
             token = create_access_token(identity=str(self.user_id))
         self.headers = {"Authorization": f"Bearer {token}"}
-        self.database = SimpleNamespace(users=MemoryCollection(), otp_challenges=MemoryCollection(), profile_update_logs=MemoryCollection(), auth_sessions=MemoryCollection())
+        self.database = SimpleNamespace(admin_settings=MemoryCollection(), users=MemoryCollection(), otp_challenges=MemoryCollection(), profile_update_logs=MemoryCollection(), auth_sessions=MemoryCollection())
 
     def test_required_profile_data_survives_otp_and_no_user_exists_before_verification(self):
         sent = {}

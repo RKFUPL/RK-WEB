@@ -120,6 +120,9 @@ def notify_order_whatsapp(db, order_id, event, event_data=None):
         user = db.users.find_one({"_id": ObjectId(str(identity))}) if ObjectId.is_valid(str(identity)) else None
         recipient = order_recipient(db, config, order, user)
         result = {"status": "skipped", "reason": "staff_notifications_disabled"} if (event_data or {}).get("suppressed") else ({"status": "skipped", "reason": recipient["reason"]} if recipient["reason"] else None)
+        from .communication_preferences import channel_enabled
+        if not channel_enabled(db, 'transactional', 'whatsapp'):
+            result = {'status': 'skipped', 'reason': 'admin_channel_disabled'}
         if not result:
             try:
                 event_values(event, order)

@@ -1,2 +1,5 @@
 export const whatsappConsentText = "I agree to receive transactional WhatsApp updates, including order confirmations, payment updates, shipping and delivery notifications.";
 export const whatsappMarketingConsentText = "I would also like to receive occasional collection launches and promotional offers from Rashi Kapoor. This is optional and can be withdrawn separately.";
+export const whatsappAuthenticationConsentText = 'I request authentication codes from Rashi Kapoor on WhatsApp at my selected number. This does not enable order updates or marketing.';
+export const requiredServiceCommunicationText = 'Authentication codes and essential order updates are required to protect your account and fulfil your orders. These messages are sent through your selected available communication channel.';
+export type CommunicationPreferences = { completed?: boolean; version?: string; otpChannel: 'email' | 'whatsapp' | 'both'; utilityChannel: 'email' | 'whatsapp'; effectiveOtpChannel?: string; effectiveUtilityChannel?: string };

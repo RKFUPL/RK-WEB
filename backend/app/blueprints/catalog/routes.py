@@ -353,6 +353,9 @@ def _send_custom_order_emails(record: dict) -> None:
     except Exception:
         current_app.logger.exception("Unable to send custom order request to operations")
 
+    from ...communication_preferences import channel_enabled
+    if not channel_enabled(database(), 'transactional', 'email'):
+        return
     try:
         send_html_email(
             sender=SENDERS["orders"], recipients=[record["email"]],
