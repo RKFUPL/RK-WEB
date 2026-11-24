@@ -16,7 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { brandLogoUrl, searchItems } from '@/lib/home-content';
+import { brandLogoUrl, searchItems, lookbookCovers, popularSearchTerms } from '@/lib/home-content';
 import { apiBaseUrl, logout } from '@/lib/rbac';
 import { fetchCatalogCollections, searchCatalogProducts, type CatalogSearchProduct } from '@/lib/catalog-client';
 import { cartChangedEvent, readStoredCart, removeStoredCartItem, updateStoredCartQuantity } from '@/lib/storefront-cart';
@@ -27,6 +27,7 @@ import { useCurrency } from '@/components/commerce/currency-provider';
 import { ShippingTimeline } from '@/components/commerce/shipping-timeline';
 import { cartItemShippingTimeline } from '@/lib/shipping-timeline';
 import { cartLineKey, getCartSubtotal } from '@/lib/cart';
+import { matchesSearch } from '@/lib/storefront-search';
 
 type HeaderUser = { displayName?: string; firstName?: string; lastName?: string; username?: string; email?: string; role?: 'customer' | 'staff' | 'admin' };
 const mainLinks = [
@@ -43,15 +44,6 @@ const utilityLinks = [
 ] as const;
 const navItemClass =
   'border-0 bg-transparent p-0 font-body text-[0.78rem] uppercase tracking-[0.24em] text-current transition duration-500 hover:text-gold';
-
-const searchTokens = (value: string) => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(/\s+/).filter(Boolean);
-const matchesSearch = (value: string, query: string) => {
-  if (!query.trim()) return true;
-  const terms = searchTokens(query);
-  if (!terms.length) return false;
-  const haystack = searchTokens(value).join(' ');
-  return terms.every((token) => haystack.includes(token));
-};
 
 type StickyHeaderProps = {
   transparentAtTop?: boolean;
@@ -87,13 +79,38 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
   const [collectionSearchError, setCollectionSearchError] = useState(false);
   const [collectionLinks, setCollectionLinks] = useState<Array<{ id: string; name: string; slug: string; route: string; summary: string }>>([]);
   const searchVersionRef = useRef(0);
+  const [searchSubmission, setSearchSubmission] = useState(0);
+  const searchPanelRef = useRef<HTMLElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchTriggerRef = useRef<HTMLElement | null>(null);
+  const searchOpenRef = useRef(false);
+  searchOpenRef.current = searchOpen;
+  const closeSearch = () => {
+    searchVersionRef.current += 1;
+    setSearchOpen(false);
+    setSearchQuery('');
+    setProductResults([]);
+    setProductSearchState('idle');
+  };
+  const openSearch = () => {
+    searchTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    loadCollectionLinks();
+    setSearchOpen(true);
+  };
+  const submitSearch = () => {
+    if (!searchQuery.trim()) { searchInputRef.current?.focus(); return; }
+    searchVersionRef.current += 1;
+    setProductResults([]);
+    setProductSearchState('loading');
+    setSearchSubmission((value) => value + 1);
+  };
   const headerRef = useRef<HTMLElement | null>(null);
   const previousScrollYRef = useRef(0);
   const scrollFrameRef = useRef<number | null>(null);
   const pathname = usePathname();
   const router = useRouter();
   const isHomePage = pathname === '/';
-  const isTransparent = ((transparentAtTop && !scrolled) || videoSectionVisible) && !searchOpen;
+  const isTransparent = (transparentAtTop && !scrolled) || videoSectionVisible;
   const activeTransparentTheme = videoSectionVisible ? 'light' : transparentTheme;
   const transparentLogoIsLight = isTransparent && activeTransparentTheme === 'light';
 
@@ -113,6 +130,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
     searchVersionRef.current += 1;
     setProductResults([]);
     setSearchQuery(value);
+    setProductSearchState(value.trim() ? 'loading' : 'idle');
   };
 
   useEffect(() => {
@@ -139,7 +157,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
         });
     }, 300);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [searchOpen, searchQuery]);
+  }, [searchOpen, searchQuery, searchSubmission]);
 
   useEffect(() => {
     const syncBag = () => setShoppingBag(readStoredCart());
@@ -173,6 +191,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
     };
 
     const updateScrollState = () => {
+      if (searchOpenRef.current) { scrollFrameRef.current = null; return; }
       const currentScrollY = window.scrollY;
 
       setScrolled(currentScrollY > 12);
@@ -214,12 +233,40 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
       .catch(() => undefined);
   }, []);
 
+  const scrollLocked = menuOpen || wishlistOpen || bagOpen || searchOpen;
   useEffect(() => {
-    document.body.style.overflow = menuOpen || wishlistOpen || bagOpen ? 'hidden' : '';
-    return () => {
-      document.body.style.overflow = '';
+    if (!scrollLocked) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [scrollLocked]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    const panel = searchPanelRef.current;
+    const trigger = searchTriggerRef.current;
+    searchInputRef.current?.focus();
+    const focusable = () => Array.from(panel?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), [tabindex="0"]') || []).filter((node) => node.getClientRects().length);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); closeSearch(); }
+      if (event.key === 'Tab') {
+        const nodes = focusable();
+        const first = nodes[0]; const last = nodes[nodes.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
     };
-  }, [bagOpen, menuOpen, wishlistOpen]);
+    const onFocus = (event: FocusEvent) => {
+      if (!panel?.contains(event.target as Node)) searchInputRef.current?.focus();
+    };
+    document.addEventListener('keydown', onKey, true);
+    document.addEventListener('focusin', onFocus);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('focusin', onFocus);
+      if (trigger?.isConnected) trigger.focus({ preventScroll: true });
+    };
+  }, [searchOpen]);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -263,7 +310,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
   const handleNavigation = () => {
     setMenuOpen(false);
     setCollectionsOpen(false);
-    setSearchOpen(false);
+    closeSearch();
     setAccountOpen(false);
   };
 
@@ -322,7 +369,10 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
       ...collectionLinks.map((collection) => ({ title: collection.name, href: collection.route, keywords: `${collection.name} ${collection.slug} ${collection.summary}` })),
       ...searchItems.filter((item) => item.type === 'Collection' && item.title === 'All Collections'),
     ];
-    const pages = searchItems.filter((item) => item.type !== 'Collection');
+    const pages = [
+      ...searchItems.filter((item) => item.type !== 'Collection'),
+      ...lookbookCovers.map((item) => ({ title: `${item.title} Lookbook`, href: item.href, keywords: `${item.title} lookbook editorial` })),
+    ];
     return {
       collections: collections.filter((item) => matchesSearch(`${item.title} ${item.keywords}`, searchQuery)),
       pages: pages.filter((item) => matchesSearch(`${item.title} ${item.keywords}`, searchQuery)),
@@ -476,7 +526,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
         <div className="hidden items-center gap-6 lg:flex">
           <button
             type="button"
-            onClick={() => { loadCollectionLinks(); setSearchOpen(true); }}
+            onClick={openSearch}
             className="border-0 bg-transparent p-0 text-current transition hover:opacity-70"
             aria-label="Search"
           >
@@ -501,75 +551,46 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
         </div>
       </div>
 
-      <AnimatePresence>
-        {searchOpen ? (
-          <motion.div
-            className="fixed inset-0 z-[150] overflow-y-auto bg-white px-6 pb-12 pt-28 text-charcoal lg:px-10 lg:pt-32"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-          >
-            <div className="mx-auto max-w-7xl">
-              <div className="flex items-center gap-3 border-b border-black/10 pb-5">
-                <Search className="h-5 w-5 text-charcoal/55" />
-                <input
-                  autoFocus
-                  value={searchQuery}
-                  onChange={(event) => updateSearchQuery(event.target.value)}
-                  placeholder="Search products, collections, lookbooks..."
-                  className="w-full bg-transparent text-base outline-none placeholder:text-charcoal/40"
-                  aria-label="Search products, collections, and pages"
-                />
-                <button type="button" onClick={() => setSearchOpen(false)} aria-label="Close search">
-                  <X className="h-5 w-5 text-charcoal/60" />
-                </button>
-              </div>
-              <div className="mt-10 grid gap-10 md:grid-cols-[18rem_1fr]">
-                <aside className="hidden md:block">
-                  <p className="border-b border-black/10 pb-4 text-xs uppercase tracking-[0.3em]">Suggestions</p>
-                  <div className="space-y-5 pt-6 text-sm tracking-[0.08em] text-charcoal/80">
-                    {['dresses', 'drape saree', 'embroidery', 'occasionwear', 'couture'].map((suggestion) => (
-                      <button
-                        key={suggestion}
-                        type="button"
-                        onClick={() => updateSearchQuery(suggestion)}
-                        className="block text-left transition hover:text-gold"
-                      >
-                        {suggestion}
-                      </button>
-                    ))}
-                  </div>
-                </aside>
-                <section>
-                  <div aria-live="polite" className="space-y-8">
-                    {productSearchState === 'loading' ? <p className="text-sm text-charcoal/55">Searching products…</p> : null}
-                    {productSearchState === 'error' ? <p role="alert" className="text-sm text-red-700">Product search could not be loaded. Please try again.</p> : null}
-                    {collectionSearchError ? <p role="alert" className="text-sm text-red-700">Collections could not be loaded. Please try again.</p> : null}
-                    {productResults.length ? <div>
-                      <h2 className="border-b border-black/10 pb-3 text-xs uppercase tracking-[0.3em]">Products</h2>
-                      <div className="divide-y divide-black/10">
-                        {productResults.map((product) => <Link key={product.id} href={`/products/${product.id}`} onClick={handleNavigation} className="flex items-center gap-4 py-3 transition hover:text-gold">
-                          {product.media?.[0] ? <img src={product.media[0]} alt="" width="56" height="72" className="h-[72px] w-14 shrink-0 bg-[#eee6da] object-cover" /> : <span aria-hidden="true" className="h-[72px] w-14 shrink-0 bg-[#eee6da]" />}
-                          <span className="min-w-0"><span className="block truncate font-display text-lg">{product.name || 'RK piece'}</span><span className="block text-xs text-charcoal/55">{product.productCode || product.parentSku || product.sku}{product.collections?.[0]?.name ? ` · ${product.collections[0].name}` : ''}</span></span>
-                        </Link>)}
-                      </div>
-                    </div> : null}
-                    {searchResults.collections.length ? <div>
-                      <h2 className="border-b border-black/10 pb-3 text-xs uppercase tracking-[0.3em]">Collections</h2>
-                      <div className="divide-y divide-black/10">{searchResults.collections.map((item) => <Link key={item.href} href={item.href} onClick={handleNavigation} className="block py-4 text-sm tracking-[0.08em] transition hover:text-gold">{item.title}</Link>)}</div>
-                    </div> : null}
-                    {searchResults.pages.length ? <div>
-                      <h2 className="border-b border-black/10 pb-3 text-xs uppercase tracking-[0.3em]">Pages / Lookbooks</h2>
-                      <div className="divide-y divide-black/10">{searchResults.pages.map((item) => <Link key={item.href} href={item.href} onClick={handleNavigation} className="block py-4 text-sm tracking-[0.08em] transition hover:text-gold">{item.title}</Link>)}</div>
-                    </div> : null}
-                    {searchQuery.trim() && productSearchState === 'ready' && !collectionSearchError && !productResults.length && !searchResults.collections.length && !searchResults.pages.length ? <p className="py-5 text-sm text-charcoal/55">No matching products, collections or pages found.</p> : null}
-                  </div>
+      {mounted && searchOpen ? createPortal(
+        <div data-search-overlay className="fixed inset-0 z-[500] flex items-start justify-center overflow-y-auto overscroll-contain bg-ink/35 px-3 py-6 text-charcoal backdrop-blur-[2px] sm:px-8 sm:py-16" onClick={(event) => { if (event.target === event.currentTarget) closeSearch(); }}>
+          <section ref={searchPanelRef} role="dialog" aria-modal="true" aria-labelledby="storefront-search-title" className="relative my-auto max-h-[calc(100dvh-3rem)] w-full max-w-6xl overflow-y-auto overscroll-contain bg-ivory px-5 py-6 shadow-[0_24px_90px_rgba(30,25,20,.2)] sm:max-h-[calc(100dvh-8rem)] sm:px-10 sm:py-8">
+            <div className="mb-5 flex items-center justify-between gap-4">
+              <h2 id="storefront-search-title" className="text-[11px] uppercase tracking-[.25em] text-gold">Search the house</h2>
+              <button type="button" onClick={closeSearch} aria-label="Close search" className="p-2 transition hover:text-gold focus-visible:outline focus-visible:outline-gold"><X size={20} /></button>
+            </div>
+            <form role="search" onSubmit={(event) => { event.preventDefault(); submitSearch(); }} className="mx-auto flex max-w-3xl items-center gap-2 border-b border-charcoal/25 pb-3 sm:gap-4">
+              <Search aria-hidden="true" className="hidden h-5 w-5 shrink-0 text-gold sm:block" />
+              <input ref={searchInputRef} value={searchQuery} onChange={(event) => updateSearchQuery(event.target.value)} placeholder="Search products, collections, lookbooks..." className="min-w-0 flex-1 bg-transparent py-2 text-base text-charcoal placeholder:text-charcoal/45 focus-visible:outline focus-visible:outline-1 focus-visible:outline-gold sm:text-xl" aria-label="Search products, collections, and pages" />
+              {searchQuery ? <button type="button" onClick={() => { updateSearchQuery(''); searchInputRef.current?.focus(); }} aria-label="Clear search query" className="shrink-0 p-2 hover:text-gold focus-visible:outline focus-visible:outline-gold"><X size={16} /></button> : null}
+              <button type="submit" aria-label="Submit search" className="shrink-0 p-2 text-gold focus-visible:outline focus-visible:outline-gold"><Search size={22} /></button>
+            </form>
+            {!searchQuery.trim() ? <section className="py-8" aria-labelledby="popular-searches-title">
+              <h3 id="popular-searches-title" className="text-xs uppercase tracking-[.2em]">Popular Searches</h3>
+              <div className="mt-5 flex flex-wrap gap-x-7 gap-y-4 text-sm">{Array.from(new Set([...collectionLinks.map((item) => item.name), ...popularSearchTerms])).slice(0, 10).map((term) => <button key={term} type="button" onClick={() => updateSearchQuery(term)} className="border-b border-gold/30 pb-1 hover:text-gold focus-visible:outline focus-visible:outline-gold">{term}</button>)}</div>
+            </section> : <div aria-live="polite" aria-busy={productSearchState === 'loading'} className="mt-8">
+              {productSearchState === 'loading' ? <p className="mb-5 text-sm text-charcoal/60">Searching products…</p> : null}
+              {productSearchState === 'error' ? <p role="alert" className="mb-5 text-sm text-red-700">Product search could not be loaded. Please try again.</p> : null}
+              {collectionSearchError ? <p role="alert" className="mb-5 text-sm text-red-700">Collections could not be loaded. Please try again.</p> : null}
+              <div className="grid gap-8 md:grid-cols-[.8fr_1fr_1.6fr]">
+                <section aria-labelledby="search-suggestions-title"><h3 id="search-suggestions-title" className="border-b border-black/10 pb-3 text-xs uppercase tracking-[.2em]">Suggestions</h3>
+                  <div className="mt-4 space-y-3">{Array.from(new Set([...collectionLinks.map((item) => item.name), ...popularSearchTerms, ...productResults.flatMap((item) => item.name ? [item.name] : [])])).filter((term) => matchesSearch(term, searchQuery)).slice(0, 8).map((term) => <button type="button" key={term} onClick={() => { updateSearchQuery(term); setSearchSubmission((value) => value + 1); }} className="block text-left text-sm hover:text-gold focus-visible:outline focus-visible:outline-gold">{term}</button>)}</div>
+                </section>
+                <section aria-labelledby="search-pages-title"><h3 id="search-pages-title" className="border-b border-black/10 pb-3 text-xs uppercase tracking-[.2em]">Pages</h3>
+                  {searchResults.collections.length ? <h4 className="mt-4 text-xs text-charcoal/55">Collections</h4> : null}
+                  {[...searchResults.collections, ...searchResults.pages].map((item) => <Link key={item.href} href={item.href} onClick={handleNavigation} className="block break-words py-3 text-sm hover:text-gold focus-visible:outline focus-visible:outline-gold">{item.title}</Link>)}
+                </section>
+                <section aria-labelledby="search-products-title"><h3 id="search-products-title" className="border-b border-black/10 pb-3 text-xs uppercase tracking-[.2em]">Products</h3>
+                  <div className="divide-y divide-black/10">{productResults.map((product) => <Link key={product.id} href={`/products/${encodeURIComponent(product.id)}`} onClick={handleNavigation} className="flex items-center gap-4 py-3 hover:text-gold focus-visible:outline focus-visible:outline-gold">
+                    {product.media?.[0] ? <img src={product.media[0]} alt="" width="56" height="72" className="h-[72px] w-14 shrink-0 bg-sand object-cover" /> : <span aria-hidden="true" className="h-[72px] w-14 shrink-0 bg-sand" />}
+                    <span className="min-w-0"><span className="block break-words font-display text-lg">{product.name || 'RK piece'}</span><span className="block break-words text-xs text-charcoal/55">{product.productCode || product.parentSku || product.sku}{product.collections?.[0]?.name ? ` · ${product.collections[0].name}` : ''}</span></span>
+                  </Link>)}</div>
                 </section>
               </div>
-            </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+              {productSearchState === 'ready' && !collectionSearchError && !productResults.length && !searchResults.collections.length && !searchResults.pages.length ? <p className="py-6 text-sm text-charcoal/60">No matching products, collections or pages found.</p> : null}
+            </div>}
+          </section>
+        </div>, document.body
+      ) : null}
 
       <AnimatePresence>
         {menuOpen ? (
@@ -687,7 +708,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
                   <button
                     type="button"
                     onClick={() => {
-                      if (label === 'Search') { loadCollectionLinks(); setSearchOpen(true); }
+                      if (label === 'Search') openSearch();
                       if (label === 'Account') {
                         openAccount();
                       }

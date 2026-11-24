@@ -45,7 +45,9 @@ export function fetchCatalogCollection(slug: string): Promise<ManagedCollection 
 }
 
 export async function searchCatalogProducts(query: string, signal: AbortSignal): Promise<CatalogSearchProduct[]> {
-  const params = new URLSearchParams({ q: query, pageSize: '10' });
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+  const params = new URLSearchParams({ q: trimmed, pageSize: '10' });
   const response = await fetch(`${apiBaseUrl}/api/catalog/products?${params}`, { cache: 'no-store', signal });
   if (!response.ok) throw new Error('Product search could not be loaded. Please try again.');
   const payload = await response.json() as { products?: CatalogSearchProduct[] };

@@ -218,6 +218,8 @@ export const searchItems = [
     keywords: `${collection.name} ${collection.summary}`,
   })),
   { title: 'All Collections', type: 'Collection', href: '/collections', keywords: 'collections archive' },
+  { title: 'Contact', type: 'Page', href: '/#footer', keywords: 'contact assistance appointments enquiry' },
+  { title: 'Shop', type: 'Page', href: '/shop', keywords: 'shop all products catalogue' },
   { title: 'All Lookbooks', type: 'Lookbook', href: '/rk-lookbooks', keywords: 'lookbook editorial' },
   { title: 'Runway', type: 'Page', href: '/runway', keywords: 'runway Espiritu Libre editorial' },
   { title: 'About Rashi Kapoor', type: 'Page', href: '/about', keywords: 'about house story designer' },
@@ -324,3 +326,6 @@ export const instagramItems = [
   'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785487943/Rashi_Kapoor187_compressed_8000kb_e5k7xn.jpg',
   'https://res.cloudinary.com/fm1bwbrd/image/upload/v1785488046/Rashi_Kapoor474_compressed_8000kb_pqcair.jpg',
 ] as const;
+
+// Configured category terms; product suggestions always come from the live catalogue.
+export const popularSearchTerms = ['Lehengas', 'Sarees', 'Embroidery', 'Couture'] as const;
