@@ -46,6 +46,7 @@ import {
   wishlistChangedEvent,
 } from "@/lib/storefront-wishlist";
 import { cloudinaryImageUrl } from "@/lib/utils";
+import { useSalePrice } from '@/lib/sale-price';
 import { PriceCurrencyRow } from "@/components/commerce/price-currency-row";
 import { AiTryon } from "@/components/products/ai-tryon";
 import { colourSwatchValue, useColourSwatches } from "@/lib/colour-swatches";
@@ -412,6 +413,8 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
     setActiveImage((index) => index < galleryMedia.length ? index : 0);
   }, [galleryMedia.length, selectedVariant?.id]);
 
+  const currentPrice = useSalePrice(selectedVariant?.price ?? product?.price, selectedVariant?.sale ?? product?.sale, productId, selectedVariant?.id);
+
   if (notFound)
     return (
       <main className="min-h-screen bg-ivory text-charcoal">
@@ -484,7 +487,7 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
       ? "in_stock"
       : "sold_out"
     : product.availability;
-  const selectedPrice = selectedVariant?.price ?? product.price;
+  const selectedPrice = currentPrice.amount;
   const selectedSku = selectedVariant?.sku || product.sku || "";
   const selectedColour = normalizeColour(
     selectedVariant?.colour ||
@@ -620,6 +623,7 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
       colour: selectedVariant.colour,
       name: product.name || "Untitled piece",
       price: Number(selectedPrice),
+      sale: currentPrice.sale,
       quantity,
       image: media[0],
       availability: availabilityLabels[selectedAvailability],
@@ -988,7 +992,7 @@ export function ProductDetailPage({ productId, initialVariantId = "" }: { produc
               </p>
             ) : null}
           <div className="mt-7 border-t border-black/12 pt-5 dark:border-white/15">
-              <PriceCurrencyRow amount={selectedPrice} className="text-lg" />
+              <PriceCurrencyRow amount={selectedPrice} sale={currentPrice.sale} className="text-lg" />
               <p className="mt-3 text-[0.58rem] uppercase tracking-[0.25em] text-gold">
                 {availabilityLabels[selectedAvailability]}
               </p>

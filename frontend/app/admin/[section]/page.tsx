@@ -20,7 +20,7 @@ const simpleSections = new Set(['marketing']);
 const columns: Record<string, Array<[string, string]>> = {
   marketing: [['name', 'Campaign'], ['channel', 'Channel'], ['status', 'Status'], ['createdAt', 'Created']],
 };
-const permissionOptions: Array<[StaffPermission, string]> = [['products:manage', 'Products'], ['inventory:manage', 'Inventory'], ['quotes:manage', 'Quotes'], ['orders:manage', 'Orders'], ['customers:manage', 'Customers']];
+const permissionOptions: Array<[StaffPermission, string]> = [['products:manage', 'Products'], ['inventory:manage', 'Inventory'], ['quotes:manage', 'Quotes'], ['orders:manage', 'Orders'], ['customers:manage', 'Customers'], ['sales:manage', 'Sale Management']];
 
 function formatValue(key: string, value: unknown) {
   if (key === 'createdAt' && typeof value === 'string') return formatDate(value);

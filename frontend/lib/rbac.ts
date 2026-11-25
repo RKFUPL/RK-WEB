@@ -14,7 +14,7 @@ export type AuthUser = {
   must_change_password: boolean;
 };
 
-export type StaffPermission = 'products:manage' | 'inventory:manage' | 'quotes:manage' | 'orders:manage' | 'customers:manage';
+export type StaffPermission = 'products:manage' | 'inventory:manage' | 'quotes:manage' | 'orders:manage' | 'customers:manage' | 'sales:manage';
 
 export const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || '';
 

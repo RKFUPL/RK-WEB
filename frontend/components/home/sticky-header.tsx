@@ -1,6 +1,9 @@
 'use client';
 
 import Link from 'next/link';
+import { SaleAmount } from '@/components/commerce/sale-amount';
+import { SaleAnnouncement } from '@/components/commerce/sale-announcement';
+import { SaleNavigation } from '@/components/commerce/sale-navigation';
 import { usePathname, useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import { createPortal } from 'react-dom';
@@ -19,7 +22,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { brandLogoUrl, searchItems, lookbookCovers, popularSearchTerms } from '@/lib/home-content';
 import { apiBaseUrl, logout } from '@/lib/rbac';
 import { fetchCatalogCollections, searchCatalogProducts, type CatalogSearchProduct } from '@/lib/catalog-client';
-import { cartChangedEvent, readStoredCart, removeStoredCartItem, updateStoredCartQuantity } from '@/lib/storefront-cart';
+import { refreshStoredCartPrices, cartChangedEvent, readStoredCart, removeStoredCartItem, updateStoredCartQuantity } from '@/lib/storefront-cart';
 import { readWishlist, removeFromWishlist, wishlistChangedEvent, type StorefrontWishlistItem } from '@/lib/storefront-wishlist';
 import type { Cart } from '@/lib/store-types';
 import { cn } from '@/lib/utils';
@@ -162,9 +165,13 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
   useEffect(() => {
     const syncBag = () => setShoppingBag(readStoredCart());
     syncBag();
+    void refreshStoredCartPrices();
+    const refreshPrices = () => { void refreshStoredCartPrices(); };
+    window.addEventListener('rk-sale-state-refresh', refreshPrices);
+    const priceTimer = window.setInterval(() => void refreshStoredCartPrices(), 30000);
     window.addEventListener(cartChangedEvent, syncBag);
     window.addEventListener('storage', syncBag);
-    return () => { window.removeEventListener(cartChangedEvent, syncBag); window.removeEventListener('storage', syncBag); };
+    return () => { window.removeEventListener('rk-sale-state-refresh', refreshPrices); window.clearInterval(priceTimer); window.removeEventListener(cartChangedEvent, syncBag); window.removeEventListener('storage', syncBag); };
   }, []);
 
   useEffect(() => {
@@ -428,6 +435,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
         isHomePage || headerVisible || searchOpen || menuOpen || wishlistOpen || bagOpen || accountOpen ? 'translate-y-0' : '-translate-y-full'
       )}
     >
+      <SaleAnnouncement />
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-10 lg:py-[1.125rem]">
         <div className="flex w-full items-center justify-between gap-4 lg:w-auto">
           <Link href="/" className="flex items-center gap-3">
@@ -521,6 +529,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
           >
             Contact
           </button>
+          <SaleNavigation className={navItemClass} onNavigate={handleNavigation} />
         </nav>
 
         <div className="hidden items-center gap-6 lg:flex">
@@ -700,6 +709,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
                   <span>Contact</span>
                   <ChevronDown className="h-4 w-4 -rotate-90" />
                 </button>
+                <SaleNavigation className="flex border-b border-black/6 pb-4 text-lg tracking-[0.08em]" onNavigate={handleNavigation} />
               </div>
 
               <div className="mt-8 space-y-3 text-xs uppercase tracking-[0.3em] text-charcoal/60">
@@ -848,7 +858,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
                 </button>
               </div>
               <div className={`min-h-0 flex-1 overflow-y-auto bg-[#fffdf9] dark:bg-[#121212] ${shoppingBag.items.length ? 'px-6' : 'flex items-center justify-center px-8 text-center text-sm text-charcoal/55 dark:text-white/60'}`}>
-                {shoppingBag.items.length ? shoppingBag.items.map((item) => { const lineKey = cartLineKey(item); return <div key={lineKey} className="flex gap-4 border-b border-black/10 py-5 dark:border-white/10"><div className="h-24 w-20 shrink-0 overflow-hidden rounded-[12px] bg-sand">{item.image ? <img src={item.image} alt={item.name} className="h-full w-full object-cover" /> : null}</div><div className="min-w-0 flex-1"><p className="font-display text-lg">{item.name}</p>{item.variant ? <p className="mt-1 text-[0.6rem] uppercase tracking-[0.18em] text-charcoal/50 dark:text-white/50">{item.variant.name}: {item.variant.value}</p> : null}{item.customSize ? <p className="mt-1 text-[0.6rem] uppercase tracking-[0.18em] text-charcoal/50 dark:text-white/50">Custom size · {item.customSize.unit}</p> : null}<p className="mt-2 text-xs text-charcoal/70 dark:text-white/70">Unit price: {formatPrice(item.price)}</p><p className="mt-1 text-xs text-charcoal/70 dark:text-white/70">Subtotal: {formatPrice(item.price * item.quantity)}</p><ShippingTimeline timeline={cartItemShippingTimeline(item)} compact /><div className="mt-3 flex items-center gap-2"><button type="button" onClick={() => updateStoredCartQuantity(item.productId, item.quantity - 1, item.variant?.id, lineKey)} aria-label={`Decrease quantity of ${item.name}`} className="grid h-8 w-8 place-items-center border border-black/15 transition hover:text-gold dark:border-white/20"><Minus size={13} /></button><span className="min-w-6 text-center text-xs">{item.quantity}</span><button type="button" disabled={item.quantity >= 50} onClick={() => updateStoredCartQuantity(item.productId, item.quantity + 1, item.variant?.id, lineKey)} aria-label={`Increase quantity of ${item.name}`} className="grid h-8 w-8 place-items-center border border-black/15 transition hover:text-gold disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/20"><Plus size={13} /></button></div><button type="button" onClick={() => removeStoredCartItem(item.productId, item.variant?.id, lineKey)} className="mt-3 text-[0.55rem] uppercase tracking-[0.2em] text-gold">Remove</button></div></div>; }) : <div className="flex min-h-full flex-col items-center justify-center gap-4 text-center"><ShoppingBag className="h-7 w-7 text-gold" strokeWidth={1.25} /><p>Your bag is empty.</p><Link href="/collections" onClick={() => setBagOpen(false)} className="border-b border-charcoal/40 pb-2 text-[0.6rem] uppercase tracking-[0.25em] dark:border-white/40">Explore Collections</Link></div>}
+                {shoppingBag.items.length ? shoppingBag.items.map((item) => { const lineKey = cartLineKey(item); return <div key={lineKey} className="flex gap-4 border-b border-black/10 py-5 dark:border-white/10"><div className="h-24 w-20 shrink-0 overflow-hidden rounded-[12px] bg-sand">{item.image ? <img src={item.image} alt={item.name} className="h-full w-full object-cover" /> : null}</div><div className="min-w-0 flex-1"><p className="font-display text-lg">{item.name}</p>{item.variant ? <p className="mt-1 text-[0.6rem] uppercase tracking-[0.18em] text-charcoal/50 dark:text-white/50">{item.variant.name}: {item.variant.value}</p> : null}{item.customSize ? <p className="mt-1 text-[0.6rem] uppercase tracking-[0.18em] text-charcoal/50 dark:text-white/50">Custom size · {item.customSize.unit}</p> : null}<p className="mt-2 text-xs text-charcoal/70 dark:text-white/70">Unit price: <SaleAmount amount={item.price} sale={item.sale} /></p><p className="mt-1 text-xs text-charcoal/70 dark:text-white/70">Subtotal: {formatPrice(item.price * item.quantity)}</p><ShippingTimeline timeline={cartItemShippingTimeline(item)} compact /><div className="mt-3 flex items-center gap-2"><button type="button" onClick={() => updateStoredCartQuantity(item.productId, item.quantity - 1, item.variant?.id, lineKey)} aria-label={`Decrease quantity of ${item.name}`} className="grid h-8 w-8 place-items-center border border-black/15 transition hover:text-gold dark:border-white/20"><Minus size={13} /></button><span className="min-w-6 text-center text-xs">{item.quantity}</span><button type="button" disabled={item.quantity >= 50} onClick={() => updateStoredCartQuantity(item.productId, item.quantity + 1, item.variant?.id, lineKey)} aria-label={`Increase quantity of ${item.name}`} className="grid h-8 w-8 place-items-center border border-black/15 transition hover:text-gold disabled:cursor-not-allowed disabled:opacity-35 dark:border-white/20"><Plus size={13} /></button></div><button type="button" onClick={() => removeStoredCartItem(item.productId, item.variant?.id, lineKey)} className="mt-3 text-[0.55rem] uppercase tracking-[0.2em] text-gold">Remove</button></div></div>; }) : <div className="flex min-h-full flex-col items-center justify-center gap-4 text-center"><ShoppingBag className="h-7 w-7 text-gold" strokeWidth={1.25} /><p>Your bag is empty.</p><Link href="/collections" onClick={() => setBagOpen(false)} className="border-b border-charcoal/40 pb-2 text-[0.6rem] uppercase tracking-[0.25em] dark:border-white/40">Explore Collections</Link></div>}
               </div>
               <div className="border-t border-black/10 bg-[#fffdf9] px-6 py-5 dark:border-white/10 dark:bg-[#121212]">
                 {shoppingBag.items.length ? <div className="mb-4 flex items-center justify-between text-sm"><span>Subtotal</span><span>{formatPrice(getCartSubtotal(shoppingBag))}</span></div> : null}

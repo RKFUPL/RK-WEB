@@ -187,6 +187,8 @@ def create_app() -> Flask:
     # `analytics`, which can otherwise make incognito visits vanish silently.
     app.register_blueprint(storefront_activity_bp, url_prefix="/api/storefront")
     app.register_blueprint(catalog_bp, url_prefix="/api/catalog")
+    from .sales import sales_bp
+    app.register_blueprint(sales_bp, url_prefix="/api/sales")
     app.register_blueprint(content_bp, url_prefix="/api/content")
     app.register_blueprint(payments_bp, url_prefix="/api/payments")
     app.register_blueprint(razorpay_webhook_bp, url_prefix="/api/webhooks")

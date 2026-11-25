@@ -52,3 +52,36 @@ export function updateStoredCartSize(lineKey: string, size: string) {
   writeStoredCart(next);
   return next;
 }
+
+
+/** Refresh only prices on the current bag; edits made during the request survive. */
+let nextPriceRefresh: ReturnType<typeof setTimeout> | undefined;
+let priceRefreshRunning = false;
+export async function refreshStoredCartPrices() {
+  if (priceRefreshRunning) return;
+  priceRefreshRunning = true;
+  const cart = readStoredCart();
+  if (!cart.items.length) { priceRefreshRunning = false; return; }
+  try {
+    const { apiBaseUrl } = await import('./rbac');
+    const response = await fetch(`${apiBaseUrl}/api/sales/prices`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', body: JSON.stringify({ items: cart.items.map(i => ({ productId: i.productId, variantId: i.variantId })) }) });
+    if (!response.ok) return;
+    const data = await response.json();
+    const current = readStoredCart();
+    const items = current.items.map(item => {
+      const price = (data.prices || []).find((p: CartItem) => p.productId === item.productId && p.variantId === item.variantId);
+      return price && Number.isFinite(price.price) && price.price > 0 ? { ...item, price: price.price, sale: price.sale } : item;
+    });
+    if (JSON.stringify(items) !== JSON.stringify(current.items)) writeStoredCart({ ...current, items });
+    clearTimeout(nextPriceRefresh);
+    const deadlines = items.filter(i => i.sale?.isOnSale && i.sale.saleEndsAt && i.sale.serverTime).map(i => Date.parse(i.sale!.saleEndsAt!) - Date.parse(i.sale!.serverTime!));
+    if (deadlines.length) {
+      const expiring = items.filter(i => i.sale?.isOnSale && i.sale.saleEndsAt && i.sale.serverTime && Date.parse(i.sale.saleEndsAt)-Date.parse(i.sale.serverTime) === Math.min(...deadlines));
+      nextPriceRefresh = setTimeout(() => {
+        const bag = readStoredCart();
+        writeStoredCart({ ...bag, items: bag.items.map(i => expiring.some(e => e.productId===i.productId && e.variantId===i.variantId && e.sale?.saleCampaignId===i.sale?.saleCampaignId && e.sale?.saleEndsAt===i.sale?.saleEndsAt) && i.sale?.mrp ? { ...i, price:i.sale.mrp, sale:undefined } : i) });
+        void refreshStoredCartPrices();
+      }, Math.max(50, Math.min(...deadlines, 2147483647)));
+    }
+  } catch { /* Checkout independently fails closed and compares the quoted amount. */ } finally { priceRefreshRunning = false; }
+}

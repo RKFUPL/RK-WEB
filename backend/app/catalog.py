@@ -1218,8 +1218,23 @@ def collection_product_documents(
     style: str = "",
     colour: str = "",
 ) -> list[tuple[dict, int]]:
-    refs = [ref for ref in (collection.get("productRefs") or []) if isinstance(ref, dict) and isinstance(ref.get("productId"), ObjectId)]
+    refs = []
+    for reference in collection.get("productRefs") or []:
+        if not isinstance(reference, dict):
+            continue
+        raw_id = reference.get("productId")
+        if ObjectId.is_valid(str(raw_id or "")):
+            refs.append({**reference, "productId": ObjectId(str(raw_id))})
     refs.sort(key=collection_product_ref_sort_key)
+    # Read legacy string identities without requiring a seed/migration write.
+    # Keep the first canonical occurrence in collection display order.
+    seen = set()
+    unique_refs = []
+    for ref in refs:
+        if ref["productId"] not in seen:
+            seen.add(ref["productId"])
+            unique_refs.append(ref)
+    refs = unique_refs
     product_ids = [ref["productId"] for ref in refs]
     products = {product["_id"]: product for product in db.products.find({"_id": {"$in": product_ids}}, projection)} if product_ids else {}
     matched = [
@@ -1440,7 +1455,8 @@ def product_view(product: dict, *, display_order: int | None = None, media_limit
         result["pricing"].pop("basePrice")
     if display_order is not None:
         result["displayOrder"] = display_order
-    return result
+    from .sales import public_prices
+    return public_prices(product, result)
 
 
 def product_card_view(product: dict, *, display_order: int | None = None, media_limit: int = 2) -> dict:
@@ -1500,7 +1516,8 @@ def product_card_view(product: dict, *, display_order: int | None = None, media_
         result["attributes"]["colors"] = colors
     if result["price"] is None:
         result.pop("price")
-    return result
+    from .sales import public_prices
+    return public_prices(product, result)
 
 
 def public_variant_primary_image(product: dict, variant_id: str) -> str:

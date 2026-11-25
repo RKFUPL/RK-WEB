@@ -30,6 +30,7 @@ from ...product_variants import VARIANT_STATUSES, find_variant, normalise_colour
 from ...rbac import current_user, database, effective_permissions, requireStaff
 from ...extensions import limiter
 from ...time_utils import json_value as serialize_json_value
+from ...product_administration import inventory_revision, configured_buckets, activation_errors, save_allocation
 from ...workdrive import WorkDriveFileNotFound, WorkDriveUnavailable, download_file, is_supported_permalink
 
 staff_bp = Blueprint("staff", __name__)
@@ -350,6 +351,9 @@ def _document_view(document: dict, resource: str | None = None) -> dict:
             "style": _json_value(document.get("style")),
             "sku": _json_value(document.get("sku")),
             "stock": _json_value(document.get("stock")),
+            "inventoryRevision": inventory_revision(document),
+            "inventoryAllocationMode": document.get("inventoryAllocationMode"),
+            "inventoryBuckets": configured_buckets(document),
             "availability": _json_value(document.get("availability")),
             "status": _json_value(document.get("status")),
         }
@@ -388,6 +392,9 @@ def _document_view(document: dict, resource: str | None = None) -> dict:
             "price": _json_value(document.get("price")),
             "currency": _json_value(document.get("currency") or "INR"),
             "stock": _json_value(document.get("stock")),
+            "inventoryRevision": inventory_revision(document),
+            "inventoryAllocationMode": document.get("inventoryAllocationMode"),
+            "inventoryBuckets": configured_buckets(document),
             "status": _json_value(document.get("status")),
             "availability": _json_value(document.get("availability")),
             "aiTryonEnabled": bool(document.get("aiTryonEnabled", False)),
@@ -1012,6 +1019,8 @@ def update_resource(resource: str, resource_id: str):
     updates = {"updatedAt": now, "updatedBy": actor["_id"]}
 
     if resource == "products":
+        if current.get('inventoryAllocationMode') and any(k in payload for k in ('stock','sizeInventory','sizeInventoryConfigured','sizeSystemEnabled')):
+            return jsonify(error='Use the audited size allocation editor for this product.'),400
         requested_collections = None
         previous_collection_ids = set()
         if "collectionIds" in payload or "collectionId" in payload:
@@ -1153,12 +1162,16 @@ def update_resource(resource: str, resource_id: str):
                 return jsonify({"error": "Custom size configuration must be an object."}), 400
             updates["customSizeConfig"] = payload["customSizeConfig"] or {}
     elif resource == "inventory":
+        if current.get('inventoryAllocationMode'):
+            return jsonify(error='Use the audited size allocation editor for this product.'),400
         if has_size_system(current):
             return jsonify({"error": "This product uses size inventory. Update the XS–XL quantities from the product editor."}), 400
         before = _integer(current.get("stock"), 0)
         if "adjustment" in payload and _integer(payload.get("adjustment"), 0) == 0:
             return jsonify({"error": "A non-zero inventory adjustment is required."}), 400
-        after = _integer(payload.get("stock")) if "stock" in payload else max(0, before + _integer(payload.get("adjustment"), 0))
+        after = _integer(payload.get("stock")) if "stock" in payload else before + _integer(payload.get("adjustment"), 0)
+        if after < 0:
+            return jsonify(error="Stock cannot be negative."),400
         reason = str(payload.get("reason") or "").strip()[:240]
         if not reason:
             return jsonify({"error": "Enter a reason for the inventory change."}), 400
@@ -1389,6 +1402,8 @@ def update_product_variant(product_id: str, variant_id: str):
         if availability_status not in {"IN_STOCK", "NO_STOCK"}:
             return jsonify({"error": "Choose IN_STOCK or NO_STOCK availability."}), 400
         updated_variant["status"] = "active" if availability_status == "IN_STOCK" else "inactive"
+    if product.get('inventoryAllocationMode') and updated_variant.get('status') == 'remove' and int(updated_variant.get('stock') or 0):
+        return jsonify(error='Record an audited allocation to zero before removing a colour that has stock.'),400
     if "images" in payload:
         images = payload.get("images")
         if not isinstance(images, list) or len(images) > 12 or any(not isinstance(item, str) or len(item) > 2048 for item in images):
@@ -1425,6 +1440,8 @@ def update_product_variant(product_id: str, variant_id: str):
             return jsonify({"error": "Variant price cannot be negative."}), 400
         updated_variant["price"] = price
         updated_variant["priceMode"] = "override"
+    if "sizeInventory" in payload and product.get('inventoryAllocationMode'):
+        return jsonify(error='Use the audited size allocation editor for colour quantities.'),400
     if "sizeInventory" in payload:
         try:
             updated_variant["sizeInventory"] = normalise_size_inventory(payload.get("sizeInventory"))
@@ -1626,3 +1643,40 @@ def convert_quote(quote_id: str):
     db.quotes.update_one({"_id": object_id}, {"$set": {"status": "converted", "orderId": order_id, "convertedAt": now, "updatedAt": now, "updatedBy": actor["_id"]}})
     order["_id"] = order_id
     return jsonify({"item": _document_view(order)}), 201
+
+
+@staff_bp.patch('/products/<product_id>/lifecycle')
+@requireStaff
+def product_lifecycle(product_id):
+    denied = _permission_error('products')
+    if denied: return denied
+    db = database()
+    product = db.products.find_one({'_id':ObjectId(product_id)}) if ObjectId.is_valid(product_id) else None
+    if not product: return jsonify(error='Product not found.'),404
+    payload = request.get_json(silent=True) or {}
+    status = payload.get('status')
+    if status not in ('active','draft'): return jsonify(error='Choose Activate or Deactivate.'),400
+    if status == 'active':
+        errors = activation_errors(product)
+        if errors: return jsonify(error=' '.join(errors)),400
+    now = datetime.now(timezone.utc)
+    query = {'_id':product['_id'], 'updatedAt':product.get('updatedAt',{'$exists':False}), 'status':product.get('status',{'$exists':False})}
+    result = db.products.update_one(query, {'$set':{'status':status,'isActive':True,'updatedAt':now,'updatedBy':current_user()['_id']},
+        '$push':{'lifecycleHistory':{'at':now,'by':current_user()['_id'],'before':product.get('status'),'after':status}}})
+    if not result.matched_count: return jsonify(error='Product changed. Reload before changing lifecycle.'),409
+    return jsonify(item=_document_view(db.products.find_one({'_id':product['_id']}),'products'))
+
+
+@staff_bp.patch('/products/<product_id>/stock-allocation')
+@requireStaff
+def product_stock_allocation(product_id):
+    denied = _permission_error('inventory')
+    if denied: return denied
+    db = database()
+    product = db.products.find_one({'_id':ObjectId(product_id)}) if ObjectId.is_valid(product_id) else None
+    if not product: return jsonify(error='Product not found.'),404
+    try:
+        saved = save_allocation(db, product, request.get_json(silent=True) or {}, current_user())
+    except ValueError as error: return jsonify(error=str(error)),400
+    except RuntimeError as error: return jsonify(error=str(error)),409
+    return jsonify(item=_document_view(saved,'products'))

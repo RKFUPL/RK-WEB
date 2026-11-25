@@ -6,7 +6,7 @@ from time import monotonic
 import html
 import re
 
-from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
+from flask import Blueprint, Response, current_app, g, jsonify, request, stream_with_context
 
 from ...catalog import (
     STOREFRONT_COLLECTION_PROJECTION,
@@ -35,6 +35,15 @@ from ...workdrive import WorkDriveFileNotFound, WorkDriveUnavailable, download_f
 
 
 catalog_bp = Blueprint("catalog", __name__)
+
+
+@catalog_bp.after_request
+def dynamic_price_cache(response):
+    # Catalogue media keeps its immutable caching; live monetary responses do not.
+    if hasattr(g, 'sale_price_context'):
+        for header in ('Cache-Control', 'CDN-Cache-Control', 'Cloudflare-CDN-Cache-Control'):
+            response.headers[header] = 'no-store'
+    return response
 
 _public_media_cache: OrderedDict[tuple[str, str, str], tuple[float, bytes, str]] = OrderedDict()
 _public_media_cache_lock = Lock()

@@ -22,6 +22,7 @@ STAFF_PERMISSIONS = (
     "quotes:manage",
     "orders:manage",
     "customers:manage",
+    "sales:manage",
 )
 
 
@@ -106,7 +107,8 @@ def effective_permissions(user: dict | None) -> list[str]:
     """Return canonical capabilities without trusting token claims.
 
     Legacy staff records predate per-user permissions. They retain the former
-    full staff access until an administrator saves an explicit allowlist.
+    full staff access until an administrator saves an explicit allowlist. New
+    sale management is opt-in and is never inherited by legacy staff.
     """
     if not user or user.get("isActive", True) is False:
         return []
@@ -116,7 +118,7 @@ def effective_permissions(user: dict | None) -> list[str]:
         return []
     stored = user.get("permissions")
     if stored is None:
-        return list(STAFF_PERMISSIONS)
+        return [permission for permission in STAFF_PERMISSIONS if permission != "sales:manage"]
     return [permission for permission in STAFF_PERMISSIONS if permission in stored]
 
 

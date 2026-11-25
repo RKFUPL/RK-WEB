@@ -1,3 +1,5 @@
+from ...inventory import allocated_variant_total
+import math
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -180,12 +182,10 @@ def _checkout_items(db, cart: object) -> tuple[list[dict], float]:
         if key in seen:
             raise ValueError("A piece appears more than once in your bag.")
         seen.add(key)
-        price = variant.get("price", product.get("price"))
-        try:
-            price = round(float(price), 2)
-        except (TypeError, ValueError):
-            raise ValueError("A selected piece does not have a valid price.")
-        if price < 0:
+        from ...sales import effective_catalog_price
+        pricing = effective_catalog_price(db, product, variant)
+        price = pricing['effectivePrice']
+        if price is None or not math.isfinite(float(price)) or price <= 0:
             raise ValueError("A selected piece does not have a valid price.")
         line_total = round(price * quantity, 2)
         subtotal += line_total
@@ -208,6 +208,8 @@ def _checkout_items(db, cart: object) -> tuple[list[dict], float]:
             "colour": _safe_text(variant.get("colour"), 120),
             "quantity": quantity,
             "unitPrice": price,
+            "mrp": pricing["mrp"],
+            "sale": pricing,
             "lineTotal": line_total,
             "image": image,
             "availability": "confirmation_required" if requires_confirmation else "in_stock",
@@ -270,7 +272,7 @@ def _revalidate_variant_order_item(db, item: dict) -> tuple[dict, dict, str]:
         raise StockUnavailable("A selected colour SKU no longer matches the product.")
     try:
         server_price = round(float(variant.get("price", product.get("price"))), 2)
-        order_price = round(float(item.get("unitPrice")), 2)
+        order_price = round(float(item.get("mrp", item.get("unitPrice"))), 2)
     except (TypeError, ValueError):
         raise StockUnavailable("A selected variant has an invalid price.")
     if server_price != order_price:
@@ -321,7 +323,7 @@ def _decrement_tracked_variant_inventory(db, product: dict, variant: dict, size:
             {"_id": product["_id"], "status": {"$ne": "archived"}, "isActive": {"$ne": False},
              "variants": saved.get("variants", []),
              "inventoryOperationMarkers": saved.get("inventoryOperationMarkers", {"$exists": False})},
-            {"$set": {"variants": variants, "updatedAt": now}, "$push": {"inventoryOperationMarkers": marker}},
+            {"$set": {"variants": variants, "updatedAt": now, **allocated_variant_total(saved, variants)}, "$push": {"inventoryOperationMarkers": marker}},
         )
         if result.modified_count == 1:
             return product["_id"], quantity, size, variant_id
@@ -522,6 +524,14 @@ def create_razorpay_order():
         items, subtotal = _checkout_items(db, payload.get("cart"))
     except ValueError as error:
         return jsonify({"error": str(error), "code": "whatsapp_number_invalid" if mandatory_whatsapp and "WhatsApp" in str(error) else "invalid_checkout"}), 400
+
+    # Price is only a comparison acknowledgement; never an authoritative amount.
+    quoted = payload.get('cart') or []
+    changed = any(raw.get('quotedUnitPrice') is not None and str(raw.get('quotedUnitPrice')) != str(item['unitPrice'])
+                  and _quote_differs(raw.get('quotedUnitPrice'), item['unitPrice']) for raw, item in zip(quoted, items))
+    if changed:
+        return jsonify(error="Prices in your bag have changed. Review the updated prices before continuing.",
+                       code="price_changed", prices=[{"productId": i['productId'], "variantId": i['variantId'], "price": i['unitPrice'], "sale": i['sale']} for i in items]), 409
 
     existing = db.orders.find_one({"customerId": user_id, "checkoutAttemptId": attempt_id})
     if existing and mandatory_whatsapp and (existing.get("whatsappConsent") or {}).get("source") != "checkout":
@@ -775,3 +785,10 @@ def razorpay_webhook():
         result["error"] = str(error)
     db.razorpay_webhook_events.update_one({"eventId": event_id}, {"$set": {"processedAt": datetime.now(timezone.utc), "result": result}})
     return jsonify(result), 200
+
+
+def _quote_differs(quoted, actual):
+    try:
+        return not math.isfinite(float(quoted)) or round(float(quoted), 2) != actual
+    except (TypeError, ValueError):
+        return True

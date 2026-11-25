@@ -284,6 +284,10 @@ async function mockLinkedCheckout(page: Page, options: { savedConsent?: boolean;
       requests.push(route.request().postDataJSON());
       return route.fulfill({ status: 502, json: { error: 'Isolated checkout boundary; no order created.' } });
     }
+    if (url.pathname === '/api/sales/prices' && route.request().method() === 'POST') {
+      expect(route.request().postDataJSON()).toEqual({ items: [{ productId: 'fixture-product', variantId: 'fixture-colour' }] });
+      return route.fulfill({ json: { prices: [{ productId: 'fixture-product', variantId: 'fixture-colour', price: 1250 }] } });
+    }
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, body: '' });
     if (url.pathname === '/api/storefront/activity') return route.fulfill({ status: 204, body: '' });
     if (route.request().method() !== 'GET') throw new Error(`Unexpected isolated request: ${route.request().method()} ${url.pathname}`);

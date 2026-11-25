@@ -5,8 +5,8 @@ type CollectionIndexResponse = { collections: ManagedCollection[] };
 export type CatalogSearchProduct = CatalogProduct & { collections?: Array<{ id: string; name: string; slug: string }> };
 
 let collectionsRequest: Promise<ManagedCollection[]> | null = null;
-const collectionDetailRequests = new Map<string, { expiresAt: number; request: Promise<ManagedCollection & { products: CatalogProduct[] }> }>();
-const COLLECTION_DETAIL_TTL_MS = 30_000;
+// Share in-flight requests, but never retain completed price-bearing responses.
+const collectionDetailRequests = new Map<string, Promise<ManagedCollection & { products: CatalogProduct[] }>>();
 
 export function fetchCatalogCollections(): Promise<ManagedCollection[]> {
   if (!collectionsRequest) {
@@ -26,9 +26,8 @@ export function fetchCatalogCollections(): Promise<ManagedCollection[]> {
 
 export function fetchCatalogCollection(slug: string): Promise<ManagedCollection & { products: CatalogProduct[] }> {
   const key = String(slug || '').trim().toLowerCase();
-  const now = Date.now();
   const cached = collectionDetailRequests.get(key);
-  if (cached && cached.expiresAt > now) return cached.request;
+  if (cached) return cached;
 
   const request = fetch(`${apiBaseUrl}/api/catalog/collections/${encodeURIComponent(slug)}`, { cache: 'no-store' })
     .then(async (response) => {
@@ -36,11 +35,10 @@ export function fetchCatalogCollection(slug: string): Promise<ManagedCollection 
       if (!response.ok || !payload.collection) throw new Error(payload.error || 'Unable to load collection.');
       return payload.collection;
     })
-    .catch((error) => {
-      if (collectionDetailRequests.get(key)?.request === request) collectionDetailRequests.delete(key);
-      throw error;
+    .finally(() => {
+      if (collectionDetailRequests.get(key) === request) collectionDetailRequests.delete(key);
     });
-  collectionDetailRequests.set(key, { expiresAt: now + COLLECTION_DETAIL_TTL_MS, request });
+  collectionDetailRequests.set(key, request);
   return request;
 }
 

@@ -16,6 +16,13 @@ from collections.abc import Iterable
 
 
 STANDARD_SIZES = ("XS", "S", "M", "L", "XL")
+
+
+def allocated_variant_total(product: dict, variants: list) -> dict:
+    """Maintain the parent summary only after explicit variant-size allocation."""
+    if product.get('inventoryAllocationMode') != 'variant_size':
+        return {}
+    return {'stock': sum(int(v.get('stock') or 0) for v in variants), 'unallocatedStock': 0}
 DEFAULT_CUSTOM_SIZE_FIELDS = (
     "Bust",
     "Waist",

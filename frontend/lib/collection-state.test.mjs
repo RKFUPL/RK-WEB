@@ -141,10 +141,12 @@ test('empty or unavailable managed collection heroes render a neutral state', ()
   assert.match(hero, /Collection image not configured/);
 });
 
-test('collection navigation deduplicates short-lived public detail requests', () => {
+test('collection navigation deduplicates in-flight requests without retaining stale sale prices', () => {
   assert.match(detail, /fetchCatalogCollection\(slug\)/);
   assert.match(catalogClient, /collectionDetailRequests = new Map/);
-  assert.match(catalogClient, /COLLECTION_DETAIL_TTL_MS = 30_000/);
+  assert.match(catalogClient, /if \(cached\) return cached/);
+  assert.match(catalogClient, /\.finally\(\(\) =>/);
+  assert.doesNotMatch(catalogClient, /expiresAt|COLLECTION_DETAIL_TTL_MS/);
   assert.match(catalogClient, /collectionDetailRequests\.delete\(key\)/);
 });
 

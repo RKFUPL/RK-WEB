@@ -22,6 +22,7 @@ export type CartItem = {
   colour: string;
   name: string;
   price: number;
+  sale?: import('./catalog').SalePrice;
   quantity: number;
   image?: string;
   stock?: number;

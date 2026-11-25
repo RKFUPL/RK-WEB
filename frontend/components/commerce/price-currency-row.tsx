@@ -1,16 +1,21 @@
 'use client';
 
+import type { SalePrice } from '@/lib/catalog';
+import { useSalePrice } from '@/lib/sale-price';
 import { ChevronDown } from 'lucide-react';
 import { useCurrency } from '@/components/commerce/currency-provider';
 import { supportedCurrencies, type DisplayCurrency } from '@/lib/currency';
 
-export function PriceCurrencyRow({ amount, className = '' }: { amount?: number; className?: string }) {
+export function PriceCurrencyRow({ amount, sale, productId, variantId, className = '' }: { amount?: number; sale?: SalePrice; productId?:string; variantId?:string; className?: string }) {
+  const current = useSalePrice(amount, sale, productId, variantId);
+  amount = current.amount;
   const { currency, setCurrency, formatPrice } = useCurrency();
   if (amount === undefined) return <p className={className}>Price on request</p>;
 
   return (
     <div className={`flex flex-wrap items-center gap-x-2.5 gap-y-2 ${className}`}>
       <span>{formatPrice(amount)}</span>
+      {current.sale?.isOnSale && <><del className="text-xs text-charcoal/45">{formatPrice(current.sale.mrp!)}</del><span className="text-xs text-red-700">{current.sale.discountPercent}% OFF</span></>}
       <label onClick={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()} className="relative inline-flex h-8 w-[4.35rem] shrink-0 items-center rounded-full border border-charcoal/15 text-[0.5rem] uppercase tracking-[0.12em] text-charcoal/65 transition focus-within:border-gold focus-within:ring-2 focus-within:ring-gold/20">
         <span className="sr-only">Display currency</span>
         <select aria-label="Display currency" value={currency} onClick={(event) => event.stopPropagation()} onChange={(event) => { event.stopPropagation(); setCurrency(event.target.value as DisplayCurrency); }} className="h-full w-full cursor-pointer appearance-none rounded-full bg-transparent py-0 pl-2.5 pr-6 outline-none">

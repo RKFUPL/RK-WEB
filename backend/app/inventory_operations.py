@@ -318,6 +318,8 @@ def compensate_capture_markers(db, order_id, claim_token):
             if variants_before:
                 query["variants"] = product.get("variants", [])
                 update_values["variants"] = variants_before
+                from .inventory import allocated_variant_total
+                update_values.update(allocated_variant_total(product, variants_before))
             if sizes_before:
                 query["sizeInventory"] = product.get("sizeInventory", [])
                 update_values["sizeInventory"] = sizes_before

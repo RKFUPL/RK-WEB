@@ -8,7 +8,8 @@ class EffectivePermissionsTests(unittest.TestCase):
         self.assertEqual(effective_permissions({"role": "customer", "permissions": list(STAFF_PERMISSIONS)}), [])
 
     def test_legacy_staff_retains_previous_full_access(self):
-        self.assertEqual(effective_permissions({"role": "staff"}), list(STAFF_PERMISSIONS))
+        self.assertEqual(effective_permissions({"role": "staff"}), [p for p in STAFF_PERMISSIONS if p != "sales:manage"])
+        self.assertNotIn("sales:manage", effective_permissions({"role": "staff"}))
 
     def test_explicit_staff_allowlist_is_enforced(self):
         self.assertEqual(

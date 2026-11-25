@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { SaleAmount } from '@/components/commerce/sale-amount';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { addressCountryCode, addressPhoneParts, canonicalPhone, countryNames, internationalPhoneParts } from '@/lib/phone-number';
@@ -101,7 +102,7 @@ function CheckoutItemSummary({ item }: { item: Cart['items'][number] }) {
       <p className="mt-1 text-xs text-charcoal/55">{item.colour || item.variant?.value || 'Default colour'}{item.sku ? ` · ${item.sku}` : ''}</p>
       {item.size ? <p className="mt-1 text-xs text-charcoal/55">Size {item.size}</p> : null}
       {item.customSize ? <div className="mt-1 text-xs leading-5 text-charcoal/55"><p>Custom size · {item.customSize.unit}</p>{measurements.map(([name, value]) => <p key={name}>{name}: {value} {item.customSize?.unit}</p>)}</div> : null}
-      <p className="mt-1 text-xs text-charcoal/55">{item.quantity} × {formatPrice(item.price)}</p>
+      <p className="mt-1 text-xs text-charcoal/55">{item.quantity} × <SaleAmount amount={item.price} sale={item.sale} /></p>
       <ShippingTimeline timeline={cartItemShippingTimeline(item)} compact />
     </div>
     <span>{formatPrice(item.price * item.quantity)}</span>
@@ -309,6 +310,7 @@ export function CheckoutPage() {
             sku: item.sku,
             quantity: item.quantity,
             size: item.size,
+            quotedUnitPrice: item.price,
             purchaseMode: item.purchaseMode,
             customSize: item.customSize,
           })),
@@ -316,7 +318,11 @@ export function CheckoutPage() {
           shipping: { ...shipping, phone: canonicalDeliveryPhone, addressId: selectedAddressId && addresses.some(address => address.id === selectedAddressId && Object.keys(emptyShipping).every(key => (address[key as keyof ShippingForm] || '') === (key === 'phone' ? canonicalDeliveryPhone : shipping[key as keyof ShippingForm] || ''))) ? selectedAddressId : undefined },
         }),
       });
-      const data = await response.json() as RazorpayResponse & { error?: string };
+      const data = await response.json() as RazorpayResponse & { error?: string; code?: string; prices?: Array<{ productId: string; variantId: string; price: number; sale?: import('@/lib/catalog').SalePrice }> };
+      if (data.code === 'price_changed' && data.prices) {
+        const current = readStoredCart();
+        writeStoredCart({ ...current, items: current.items.map(item => { const price = data.prices!.find(p => p.productId === item.productId && p.variantId === item.variantId); return price ? { ...item, price: price.price, sale: price.sale } : item; }) });
+      }
       if (response.status === 409) setCheckoutAttemptId(attemptId());
       if (!response.ok) throw new Error(data.error === 'invalid_recipient' ? 'Enter a valid WhatsApp number with its country code.' : data.error || 'We could not start payment.');
       if (data.paymentMode === 'manual') {

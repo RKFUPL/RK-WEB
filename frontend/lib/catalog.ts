@@ -1,3 +1,4 @@
+export type SalePrice = { mrp?: number; effectivePrice?: number; salePrice?: number | null; discountPercent: number; isOnSale: boolean; saleCampaignId?: string | null; saleCampaignName?: string; saleEndsAt?: string | null; serverTime?: string };
 export type ProductAvailability = "in_stock" | "custom_order" | "sold_out";
 export type ProductVariantStatus = "active" | "inactive" | "remove";
 
@@ -33,6 +34,7 @@ export type CatalogProductVariant = {
   imageMeta?: Array<{ id?: string; permalink?: string; renderUrl?: string; alt_text?: string; is_primary?: boolean; is_hover?: boolean; position?: number }>;
   status: ProductVariantStatus;
   price?: number;
+  sale?: SalePrice;
   priceMode?: "inherit" | "override";
   currency: "INR";
   stock?: number;
@@ -94,6 +96,9 @@ export type CollectionHeroConfig = {
 };
 
 export type CatalogProduct = {
+  inventoryRevision?: string;
+  inventoryAllocationMode?: string;
+  inventoryBuckets?: Array<{variantId: string; sku: string; colour: string; sizes: string[]}>;
   id: string;
   name?: string;
   styleCode?: string;
@@ -107,6 +112,7 @@ export type CatalogProduct = {
   availability: ProductAvailability;
   aiTryonEnabled?: boolean;
   price?: number;
+  sale?: SalePrice;
   currency: "INR";
   stock?: number;
   sizeSystemEnabled?: boolean;

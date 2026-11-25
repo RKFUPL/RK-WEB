@@ -78,6 +78,8 @@ def change_reservation(db, order, item, index, release=False, claim_token=None):
                          "variantId": item.get("variantId"), "size": item.get("size"), "sku": item.get("sku"),
                          "stockDelta": -quantity, "state": "reserved", "claimToken": str(claim_token), "reservedAt": datetime.now(timezone.utc)}
             mutation = {"$set": {"variants": variants}, "$addToSet": {"manualReservations": marker}, "$push": {"inventoryOperationMarkers": operation}}
+        from .inventory import allocated_variant_total
+        mutation['$set'].update(allocated_variant_total(product, variants))
         options = {"array_filters": [{"operation.operationId": operation_id, "operation.state": "reserved", "operation.claimToken": claim_token}]} if release else {}
         if db.products.update_one(query, mutation, **options).modified_count == 1:
             return True

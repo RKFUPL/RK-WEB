@@ -2,6 +2,7 @@
 
 import { Image as ImageIcon, Minus, Plus, ShoppingBag, X } from 'lucide-react';
 import Link from 'next/link';
+import { SaleAmount } from '@/components/commerce/sale-amount';
 import { useEffect, useState } from 'react';
 import { StickyHeader } from '@/components/home/sticky-header';
 import { ShippingTimeline } from '@/components/commerce/shipping-timeline';
@@ -82,7 +83,7 @@ export default function BagPage() {
                   <button type="button" disabled={item.quantity >= 50} onClick={() => updateStoredCartQuantity(item.productId, item.quantity + 1, item.variantId, lineKey)} aria-label={`Increase quantity of ${item.name}`} className="grid h-8 w-8 place-items-center transition hover:text-gold disabled:cursor-not-allowed disabled:opacity-35"><Plus size={13} /></button>
                 </div>
               </div>
-              <p className="mt-2 text-sm">{formatPrice(item.price)}</p>
+              <p className="mt-2 text-sm"><SaleAmount amount={item.price} sale={item.sale} /></p>
             </div>
             <button type="button" onClick={() => removeStoredCartItem(item.productId, item.variantId, lineKey)} aria-label={`Remove ${item.name}`} className="self-start p-2 text-charcoal/45 transition hover:text-gold"><X size={16} /></button>
           </article>;

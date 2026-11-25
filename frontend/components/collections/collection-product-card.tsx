@@ -139,7 +139,7 @@ export function CollectionProductCard({ product, href, selectedColour = '' }: { 
         </div>
         {product.availability === 'custom_order' ? <span className="shrink-0 text-[0.5rem] uppercase tracking-[0.18em] text-gold">Custom</span> : null}
       </div>
-      <PriceCurrencyRow amount={product.price} className="mt-2 text-xs text-charcoal/70 sm:text-sm" />
+      <PriceCurrencyRow productId={product.id} variantId={selectedVariant?.id} amount={selectedVariant?.price ?? product.price} sale={selectedVariant?.sale ?? product.sale} className="mt-2 text-xs text-charcoal/70 sm:text-sm" />
       {product.availability === 'sold_out' ? <button type="button" disabled className="mt-4 inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.56rem] uppercase tracking-[0.24em] text-charcoal opacity-40"><ShoppingBag size={14} strokeWidth={1.35} />Sold out</button> : <Link href={route} className="mt-4 inline-flex items-center gap-2 border-b border-charcoal/30 pb-2 text-[0.56rem] uppercase tracking-[0.24em] text-charcoal transition hover:border-gold hover:text-gold"><ShoppingBag size={14} strokeWidth={1.35} />{sizeConfigured || product.variants?.length ? 'Choose options' : 'View product'}</Link>}
     </div>
   </article>;

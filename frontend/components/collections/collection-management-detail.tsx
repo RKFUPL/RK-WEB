@@ -1,4 +1,5 @@
 "use client";
+import { ProductStockAllocation } from "@/components/collections/product-stock-allocation";
 
 import {
   useCallback,
@@ -518,6 +519,17 @@ function ProductDrawer({
     }
   };
 
+  const changeLifecycle = async () => {
+    const status = product.status === 'active' ? 'draft' : 'active';
+    if (!window.confirm(status === 'active' ? 'Activate this product after publication validation?' : 'Deactivate this product? Inventory will be preserved.')) return;
+    setError(''); setMessage('');
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/staff/products/${product.id}/lifecycle`, {method:'PATCH',headers:{Authorization:`Bearer ${token()}`,'Content-Type':'application/json'},body:JSON.stringify({status})});
+      const result=await response.json(); if(!response.ok)throw new Error(result.error||'Unable to change lifecycle.');
+      await onReload(); setMessage(status==='active'?'Product activated.':'Product deactivated.');
+    } catch(value){setError(value instanceof Error?value.message:'Unable to change lifecycle.');}
+  };
+
   const adjustStock = async () => {
     const amount = Number(adjustment);
     if (!Number.isInteger(amount) || amount === 0) {
@@ -596,6 +608,7 @@ function ProductDrawer({
     ["Converted price", undefined],
     ["FX rate", undefined],
     ["Availability", availabilityLabels[product.availability]],
+    ["Lifecycle", product.status || "draft"],
     ["Quantity", product.stock],
     [
       "Stock status",
@@ -836,6 +849,8 @@ function ProductDrawer({
                 {activeSection === "pricing" ? "Pricing & inventory" : activeSection === "media" ? "Media controls" : "Product actions"}
               </p>
               {activeSection === "overview" ? <div className="mt-4 flex flex-wrap gap-2">
+                <p className="w-full text-sm">Lifecycle: <strong>{product.status || 'draft'}</strong>. Availability and stock do not activate a product.</p>
+                <button type="button" disabled={busy || editing} onClick={()=>void changeLifecycle()} className="admin-button-secondary px-4 py-2 text-xs">{product.status==='active'?'Deactivate product':'Activate product'}</button>
                 {canManageProducts ? (
                   <button
                     type="button"
@@ -857,7 +872,8 @@ function ProductDrawer({
                     </button></div> : null}
               {activeSection === "pricing" && canManageInventory ? (
                 <><div className="mt-4 grid gap-3 sm:grid-cols-3"><div className="rounded-lg bg-[#f8f3ec] p-3"><p className="text-[9px] uppercase tracking-[.14em] text-[#8a9098]">Base price</p><p className="mt-1 text-sm font-medium">{inr.format(product.price || 0)}</p></div><div className="rounded-lg bg-[#f8f3ec] p-3"><p className="text-[9px] uppercase tracking-[.14em] text-[#8a9098]">Style code</p><p className="mt-1 text-sm font-medium">{parentCode(product)}</p></div><div className="rounded-lg bg-[#f8f3ec] p-3"><p className="text-[9px] uppercase tracking-[.14em] text-[#8a9098]">Current stock</p><p className="mt-1 text-sm font-medium">{product.stock ?? 0}</p></div></div>
-                <div className="mt-5 flex flex-wrap items-end gap-2">
+                {product.inventoryBuckets?.length ? <ProductStockAllocation product={product} onSaved={onReload}/> : null}
+                {!product.inventoryBuckets?.length && <div className="mt-5 flex flex-wrap items-end gap-2">
                   <label className="text-[9px] uppercase tracking-[.14em] text-[#8a9098]">
                     Inventory adjustment
                     <input
@@ -887,7 +903,7 @@ function ProductDrawer({
                   >
                     Adjust stock
                   </button>
-                </div></>
+                </div>}</>
               ) : null}
               {activeSection === "overview" && canManageProducts && otherCollections.length ? (
                 <div className="mt-5 flex flex-wrap items-end gap-2">
@@ -939,6 +955,7 @@ export function CollectionManagementDetail({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  useEffect(()=>{const requested=new URLSearchParams(window.location.search).get('productId');if(requested)setSelectedId(requested);},[]);
   const [productOpenTarget, setProductOpenTarget] = useState<{ productId: string; variantId?: string } | null>(null);
   const [editingCollection, setEditingCollection] = useState(false);
   const [heroPreviewFailed, setHeroPreviewFailed] = useState(false);
@@ -1787,7 +1804,7 @@ export function CollectionManagementDetail({
                     </td>
                     <td className="px-4 py-4 align-top"><CollectionColourWays product={product} /></td>
                     <td className="px-4 py-4 text-xs text-[#6e747d]">
-                      {availabilityLabels[product.availability]}
+                      {availabilityLabels[product.availability]}<span className="mt-1 block text-[10px]">Lifecycle: {product.status || "draft"}</span>
                     </td>
                     <td className="hidden px-4 py-4 text-right tabular-nums text-[#6e747d] sm:table-cell">
                       {product.price === undefined

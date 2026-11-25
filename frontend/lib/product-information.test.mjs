@@ -17,7 +17,8 @@ test('product detail renders optional information only from persisted attributes
 });
 
 test('product detail retains pricing and colour-gallery contracts', () => {
-  assert.match(detail, /selectedVariant\?\.price \?\? product\.price/);
+  assert.match(detail, /useSalePrice\(selectedVariant\?\.price \?\? product\?\.price/);
+  assert.match(detail, /const selectedPrice = currentPrice\.amount/);
   assert.match(detail, /variantMediaSources\(product, selectedVariant\)/);
   assert.match(detail, /setActiveImage\(0\)/);
   assert.match(detail, /SizeChartPopover/);

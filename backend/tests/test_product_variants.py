@@ -44,6 +44,7 @@ def product_with_variants(*, statuses=("active", "active"), stocks=(0, 0)):
 class VariantDatabase:
     def __init__(self, product):
         self.product = product
+        self.admin_settings = SimpleNamespace(find_one=MagicMock(return_value={}))
         self.products = SimpleNamespace(
             find_one=MagicMock(side_effect=lambda *_args, **_kwargs: self.product),
             update_one=MagicMock(return_value=SimpleNamespace(modified_count=1)),
