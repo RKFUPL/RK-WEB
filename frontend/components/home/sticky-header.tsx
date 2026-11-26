@@ -19,7 +19,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { brandLogoUrl, searchItems, lookbookCovers, popularSearchTerms } from '@/lib/home-content';
+import { brandLogoUrl, collectionGalleryPages, collectionDisplayName, lookbookCovers, popularSearchTerms } from '@/lib/home-content';
 import { apiBaseUrl, logout } from '@/lib/rbac';
 import { fetchCatalogCollections, searchCatalogProducts, type CatalogSearchProduct } from '@/lib/catalog-client';
 import { refreshStoredCartPrices, cartChangedEvent, readStoredCart, removeStoredCartItem, updateStoredCartQuantity } from '@/lib/storefront-cart';
@@ -30,7 +30,8 @@ import { useCurrency } from '@/components/commerce/currency-provider';
 import { ShippingTimeline } from '@/components/commerce/shipping-timeline';
 import { cartItemShippingTimeline } from '@/lib/shipping-timeline';
 import { cartLineKey, getCartSubtotal } from '@/lib/cart';
-import { matchesSearch } from '@/lib/storefront-search';
+import { matchesSearch, searchRelevance, uniqueSuggestions, searchRequestKey } from '@/lib/storefront-search';
+import { SearchResults } from '@/components/home/search-results';
 
 type HeaderUser = { displayName?: string; firstName?: string; lastName?: string; username?: string; email?: string; role?: 'customer' | 'staff' | 'admin' };
 const mainLinks = [
@@ -78,11 +79,18 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
   const [wishlistNotice, setWishlistNotice] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [productResults, setProductResults] = useState<CatalogSearchProduct[]>([]);
+  const [productCount, setProductCount] = useState(0);
+  const [catalogSuggestions, setCatalogSuggestions] = useState<string[]>([]);
+  const searchedQueryRef = useRef('');
+  const collectionsLoadingRef = useRef(false);
+  const [lookbookAssets, setLookbookAssets] = useState<{urls: Record<string,string>; covers: Record<string,string>}>({urls:{},covers:{}});
+  const lookbooksLoadedRef = useRef(false);
   const [productSearchState, setProductSearchState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [collectionSearchError, setCollectionSearchError] = useState(false);
-  const [collectionLinks, setCollectionLinks] = useState<Array<{ id: string; name: string; slug: string; route: string; summary: string }>>([]);
+  const [collectionLinks, setCollectionLinks] = useState<Array<{ id: string; name: string; slug: string; route: string; summary: string; image?: string; metadata?: string }>>([]);
   const searchVersionRef = useRef(0);
   const [searchSubmission, setSearchSubmission] = useState(0);
+  const normalisedSearchQuery = searchRequestKey(searchQuery);
   const searchPanelRef = useRef<HTMLElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchTriggerRef = useRef<HTMLElement | null>(null);
@@ -92,16 +100,26 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
     searchVersionRef.current += 1;
     setSearchOpen(false);
     setSearchQuery('');
+    searchedQueryRef.current = '';
+    setProductCount(0);
+    setCatalogSuggestions([]);
     setProductResults([]);
     setProductSearchState('idle');
   };
   const openSearch = () => {
     searchTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     loadCollectionLinks();
+    if (!lookbooksLoadedRef.current) {
+      lookbooksLoadedRef.current = true;
+      void fetch(`${apiBaseUrl}/api/lookbooks`, {cache:'no-store'}).then(r => r.ok ? r.json() : null).then(value => {
+        if (value) setLookbookAssets({urls:value.lookbookAssetUrls || value.lookbooks || {}, covers:value.lookbookCoverAssetUrls || value.lookbookCovers || {}});
+      }).catch(() => { lookbooksLoadedRef.current = false; });
+    }
     setSearchOpen(true);
   };
   const submitSearch = () => {
     if (!searchQuery.trim()) { searchInputRef.current?.focus(); return; }
+    if (searchedQueryRef.current === searchRequestKey(searchQuery) && (productSearchState === 'loading' || productSearchState === 'ready')) return;
     searchVersionRef.current += 1;
     setProductResults([]);
     setProductSearchState('loading');
@@ -122,14 +140,23 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
   }, []);
 
   const loadCollectionLinks = () => {
-    if (collectionLinks.length) return;
+    if (collectionLinks.length || collectionsLoadingRef.current) return;
+    collectionsLoadingRef.current = true;
     setCollectionSearchError(false);
     void fetchCatalogCollections()
-      .then((collections) => setCollectionLinks(collections.map((collection) => ({ id: collection.id, name: collection.name, slug: collection.slug, route: `/collections/${collection.slug}`, summary: collection.description || '' }))))
-      .catch(() => { setCollectionLinks([]); setCollectionSearchError(true); });
+      .then((collections) => setCollectionLinks(collections.map(collection => {
+        const editorial = collectionGalleryPages.find(item => item.route === `/collections/${collection.slug}` || item.name.toLowerCase() === collection.name.toLowerCase());
+        return {id:collection.id, name:collectionDisplayName(collection), slug:collection.slug, route:`/collections/${collection.slug}`, summary:collection.description || editorial?.summary || '', image:collection.coverImage || collection.heroImage || collection.hero?.image || editorial?.image, metadata:[collection.season,collection.year,collection.designerNote,collection.campaignInformation].filter(Boolean).join(' ')};
+      })))
+      .catch(() => { setCollectionLinks([]); setCollectionSearchError(true); })
+      .finally(() => { collectionsLoadingRef.current = false; });
   };
 
   const updateSearchQuery = (value: string) => {
+    if (searchRequestKey(value) === searchRequestKey(searchQuery)) { setSearchQuery(value); return; }
+    searchedQueryRef.current = '';
+    setProductCount(0);
+    setCatalogSuggestions([]);
     searchVersionRef.current += 1;
     setProductResults([]);
     setSearchQuery(value);
@@ -143,15 +170,20 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
       setProductSearchState('idle');
       return;
     }
+    const key = searchRequestKey(query);
+    if (searchedQueryRef.current === key && productSearchState === 'ready') return;
+    searchedQueryRef.current = key;
     const controller = new AbortController();
     const version = searchVersionRef.current;
     setProductResults([]);
     setProductSearchState('loading');
     const timer = window.setTimeout(() => {
       void searchCatalogProducts(query, controller.signal)
-        .then((products) => {
+        .then((result) => {
           if (!controller.signal.aborted && version === searchVersionRef.current) {
-            setProductResults(products);
+            setProductResults(result.products);
+            setProductCount(result.count);
+            setCatalogSuggestions(result.suggestions);
             setProductSearchState('ready');
           }
         })
@@ -160,7 +192,7 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
         });
     }, 300);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [searchOpen, searchQuery, searchSubmission]);
+  }, [searchOpen, normalisedSearchQuery, searchSubmission]);
 
   useEffect(() => {
     const syncBag = () => setShoppingBag(readStoredCart());
@@ -372,19 +404,12 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
   };
 
   const searchResults = useMemo(() => {
-    const collections = [
-      ...collectionLinks.map((collection) => ({ title: collection.name, href: collection.route, keywords: `${collection.name} ${collection.slug} ${collection.summary}` })),
-      ...searchItems.filter((item) => item.type === 'Collection' && item.title === 'All Collections'),
-    ];
-    const pages = [
-      ...searchItems.filter((item) => item.type !== 'Collection'),
-      ...lookbookCovers.map((item) => ({ title: `${item.title} Lookbook`, href: item.href, keywords: `${item.title} lookbook editorial` })),
-    ];
-    return {
-      collections: collections.filter((item) => matchesSearch(`${item.title} ${item.keywords}`, searchQuery)),
-      pages: pages.filter((item) => matchesSearch(`${item.title} ${item.keywords}`, searchQuery)),
-    };
-  }, [collectionLinks, searchQuery]);
+    const collections = collectionLinks.map(collection => ({title:collection.name, slug:collection.slug, href:collection.route, image:collection.image, description:collection.summary, keywords:`${collection.slug} ${collection.summary} ${collection.metadata}`}));
+    const lookbooks = lookbookCovers.map(item => ({title:`${item.title} Lookbook`, slug:item.href.split('/').pop()?.split('?')[0] || '', href:lookbookAssets.urls[item.title] || item.href, image:lookbookAssets.covers[item.title] || item.image, description:item.caption, keywords:`${item.title} ${item.caption} ${item.href} lookbook editorial`}));
+    const ranked = <T extends {title:string; slug:string; keywords:string}>(items:T[]) => items.filter(item => matchesSearch(`${item.title} ${item.keywords}`, searchQuery)).sort((a,b) => Math.max(searchRelevance(b.title,searchQuery),searchRelevance(b.slug,searchQuery))-Math.max(searchRelevance(a.title,searchQuery),searchRelevance(a.slug,searchQuery)));
+    return {collections:ranked(collections), lookbooks:ranked(lookbooks)};
+  }, [collectionLinks, lookbookAssets, searchQuery]);
+  const suggestions = uniqueSuggestions([...catalogSuggestions.map(term => collectionLinks.find(c => c.name.toLocaleLowerCase() === term.toLocaleLowerCase())?.name || term), ...searchResults.collections.map(item => item.title), ...searchResults.lookbooks.map(item => item.title), ...productResults.flatMap(item => item.name ? [item.name] : [])], searchQuery);
 
   const scrollToHome = () => {
     handleNavigation();
@@ -576,27 +601,8 @@ export function StickyHeader({ transparentAtTop = false, transparentTheme = 'lig
             {!searchQuery.trim() ? <section className="py-8" aria-labelledby="popular-searches-title">
               <h3 id="popular-searches-title" className="text-xs uppercase tracking-[.2em]">Popular Searches</h3>
               <div className="mt-5 flex flex-wrap gap-x-7 gap-y-4 text-sm">{Array.from(new Set([...collectionLinks.map((item) => item.name), ...popularSearchTerms])).slice(0, 10).map((term) => <button key={term} type="button" onClick={() => updateSearchQuery(term)} className="border-b border-gold/30 pb-1 hover:text-gold focus-visible:outline focus-visible:outline-gold">{term}</button>)}</div>
-            </section> : <div aria-live="polite" aria-busy={productSearchState === 'loading'} className="mt-8">
-              {productSearchState === 'loading' ? <p className="mb-5 text-sm text-charcoal/60">Searching products…</p> : null}
-              {productSearchState === 'error' ? <p role="alert" className="mb-5 text-sm text-red-700">Product search could not be loaded. Please try again.</p> : null}
-              {collectionSearchError ? <p role="alert" className="mb-5 text-sm text-red-700">Collections could not be loaded. Please try again.</p> : null}
-              <div className="grid gap-8 md:grid-cols-[.8fr_1fr_1.6fr]">
-                <section aria-labelledby="search-suggestions-title"><h3 id="search-suggestions-title" className="border-b border-black/10 pb-3 text-xs uppercase tracking-[.2em]">Suggestions</h3>
-                  <div className="mt-4 space-y-3">{Array.from(new Set([...collectionLinks.map((item) => item.name), ...popularSearchTerms, ...productResults.flatMap((item) => item.name ? [item.name] : [])])).filter((term) => matchesSearch(term, searchQuery)).slice(0, 8).map((term) => <button type="button" key={term} onClick={() => { updateSearchQuery(term); setSearchSubmission((value) => value + 1); }} className="block text-left text-sm hover:text-gold focus-visible:outline focus-visible:outline-gold">{term}</button>)}</div>
-                </section>
-                <section aria-labelledby="search-pages-title"><h3 id="search-pages-title" className="border-b border-black/10 pb-3 text-xs uppercase tracking-[.2em]">Pages</h3>
-                  {searchResults.collections.length ? <h4 className="mt-4 text-xs text-charcoal/55">Collections</h4> : null}
-                  {[...searchResults.collections, ...searchResults.pages].map((item) => <Link key={item.href} href={item.href} onClick={handleNavigation} className="block break-words py-3 text-sm hover:text-gold focus-visible:outline focus-visible:outline-gold">{item.title}</Link>)}
-                </section>
-                <section aria-labelledby="search-products-title"><h3 id="search-products-title" className="border-b border-black/10 pb-3 text-xs uppercase tracking-[.2em]">Products</h3>
-                  <div className="divide-y divide-black/10">{productResults.map((product) => <Link key={product.id} href={`/products/${encodeURIComponent(product.id)}`} onClick={handleNavigation} className="flex items-center gap-4 py-3 hover:text-gold focus-visible:outline focus-visible:outline-gold">
-                    {product.media?.[0] ? <img src={product.media[0]} alt="" width="56" height="72" className="h-[72px] w-14 shrink-0 bg-sand object-cover" /> : <span aria-hidden="true" className="h-[72px] w-14 shrink-0 bg-sand" />}
-                    <span className="min-w-0"><span className="block break-words font-display text-lg">{product.name || 'RK piece'}</span><span className="block break-words text-xs text-charcoal/55">{product.productCode || product.parentSku || product.sku}{product.collections?.[0]?.name ? ` · ${product.collections[0].name}` : ''}</span></span>
-                  </Link>)}</div>
-                </section>
-              </div>
-              {productSearchState === 'ready' && !collectionSearchError && !productResults.length && !searchResults.collections.length && !searchResults.pages.length ? <p className="py-6 text-sm text-charcoal/60">No matching products, collections or pages found.</p> : null}
-            </div>}
+            </section> : <SearchResults key={searchRequestKey(searchQuery)} query={searchQuery} products={productResults} count={productCount} suggestions={suggestions} collections={searchResults.collections} lookbooks={searchResults.lookbooks} state={productSearchState} collectionError={collectionSearchError} onQuery={updateSearchQuery} onRetry={() => { loadCollectionLinks(); submitSearch(); }} onNavigate={handleNavigation}/>}
+
           </section>
         </div>, document.body
       ) : null}

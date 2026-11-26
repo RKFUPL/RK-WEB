@@ -25,6 +25,7 @@ from ...catalog import (
     product_view,
     natural_product_sort_key,
 )
+from ...catalog_search import matches_product, relevance, matching_variant, suggestions
 from ...whatsapp import notify, notify_admins
 from ...mail import SENDERS, send_html_email
 from ...extensions import limiter
@@ -108,7 +109,7 @@ def _shop_product_record(product, memberships):
         str(item.get("name") or "") for item in product.get("variants") or []
         if isinstance(item, dict) and str(item.get("id") or "") in visible_ids
     ]
-    record["_search_metadata"] = [str(product.get(key) or "") for key in ("skuPrefix", "style", "shortDescription")]
+    record["_search_metadata"] = [str(product.get(key) or "") for key in ("skuPrefix", "style", "shortDescription", "description", "keywords", "tags")]
     record["fulfilmentMode"] = "ready_to_ship" if record.get("availability") == "in_stock" and int(record.get("stock") or 0) > 0 else "made_to_order"
     return record
 
@@ -119,17 +120,8 @@ def _shop_matches(record, *, query="", category="", colour="", size="", collecti
     colours = _normalised_values(attributes.get("colors") or attributes.get("color")) + [str(item.get("colour") or "") for item in variants]
     sizes = _normalised_values(attributes.get("sizes")) + [str(size) for item in variants for size in (item.get("sizes") or [])]
     collections = record.get("collections") if isinstance(record.get("collections"), list) else []
-    searchable = " ".join(re.sub(r"[\W_]+", " ", str(value).casefold()).strip() for value in [
-        record.get("name"), record.get("sku"), record.get("parentSku"), record.get("skuPrefix"),
-        record.get("styleCode"), record.get("style"), record.get("productCode"), record.get("category"),
-        record.get("shortDescription"), attributes.get("fabric"), attributes.get("material"), attributes.get("occasion"),
-        *record.get("_search_metadata", []), *record.get("_search_variant_names", []), *colours,
-        *(value for item in variants for value in (item.get("sku"), item.get("name"), item.get("colourSlug"), item.get("colour"))),
-        *(value for item in collections for value in (item.get("name"), item.get("slug"))),
-    ] if value)
-    query_terms = re.sub(r"[\W_]+", " ", query.casefold()).split()
     price = record.get("price")
-    if query and (not query_terms or not all(term in searchable for term in query_terms)):
+    if query and not matches_product(record, query):
         return False
     if category and str(record.get("category") or "").casefold() != category.casefold():
         return False
@@ -192,7 +184,7 @@ def storefront_products():
     elif sort in {"price_asc", "price_desc"}:
         records.sort(key=lambda item: (item.get("price") is None, item.get("price") or 0, item["id"]), reverse=sort == "price_desc")
     else:
-        records.sort(key=natural_product_sort_key)
+        records.sort(key=lambda item: (-relevance(item, filters["q"]), natural_product_sort_key(item)) if filters["q"] else natural_product_sort_key(item))
     try:
         page = max(1, int(request.args.get("page", 1)))
         page_size = min(60, max(1, int(request.args.get("pageSize", 24))))
@@ -201,7 +193,12 @@ def storefront_products():
     total = len(records)
     start = (page - 1) * page_size
     products = [{key: value for key, value in record.items() if not key.startswith("_search_")} for record in records[start:start + page_size]]
-    response = jsonify({"products": products, "count": total, "page": page, "pageSize": page_size, "facets": facets})
+    if filters["q"]:
+        for product in products:
+            variant_id = matching_variant(product, filters["q"])
+            if variant_id:
+                product["matchedVariantId"] = variant_id
+    response = jsonify({"products": products, "suggestions": suggestions(records, filters["q"]) if filters["q"] else [], "count": total, "page": page, "pageSize": page_size, "facets": facets})
     response.headers["Cache-Control"] = "public, max-age=0, s-maxage=30, stale-while-revalidate=120"
     return response, 200
 

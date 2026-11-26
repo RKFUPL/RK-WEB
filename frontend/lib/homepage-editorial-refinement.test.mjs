@@ -40,7 +40,7 @@ test('flagship and location content removes the retired supporting treatments', 
 });
 
 test('header retains core destinations while increasing readable control sizing', () => {
-  for (const label of ['Home', 'Collections', 'About', 'Contact']) assert.match(header, new RegExp(`>${label}<`));
+  for (const label of ['Home', 'Collections', 'About', 'Contact']) assert.match(header, new RegExp(`>\\s*${label}\\s*<`));
   assert.match(header, /text-\[0\.78rem\]/);
   assert.match(header, /lg:h-12/);
   assert.match(header, /h-\[1\.15rem\] w-\[1\.15rem\]/);

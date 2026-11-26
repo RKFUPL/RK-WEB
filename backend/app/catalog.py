@@ -230,7 +230,7 @@ RUNWAY_COLLECTION_SEED = {
 }
 
 AAKAAR_COLLECTION_SEED = {
-    "name": "AAKAAR",
+    "name": "Aakaar",
     "slug": "aakaar",
     "description": "The debut AAKAAR collection by Rashi Kapoor.",
     "heroImage": "https://res.cloudinary.com/fm1bwbrd/image/upload/v1785305719/BG_xsyd8f.png",
@@ -1048,7 +1048,7 @@ def ensure_catalog_seed(db) -> None:
         aakaar_collection = db.collections.find_one({"_id": result.inserted_id})
     else:
         collection_updates = {}
-        if aakaar_collection.get("name") != AAKAAR_COLLECTION_SEED["name"]:
+        if not str(aakaar_collection.get("name") or "").strip():
             collection_updates["name"] = AAKAAR_COLLECTION_SEED["name"]
         if aakaar_collection.get("collectionType") != "standard":
             collection_updates["collectionType"] = "standard"

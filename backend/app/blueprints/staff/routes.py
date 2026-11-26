@@ -645,9 +645,23 @@ def update_collection(slug: str):
         if year is not None and (year < 1900 or year > 2200):
             return jsonify({"error": "Enter a valid four-digit collection year."}), 400
         updates["year"] = year
-    db.collections.update_one({"_id": collection["_id"]}, {"$set": updates})
+    if "expectedUpdatedAt" in payload and payload["expectedUpdatedAt"] != _json_value(collection.get("updatedAt")):
+        return jsonify({"error": "Collection changed since it was loaded. Reload before saving."}), 409
+    selector = {"_id": collection["_id"], "updatedAt": collection.get("updatedAt")}
+    result = db.collections.update_one(selector, {"$set": updates})
+    if result.matched_count != 1:
+        exists = db.collections.find_one({"_id": collection["_id"]}, {"_id": 1})
+        return jsonify({"error": "Collection changed during save. Reload before saving." if exists else "Collection not found."}), 409 if exists else 404
     updated_collection = db.collections.find_one({"_id": collection["_id"]})
-    return jsonify(_management_collection_payload(db, updated_collection)), 200
+    if not updated_collection:
+        return jsonify({"error": "Collection not found after save."}), 404
+    if any(updated_collection.get(key) != value for key, value in updates.items() if key != "updatedAt"):
+        return jsonify({"error": "Collection update did not persist. Reload before saving."}), 409
+    response = _management_collection_payload(db, updated_collection)
+    persisted = db.collections.find_one({"_id": collection["_id"]})
+    if not persisted or ("name" in updates and persisted.get("name") != updates["name"]):
+        return jsonify({"error": "Collection name changed during read-back. Reload before saving."}), 409
+    return jsonify(response), 200
 
 
 @staff_bp.post("/collections/<slug>/archive")

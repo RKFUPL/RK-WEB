@@ -2,7 +2,7 @@ import type { CatalogProduct, ManagedCollection } from '@/lib/catalog';
 import { apiBaseUrl } from '@/lib/rbac';
 
 type CollectionIndexResponse = { collections: ManagedCollection[] };
-export type CatalogSearchProduct = CatalogProduct & { collections?: Array<{ id: string; name: string; slug: string }> };
+export type CatalogSearchProduct = CatalogProduct & { matchedVariantId?: string; collections?: Array<{ id: string; name: string; slug: string }> };
 
 let collectionsRequest: Promise<ManagedCollection[]> | null = null;
 // Share in-flight requests, but never retain completed price-bearing responses.
@@ -19,7 +19,8 @@ export function fetchCatalogCollections(): Promise<ManagedCollection[]> {
       .catch((error) => {
         collectionsRequest = null;
         throw error;
-      });
+      })
+      .finally(() => { collectionsRequest = null; });
   }
   return collectionsRequest;
 }
@@ -42,13 +43,13 @@ export function fetchCatalogCollection(slug: string): Promise<ManagedCollection 
   return request;
 }
 
-export async function searchCatalogProducts(query: string, signal: AbortSignal): Promise<CatalogSearchProduct[]> {
+export async function searchCatalogProducts(query: string, signal: AbortSignal): Promise<{products: CatalogSearchProduct[]; count: number; suggestions: string[]}> {
   const trimmed = query.trim();
-  if (!trimmed) return [];
-  const params = new URLSearchParams({ q: trimmed, pageSize: '10' });
+  if (!trimmed) return {products: [], count: 0, suggestions: []};
+  const params = new URLSearchParams({ q: trimmed, pageSize: '4' });
   const response = await fetch(`${apiBaseUrl}/api/catalog/products?${params}`, { cache: 'no-store', signal });
   if (!response.ok) throw new Error('Product search could not be loaded. Please try again.');
-  const payload = await response.json() as { products?: CatalogSearchProduct[] };
+  const payload = await response.json() as { products?: CatalogSearchProduct[]; count?: number; suggestions?: string[] };
   if (!Array.isArray(payload.products)) throw new Error('Product search could not be loaded. Please try again.');
-  return payload.products;
+  return {products: payload.products, count: payload.count ?? payload.products.length, suggestions: payload.suggestions || []};
 }

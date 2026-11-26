@@ -1,4 +1,5 @@
 "use client";
+import { collectionDisplayName } from '@/lib/home-content';
 import { ProductStockAllocation } from "@/components/collections/product-stock-allocation";
 
 import {
@@ -1027,7 +1028,7 @@ export function CollectionManagementDetail({
       setData(payload as DetailPayload);
       const collection = payload.collection as ManagedCollection;
       const nextForm = {
-        name: collection.name,
+        name: collectionDisplayName(collection),
         status: collection.status,
         description: collection.description ?? "",
         coverImage: collection.coverImageSource ?? collection.coverImage ?? collection.heroImage ?? collection.hero?.image ?? "",
@@ -1154,6 +1155,7 @@ export function CollectionManagementDetail({
     event.preventDefault();
     if (busy) return;
     const submittedRevision = collectionDraftRevision.current;
+    const submittedForm = collectionForm;
     const baseline = collectionBaseline;
     const body: Record<string, unknown> = {};
     for (const key of ["name", "status", "description", "coverImage", "season", "year", "designerNote", "collectionNumber", "location", "campaignInformation"] as const) {
@@ -1180,10 +1182,14 @@ export function CollectionManagementDetail({
       `/api/staff/collections/${encodeURIComponent(slug)}`,
       {
         method: "PATCH",
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, expectedUpdatedAt: data?.collection.updatedAt ?? null }),
       },
     );
     if (payload) {
+      if ("name" in body && collectionDisplayName(payload.collection || {}) !== String(body.name).trim()) {
+        setError(`The collection update response returned name ${JSON.stringify(collectionDisplayName(payload.collection || {}))} instead of ${JSON.stringify(String(body.name).trim())}. Your draft remains available.`);
+        return;
+      }
       if (collectionDraftRevision.current !== submittedRevision) {
         setMessage("Submitted changes were saved. Newer unsaved edits remain in the form; save again when ready.");
         return;
@@ -1191,6 +1197,11 @@ export function CollectionManagementDetail({
       const refreshed = await load(true);
       if (!refreshed) {
         setError("Collection was updated, but authoritative read-back is unavailable. Your draft remains available.");
+        return;
+      }
+      if ("name" in body && collectionDisplayName(refreshed.collection) !== String(body.name).trim()) {
+        setCollectionForm(submittedForm);
+        setError(`The saved collection name did not persist on read-back: received ${JSON.stringify(collectionDisplayName(refreshed.collection))}, expected ${JSON.stringify(String(body.name).trim())}. Your draft remains available.`);
         return;
       }
       setEditingCollection(false);
@@ -1332,7 +1343,7 @@ export function CollectionManagementDetail({
               </p>
               <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <h2 className="text-3xl font-semibold">{collection.name}</h2>
+                  <h2 className="text-3xl font-semibold">{collectionDisplayName(collection)}</h2>
                   <p className="mt-2 text-xs text-[#8a9098]">
                     {collection.slug}
                   </p>
@@ -1702,7 +1713,7 @@ export function CollectionManagementDetail({
               Products
             </p>
             <h3 className="mt-2 text-2xl font-semibold">
-              {collection.name} line
+              {collectionDisplayName(collection)} line
             </h3>
             <p className="mt-1 text-xs text-[#8a9098]">
               Ordered references to centralized product records.

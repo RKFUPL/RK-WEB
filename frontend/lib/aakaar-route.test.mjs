@@ -14,7 +14,7 @@ test('/aakaar redirects to the catalog-backed collection route', () => {
   assert.match(aakaarRouteSource, /redirect\('\/collections\/aakaar'\)/);
   assert.match(collectionDetailSource, /isAakaar \? <FeaturedCollection/);
   assert.match(collectionDetailSource, /actionsOnly/);
-  assert.match(collectionDetailSource, /title="AAKAAR"/);
+  assert.match(collectionDetailSource, /title=\{collectionDisplayName\(displayCollection\)\}/);
   assert.match(collectionDetailSource, /backHref="\/collections"/);
   assert.match(collectionDetailSource, /onCtaClick=\{scrollToProducts\}/);
   assert.match(collectionDetailSource, /description=\{collection\.summary\}/);

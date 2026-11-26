@@ -8,7 +8,7 @@ import { FeaturedCollection } from '@/components/home/featured-collection';
 import { StickyHeader } from '@/components/home/sticky-header';
 import type { CatalogProduct, CollectionHeroConfig, ManagedCollection } from '@/lib/catalog';
 import { fetchCatalogCollection } from '@/lib/catalog-client';
-import type { CollectionPage } from '@/lib/home-content';
+import { collectionDisplayName, type CollectionPage } from '@/lib/home-content';
 import { apiBaseUrl } from '@/lib/rbac';
 
 type StorefrontCollection = ManagedCollection & { products: CatalogProduct[] };
@@ -81,7 +81,7 @@ export function CollectionDetailPage({ collection }: { collection: CollectionPag
   };
   const displayCollection: StorefrontCollection = managedCollection ? {
     ...managedCollection,
-    name: isAakaar ? 'Aakaar' : managedCollection.name,
+    name: collectionDisplayName(managedCollection),
   } : {
     id: slug,
     slug,
@@ -101,7 +101,7 @@ export function CollectionDetailPage({ collection }: { collection: CollectionPag
   return <main className="bg-ivory text-charcoal">
     <StickyHeader transparentAtTop transparentTheme={isAakaar ? 'light' : hero.textTheme || 'light'} />
     {isAakaar ? <FeaturedCollection
-      title="AAKAAR"
+      title={collectionDisplayName(displayCollection)}
       eyebrow="WELCOME TO OUR NEWEST COLLECTION OF"
       introAboveTitle
       ctaLabel="VIEW PRODUCTS"

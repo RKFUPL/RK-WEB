@@ -220,7 +220,7 @@ test('search portal on live synthetic sale uses the actual catalogue search rout
   const popup=page.getByRole('dialog',{name:'Search the house'});
   expect(await popup.evaluate(el=>el.closest('header'))).toBeNull();
   await popup.getByRole('textbox').fill('RK-SYN-BLUE');
-  await expect(popup.getByRole('link',{name:/Synthetic Couture/})).toBeVisible();
+  await expect(popup.getByRole('link',{name:'View Synthetic Couture',exact:true})).toBeVisible();
   await popup.getByRole('button',{name:'Close search'}).click();
   await expect(page.getByRole('heading',{name:'Considered Sale',exact:true})).toBeVisible();
 });

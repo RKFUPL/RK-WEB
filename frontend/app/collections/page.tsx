@@ -10,7 +10,7 @@ import { StickyHeader } from '@/components/home/sticky-header';
 import { SectionShell } from '@/components/home/section-shell';
 import type { ManagedCollection } from '@/lib/catalog';
 import { fetchCatalogCollections } from '@/lib/catalog-client';
-import { collectionGalleryPages } from '@/lib/home-content';
+import { collectionGalleryPages, collectionDisplayName } from '@/lib/home-content';
 import { cloudinaryImageUrl } from '@/lib/utils';
 
 type CollectionCard = ManagedCollection & { image: string; summary?: string; fontFamily?: string };
@@ -60,7 +60,7 @@ export default function CollectionsPage() {
     const normalizedName = collection.name.trim().toLowerCase();
     return {
       ...collection,
-      name: normalizedName === 'aakaar' ? 'Aakaar' : collection.name,
+      name: collectionDisplayName(collection),
       image: collection.coverImage || collection.heroImage || (normalizedName === 'aakaar'
           ? collection.hero?.image || editorial?.image || ''
           : collection.hero?.image || editorial?.hero?.image || editorial?.image || ''),

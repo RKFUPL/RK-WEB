@@ -210,6 +210,11 @@ export const collectionGalleryPages: readonly (CollectionPage & { comingSoon?: b
   ...collectionPages,
 ], (collection) => collection.name);
 
+/** The saved name is authoritative; never derive display casing from a slug or seed. */
+export function collectionDisplayName(collection: {name?: string | null; slug?: string}) {
+  return collection.name?.trim() || '';
+}
+
 export const searchItems = [
   ...collectionGalleryPages.map((collection) => ({
     title: collection.name,
