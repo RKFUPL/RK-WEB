@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 from flask import Flask
 
 from app.blueprints.admin.routes import LOOKBOOK_COVER_DEFAULTS, LOOKBOOK_DEFAULTS, _valid_lookbook_url, storefront_lookbooks_bp
+from app.catalog import AAKAAR_COLLECTION_SEED
 from app.workdrive import WorkDriveDownload, WorkDriveUnavailable, external_share_id_from_permalink, file_id_from_permalink
 from app import create_app
 
@@ -132,12 +133,16 @@ class LookbookSettingsTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[2] / "frontend" / "components"
         page = (root / "collections" / "collection-detail-page.tsx").read_text(encoding="utf-8")
         hero = (root / "home" / "featured-collection.tsx").read_text(encoding="utf-8")
-        self.assertIn('title="AAKAAR"', page)
+        self.assertIn('isAakaar ? <FeaturedCollection', page)
+        self.assertIn('title={collectionDisplayName(displayCollection)}', page)
         self.assertIn('eyebrow="WELCOME TO OUR NEWEST COLLECTION OF"', page)
         self.assertIn('introAboveTitle', page)
         self.assertIn('onCtaClick={scrollToProducts}', page)
+        self.assertIn('ctaLabel="VIEW PRODUCTS"', page)
         self.assertIn("const isAakaar = slug === 'aakaar';", page)
-        self.assertIn("name: isAakaar ? 'Aakaar' : managedCollection.name", page)
+        self.assertIn('name: collectionDisplayName(managedCollection)', page)
+        self.assertIn('name: collection.name', page)
+        self.assertEqual(AAKAAR_COLLECTION_SEED["name"], "Aakaar")
         self.assertIn('id="collection-products"', (root / "collections" / "storefront-collection-products.tsx").read_text(encoding="utf-8"))
         self.assertIn('scrollIntoView({ behavior: \'smooth\', block: \'start\' })', page)
         self.assertIn('secondaryHref={lookbookHref || undefined}', page)
